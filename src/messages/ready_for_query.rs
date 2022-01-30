@@ -1,5 +1,5 @@
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 pub enum TransactionStatusIndicator {
     Idle,
     TransactionBlock,
@@ -52,5 +52,36 @@ impl ReadyForQuery {
         ReadyForQuery {
             state: state,
         }
+    }
+}
+
+impl crate::messages::Message for ReadyForQuery {
+    fn len(&self) -> i32 {
+        5
+    }
+
+    fn parse(buf: &[u8], len: i32) -> Option<ReadyForQuery> {
+        // 'S': 1 byte
+        // Len: 4 bytes
+        let buf = &buf[5..(len + 1) as usize];
+        let transaction_indicator = match buf[0] as char {
+            'I' => TransactionStatusIndicator::Idle,
+            'T' => TransactionStatusIndicator::TransactionBlock,
+            'E' => TransactionStatusIndicator::FailedTransactionBlock,
+            _ => return None,
+        };
+
+        Some(ReadyForQuery {
+            state: transaction_indicator,
+        })
+
+    }
+
+    fn debug(&self) -> String {
+        format!("state = {:?}", self.state)
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        Vec::new()
     }
 }

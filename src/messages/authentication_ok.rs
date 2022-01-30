@@ -23,3 +23,22 @@ impl std::convert::From<&AuthenticationOk> for Vec<u8> {
         res
     }
 }
+
+
+impl crate::messages::Message for AuthenticationOk {
+    fn len(&self) -> i32 {
+        8
+    }
+
+    fn parse(buf: &[u8], len: i32) -> Option<AuthenticationOk> {
+        Some(AuthenticationOk{})
+    }
+
+    fn debug(&self) -> String {
+        format!("AuthenticationOk")
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+		Vec::new()
+	}
+}

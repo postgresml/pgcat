@@ -18,8 +18,11 @@ struct Message {
 }
 
 
+extern crate md5;
 mod messages;
 mod client;
+mod server;
+mod communication;
 
 use messages::authentication_ok::AuthenticationOk;
 use messages::ready_for_query::*;

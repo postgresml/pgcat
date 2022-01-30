@@ -1,6 +1,7 @@
 /// psql client
 use crate::messages::startup_message::StartupMessage;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use crate::messages::Message;
 
 pub struct Client {
     stream: tokio::net::TcpStream,
@@ -91,20 +92,79 @@ impl Client {
         }
     }
 
-    async fn handle_message(&self, buf: &[u8]) {
-        let c = buf[0] as char;
+    async fn handle_query(&self, query: &crate::messages::query::Query) {
 
-        match c {
-            // Client is sending a query
-            'Q' => {
-                // TODO: find backend server and send it the query
-                let query = String::from_utf8_lossy(&buf[5..]);
-                println!("{}", query);
+    }
+
+    async fn handle_message(&self, buf: &[u8]) {
+
+        match crate::messages::parse(&buf) {
+            Some((len, message_name)) => {
+                match message_name {
+                    crate::messages::MessageName::Query => {
+                        let mut server = crate::server::Server::connect("127.0.0.1:5432", "lev", Some("lev"), Some("lev")).await.unwrap();
+
+                        // Parse / rewrite query here is possible.
+                        let query = crate::messages::query::Query::parse(&buf, len as i32).unwrap();
+                        let data: Vec<u8> = query.into();
+
+                        println!("after: {:?}\nbefore: {:?}", data, buf);
+                        server.send(&data).await;
+
+                        let mut buf = vec![0u8; 1024];
+                        let n = server.stream.read(&mut buf).await.unwrap();
+                        println!("Result: {:?}", String::from_utf8_lossy(&buf[0..n]));
+                    },
+                    _ => (),
+                }
             },
 
-            _ => {
-                println!("Unknown packet: {}", c);
+            None => {
+                println!("ERROR: Unknown message");
             }
-        }
+        };
+
+        println!("OK DONE");
+
+        // let (m, t) = crate::messages::parse(&buf);
+
+        // match crate::messages::parse(&buf) {
+        //     Some((m, t)) => async move {
+        //         match t {
+        //             crate::messages::MessageName::Query => {
+        //                 let mut server = crate::server::Server::new("127.0.0.1:5432", "lev", Some("lev"), Some("lev")).await.unwrap();
+        //                 let query = m.to_vec();
+        //                 server.stream.write(&query).await;
+        //                 let mut buf = vec![0u8; 1024];
+        //                 let n = server.stream.read(&mut buf).await.unwrap();
+        //                 println!("Result: {:?}", String::from_utf8_lossy(&buf[0..n]));
+        //             },
+        //             _ => (),
+        //         };
+        //     },
+
+        //     None => (),
+        // };
+
+        // let c = buf[0] as char;
+
+        // match c {
+        //     // Client is sending a query
+        //     'Q' => {
+        //         // TODO: find backend server and send it the query
+        //         let query = String::from_utf8_lossy(&buf[5..]);
+        //         println!("{}", query);
+
+        //         let mut server = crate::server::Server::new("127.0.0.1:5432", "lev", Some("lev"), Some("lev")).await.unwrap();
+        //         server.stream.write(&buf).await;
+        //         let mut buf = vec![0u8; 1024];
+        //         let n = server.stream.read(&mut buf).await.unwrap();
+        //         println!("Result: {:?}", String::from_utf8_lossy(&buf[0..n]));
+        //     },
+
+        //     _ => {
+        //         println!("Unknown packet: {}", c);
+        //     }
+        // }
     }
 }
