@@ -1,4 +1,4 @@
-use md5::{Md5, Digest};
+use md5::{Digest, Md5};
 
 pub struct PasswordMessage {
     username: String,
@@ -34,7 +34,6 @@ impl std::convert::From<&PasswordMessage> for Vec<u8> {
 
 impl PasswordMessage {
     pub fn new(username: &str, password: &str, salt: &[u8]) -> PasswordMessage {
-
         assert!(salt.len() == 4);
 
         PasswordMessage {
@@ -60,6 +59,9 @@ impl PasswordMessage {
         md5.update(format!("{:x}", output));
         md5.update(&self.salt);
 
-        format!("md5{:x}", md5.finalize()).chars().map(|x| x as u8).collect::<Vec<u8>>()
+        format!("md5{:x}", md5.finalize())
+            .chars()
+            .map(|x| x as u8)
+            .collect::<Vec<u8>>()
     }
 }

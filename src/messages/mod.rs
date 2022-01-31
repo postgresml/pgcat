@@ -1,12 +1,13 @@
-pub mod authentication_ok;
-pub mod ready_for_query;
-pub mod startup_message;
-pub mod password_message;
 pub mod authentication_md5_password;
-pub mod parameter_status;
+pub mod authentication_ok;
 pub mod backend_key_data;
-pub mod query;
 pub mod error_response;
+pub mod parameter_status;
+pub mod password_message;
+pub mod query;
+pub mod ready_for_query;
+pub mod row_description;
+pub mod startup_message;
 
 use std::fmt::Write;
 
@@ -22,57 +23,63 @@ pub enum MessageName {
     BackendKeyData,
     AuthenticationMD5Password,
     ErrorResponse,
+    RowDescription,
 }
 
 impl std::fmt::Display for MessageName {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let c = match self {
-			// TODO: finish these
-			SslRequest => '_',
-		    StartupMessage => '_',
-		    Termination => '_',
-		    AuthenticationOk => '_',
-		    ReadyForQuery => 'Z',
-		    Query => '_',
-		    ParameterStatus => '_',
-		    BackendKeyData => '_',
-		    AuthenticationMD5Password => '_',
-		};
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let c = match self {
+            // TODO: finish these
+            SslRequest => '_',
+            StartupMessage => '_',
+            Termination => 'X',
+            AuthenticationOk => '_',
+            ReadyForQuery => 'Z',
+            Query => '_',
+            ParameterStatus => '_',
+            BackendKeyData => '_',
+            AuthenticationMD5Password => '_',
+        };
 
         f.write_char(c)
     }
 }
 
 pub trait Message {
-	fn len(&self) -> i32;
-	fn parse(buf: &[u8], len: i32) -> Option<Self> where Self: Sized;
-	fn to_vec(&self) -> Vec<u8>;
-	fn debug(&self) -> String;
+    fn len(&self) -> i32;
+    fn parse(buf: &[u8], len: i32) -> Option<Self>
+    where
+        Self: Sized;
+    fn to_vec(&self) -> Vec<u8>;
+    fn debug(&self) -> String;
 }
 
-pub fn parse(buf: &[u8]) -> Option<(usize, MessageName)> {
-	let c = buf[0] as char;
-	let len = i32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
-	println!("DEBUG: {:?}", buf);
-	match c {
-		'S' => Some((len, MessageName::ParameterStatus)),
+pub fn parse(buf: &[u8]) -> Result<(usize, MessageName), &'static str> {
+    let c = buf[0] as char;
+    let len = i32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
+    println!("DEBUG: {:?}", &buf[0..(len as usize)]);
+    match c {
+        'S' => Ok((len, MessageName::ParameterStatus)),
 
-		'K' => Some((len, MessageName::BackendKeyData)),
+        'K' => Ok((len, MessageName::BackendKeyData)),
 
-		// Determines transaction state of the backend
-		'Z' => Some((len, MessageName::ReadyForQuery)),
+        // Determines transaction state of the backend
+        'Z' => Ok((len, MessageName::ReadyForQuery)),
 
-		'R' => {
-			let code = i32::from_be_bytes(buf[5..9].try_into().unwrap());
-			match code {
-				0 => Some((len, MessageName::AuthenticationOk)),
-				5 => Some((len, MessageName::AuthenticationMD5Password)),
-				_ => None,
-			}
-		},
+        'R' => {
+            let code = i32::from_be_bytes(buf[5..9].try_into().unwrap());
+            match code {
+                0 => Ok((len, MessageName::AuthenticationOk)),
+                5 => Ok((len, MessageName::AuthenticationMD5Password)),
+                _ => Err("ERROR: unknown auth request"),
+            }
+        }
 
-		'E' => Some((len, MessageName::ErrorResponse)),
-		'Q' => Some((len, MessageName::Query)),
-		_ => None,
-	}
+        'T' => Ok((len, MessageName::RowDescription)),
+
+        'E' => Ok((len, MessageName::ErrorResponse)),
+        'Q' => Ok((len, MessageName::Query)),
+        'X' => Ok((len, MessageName::Termination)),
+        _ => Err("ERROR: unknown message"),
+    }
 }

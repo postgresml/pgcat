@@ -1,8 +1,9 @@
-pub struct Query {
-	len: i32,
-	query: String,
-}
 
+#[derive(Debug)]
+pub struct Query {
+    len: i32,
+    query: String,
+}
 
 impl crate::messages::Message for Query {
     fn len(&self) -> i32 {
@@ -13,13 +14,12 @@ impl crate::messages::Message for Query {
         // 'Q': 1 byte
         // Len: 4 bytes
         let buf = &buf[5..(len + 1) as usize];
-        let query = String::from_utf8_lossy(&buf[..buf.len()-1]).to_string();
+        let query = String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string();
 
-        Some(Query{
-        	len: len,
-        	query: query,
+        Some(Query {
+            len: len,
+            query: query,
         })
-
     }
 
     fn debug(&self) -> String {
@@ -27,8 +27,8 @@ impl crate::messages::Message for Query {
     }
 
     fn to_vec(&self) -> Vec<u8> {
-		self.into()
-	}
+        self.into()
+    }
 }
 
 /// Convert to byte stream.

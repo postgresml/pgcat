@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub struct StartupMessage {
     arguments: std::collections::HashMap<String, String>,
@@ -24,7 +23,7 @@ impl std::convert::From<&StartupMessage> for Vec<u8> {
         for (key, value) in &auth_ok.arguments {
             let mut key = key.chars().map(|x| x as u8).collect::<Vec<u8>>();
             let mut value = value.chars().map(|x| x as u8).collect::<Vec<u8>>();
-            
+
             key.push(0);
             value.push(0);
 
@@ -33,7 +32,7 @@ impl std::convert::From<&StartupMessage> for Vec<u8> {
         }
 
         let len = (body.len() + 4 + 1) as i32;
-        
+
         res.extend(&i32::to_be_bytes(len));
         res.extend(&body);
         res.push(0u8);
@@ -42,14 +41,14 @@ impl std::convert::From<&StartupMessage> for Vec<u8> {
     }
 }
 
-
 impl StartupMessage {
     pub fn new(username: &str, database: Option<&str>) -> StartupMessage {
-        let mut arguments = std::collections::HashMap::from([
-            ("user".to_string(), username.to_string()),
-        ]);
+        let mut arguments =
+            std::collections::HashMap::from([("user".to_string(), username.to_string())]);
         match database {
-            Some(d) => { arguments.insert("database".to_string(), d.to_string()); },
+            Some(d) => {
+                arguments.insert("database".to_string(), d.to_string());
+            }
             None => (),
         };
 
@@ -63,14 +62,12 @@ impl StartupMessage {
         let mut tuple = Vec::new();
         let mut args = std::collections::HashMap::new();
         for c in buf {
-
             // Strings are null-terminated
             if *c == 0 {
                 // We have key
                 if tuple.len() < 2 {
                     tuple.push(sbuf.clone());
                 }
-
                 // We have key and value
                 else if tuple.len() == 2 {
                     args.insert(tuple[0].clone(), tuple[1].clone());
@@ -80,16 +77,13 @@ impl StartupMessage {
 
                 sbuf.clear();
             }
-
             // Normal character
             else {
                 sbuf.push(*c as char);
             }
         }
 
-        Some(StartupMessage{
-            arguments: args,
-        })
+        Some(StartupMessage { arguments: args })
     }
 
     pub fn username(&self) -> String {

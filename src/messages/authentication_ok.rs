@@ -24,14 +24,13 @@ impl std::convert::From<&AuthenticationOk> for Vec<u8> {
     }
 }
 
-
 impl crate::messages::Message for AuthenticationOk {
     fn len(&self) -> i32 {
         8
     }
 
     fn parse(buf: &[u8], len: i32) -> Option<AuthenticationOk> {
-        Some(AuthenticationOk{})
+        Some(AuthenticationOk {})
     }
 
     fn debug(&self) -> String {
@@ -39,6 +38,6 @@ impl crate::messages::Message for AuthenticationOk {
     }
 
     fn to_vec(&self) -> Vec<u8> {
-		Vec::new()
-	}
+        Vec::new()
+    }
 }

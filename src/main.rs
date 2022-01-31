@@ -1,6 +1,6 @@
+use bytes::BufMut;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use bytes::BufMut;
 
 #[derive(Debug, PartialEq)]
 enum MessageName {
@@ -17,12 +17,11 @@ struct Message {
     pub payload: Option<bytes::BytesMut>,
 }
 
-
 extern crate md5;
-mod messages;
 mod client;
-mod server;
 mod communication;
+mod messages;
+mod server;
 
 use messages::authentication_ok::AuthenticationOk;
 use messages::ready_for_query::*;
@@ -31,19 +30,21 @@ use messages::startup_message::*;
 struct SslRequest {}
 
 impl SslRequest {
-    async fn handle(&self, stream: &mut tokio::net::TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    async fn handle(
+        &self,
+        stream: &mut tokio::net::TcpStream,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let msg = vec![b'N'];
         let _ = stream.write(&msg).await?;
         Ok(())
     }
 }
 
-
 // impl std::convert::TryFrom<&Vec<u8>> for Message {
 //     type Error = &'static str;
 
 //     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
-        
+
 //     }
 // }
 
@@ -57,7 +58,10 @@ impl Message {
 
         match c {
             'B' => None,
-            'X' => Some(Message{ name: MessageName::Termination, payload: None }),
+            'X' => Some(Message {
+                name: MessageName::Termination,
+                payload: None,
+            }),
 
             // One of the startup messages
             _ => {
@@ -65,8 +69,14 @@ impl Message {
                 let code = i32::from_be_bytes(buf[4..8].try_into().unwrap());
 
                 match code {
-                    80877103 => Some(Message { name: MessageName::SslRequest, payload: None }),
-                    196608 => Some(Message { name: MessageName::StartupMessage, payload: Some(buf[8..len as usize].into()) }),
+                    80877103 => Some(Message {
+                        name: MessageName::SslRequest,
+                        payload: None,
+                    }),
+                    196608 => Some(Message {
+                        name: MessageName::StartupMessage,
+                        payload: Some(buf[8..len as usize].into()),
+                    }),
                     _ => None,
                 }
             }
@@ -78,64 +88,83 @@ impl Message {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sock = tokio::net::TcpListener::bind("0.0.0.0:5433").await?;
 
-    let auth_ok = AuthenticationOk{};
+    let auth_ok = AuthenticationOk {};
     let v: Vec<u8> = auth_ok.into();
-    println!("{:?}", v);
 
     loop {
         let (mut stream, addr) = sock.accept().await?;
-
         tokio::task::spawn(async move {
-            println!("INFO: Connection from {}", addr);
-            let mut buf = vec![0u8; 1024];
+            let mut client = client::Client::new(stream);
+            match client.handle().await {
+                Ok(()) => println!("INFO: Client {} disconnected", addr),
+                Err(err) => println!("ERROR: {}", err),
+            };
+        });
+    }
 
-            loop {
-                let n = match stream.read(&mut buf).await {
-                    Ok(n) => { println!("DEBUG: Read {} bytes, {:?}", n, &buf[0..n]); n },
-                    Err(err) => { println!("Error {}, closing", err); 0 },
-                };
+    Ok(())
 
-                if n == 0 {
-                    return;
-                }
+    // loop {
+    //     let (mut stream, addr) = sock.accept().await?;
 
-                let message = Message::parse(&buf[0..n]);
+    //     tokio::task::spawn(async move {
+    //         println!("INFO: Connection from {}", addr);
+    //         let mut buf = vec![0u8; 1024];
 
-                let _ = match message {
-                    None => {
-                        println!("Unknown message");
-                    },
-                    Some(msg) => {
-                        match msg.name {
-                            MessageName::SslRequest => {
-                                println!("SSL request");
-                                let r = SslRequest {};
-                                r.handle(&mut stream).await;
-                            },
+    //         loop {
+    //             let n = match stream.read(&mut buf).await {
+    //                 Ok(n) => {
+    //                     println!("DEBUG: Read {} bytes, {:?}", n, &buf[0..n]);
+    //                     n
+    //                 }
+    //                 Err(err) => {
+    //                     println!("Error {}, closing", err);
+    //                     0
+    //                 }
+    //             };
 
-                            MessageName::StartupMessage => {
-                                let r = StartupMessage::parse(&msg.payload.unwrap()).unwrap();
-                                let ok: Vec<u8> = AuthenticationOk{}.into();
-                                let rfq: Vec<u8> = ReadyForQuery::new(TransactionStatusIndicator::Idle).into();
-                                stream.write(&ok).await;
-                                stream.write(&rfq).await;
-                                let mut client = client::Client::new(stream, &r);
-                                client.handle().await;
-                                return;
-                                // r.handle(&mut stream).await;
-                            },
+    //             if n == 0 {
+    //                 return;
+    //             }
 
-                            MessageName::Termination => {
-                                // Return backend connection into pool
-                                println!("Client closed: {:?}", stream);
-                                break;
-                            },
+    //             let message = Message::parse(&buf[0..n]);
 
-                            _ => (),
-                        }
-                    }
-                };
-            }
+    //             let _ = match message {
+    //                 None => {
+    //                     println!("Unknown message");
+    //                 }
+    //                 Some(msg) => {
+    //                     match msg.name {
+    //                         MessageName::SslRequest => {
+    //                             println!("SSL request");
+    //                             let r = SslRequest {};
+    //                             r.handle(&mut stream).await;
+    //                         }
+
+    //                         MessageName::StartupMessage => {
+    //                             let r = StartupMessage::parse(&msg.payload.unwrap()).unwrap();
+    //                             let ok: Vec<u8> = AuthenticationOk {}.into();
+    //                             let rfq: Vec<u8> =
+    //                                 ReadyForQuery::new(ccccccccccc).into();
+    //                             stream.write(&ok).await;
+    //                             stream.write(&rfq).await;
+    //                             let mut client = client::Client::new(stream, &r);
+    //                             client.handle().await;
+    //                             return;
+    //                             // r.handle(&mut stream).await;
+    //                         }
+
+    //                         MessageName::Termination => {
+    //                             // Return backend connection into pool
+    //                             println!("Client closed: {:?}", stream);
+    //                             break;
+    //                         }
+
+    //                         _ => (),
+    //                     }
+    //                 }
+    //             };
+    //         }
 
             // let mbuf = bytes::Bytes::from(buf);
 
@@ -162,6 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             //         sbuf.clear()
             //     }
             // }
-        }).await?
-    }
+        // })
+        // .await?
+    // }
 }

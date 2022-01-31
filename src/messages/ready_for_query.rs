@@ -1,4 +1,3 @@
-
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum TransactionStatusIndicator {
     Idle,
@@ -49,9 +48,7 @@ impl std::convert::Into<Vec<u8>> for ReadyForQuery {
 
 impl ReadyForQuery {
     pub fn new(state: TransactionStatusIndicator) -> Self {
-        ReadyForQuery {
-            state: state,
-        }
+        ReadyForQuery { state: state }
     }
 }
 
@@ -74,7 +71,6 @@ impl crate::messages::Message for ReadyForQuery {
         Some(ReadyForQuery {
             state: transaction_indicator,
         })
-
     }
 
     fn debug(&self) -> String {
