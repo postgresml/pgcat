@@ -26,7 +26,7 @@ impl BufferResult {
 /// Help with socket communication
 pub async fn buffer(
     stream: &mut tokio::net::TcpStream,
-    buf: &mut [u8],
+    buf: &mut bytes::BytesMut,
     bytes_start: usize,
     check_start: usize,
 ) -> Result<BufferResult, Box<dyn std::error::Error>> {
@@ -35,7 +35,8 @@ pub async fn buffer(
 
     assert!(check_start >= bytes_start);
 
-    n += stream.read(&mut buf[n..]).await?;
+    n += stream.read_buf(buf).await?;
+    println!("Read: {}", n);
 
     let (c, complete_messages) = check(&buf[checked..n]);
     checked += c;
@@ -49,7 +50,7 @@ pub async fn buffer(
 
 pub async fn buffer_until_complete(
     stream: &mut tokio::net::TcpStream,
-    buf: &mut [u8],
+    buf: &mut bytes::BytesMut,
 ) -> Result<BufferResult, Box<dyn std::error::Error>> {
     let (mut bytes_checked, mut bytes_read, mut complete_messages) = (0, 0, 0);
 
@@ -64,7 +65,7 @@ pub async fn buffer_until_complete(
             break;
         } else {
             buffer_result =
-                buffer(stream, &mut buf[bytes_read..], bytes_read, bytes_checked).await?
+                buffer(stream, buf, bytes_read, bytes_checked).await?
         }
     }
 
@@ -157,9 +158,20 @@ pub async fn write_all(stream: &mut tokio::net::TcpStream, buf: &[u8]) -> Result
     }
 }
 
-pub async fn read_all(stream: &mut tokio::net::TcpStream, buf: &mut [u8]) -> Result<(), &'static str> {
+pub async fn read_all(stream: &mut tokio::net::TcpStream, buf: &mut bytes::BytesMut) -> Result<(), &'static str> {
     match buffer_until_complete(stream, buf).await {
         Ok(_) => Ok(()),
         Err(_err) => Err("ERROR: socket died"),
     }
+}
+
+pub async fn write_buf(stream: &mut tokio::net::TcpStream, buf: &mut bytes::BytesMut) -> Result<(), &'static str> {
+    let mut len = buf.len();
+    while len > 0 {
+        len -= match stream.write_buf(buf).await {
+            Ok(n) => n,
+            Err(_err) => return Err("ERROR: bad socket"),
+        };
+    }
+    Ok(())
 }

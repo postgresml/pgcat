@@ -1,6 +1,7 @@
 use md5::{Digest, Md5};
 /// The PostgreSQL backend.
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::oneshot::{Sender, Receiver};
 
 use crate::messages::authentication_md5_password::*;
 use crate::messages::error_response::*;
@@ -8,18 +9,25 @@ use crate::messages::parameter_status::*;
 use crate::messages::password_message::*;
 use crate::messages::startup_message::*;
 
-use crate::communication::{buffer, buffer_until_complete, check, read_all, write_all};
+use crate::communication::{write_buf};
 use crate::messages::{self, Message, MessageName, parse};
 use crate::client::Client;
 
 use bb8::ManageConnection;
+use bytes::{BufMut, Buf};
+use std::io::BufRead;
 
+#[derive(Debug, PartialEq)]
 pub enum ServerState {
     Connecting,
     WaitingForChallenge,
     LoginSuccessful,
     LoginRequest,
     Idle,
+    Active,
+    InTransaction,
+    WaitingForBackend,
+    DataReady,
 }
 
 pub struct Server {
@@ -29,7 +37,7 @@ pub struct Server {
     database: String,
     stream: tokio::net::TcpStream,
     state: ServerState,
-    buffer: Vec<u8>,
+    buffer: bytes::BytesMut,
 }
 
 #[derive(Debug)]
@@ -58,117 +66,14 @@ impl Server {
             database: database.to_string(),
             stream: stream,
             state: ServerState::Connecting,
-            buffer: vec![0u8; 8196],
+            buffer: bytes::BytesMut::with_capacity(8196),
         })
-
-        // Prepare and send startup message
-        // let startup: Vec<u8> = StartupMessage::new(username, "lev").into();
-        // match sock.write_all(&startup).await {
-        //     Ok(_) => (),
-        //     Err(err) => return Err(Error::BadServer),
-        // };
-
-        // // Our work space buffer for connection setup only
-        // let mut buf = vec![0u8; 1024];
-        // let mut n = 0; // parsed bytes
-
-        // // Expecting only one message here,
-        // // either AuthenticationOk if no password is required or
-        // // AuthenticationMd5Password challenge.
-        // let buffer_result = match buffer_until_complete(&mut sock, &mut buf).await {
-        //     Ok(r) => r,
-        //     Err(_err) => return Err(Error::BadServer),
-        // };
-
-        // match messages::parse(&buf) {
-        //     Ok((len, name)) => {
-        //         n += len;
-
-        //         match name {
-        //             // No password required, what a treat!
-        //             MessageName::AuthenticationOk => (),
-
-        //             MessageName::AuthenticationMD5Password => {
-        //                 println!("DEBUG: Received MD5 challenge request");
-        //                 // Check that you gave me a password here
-        //                 match password {
-        //                     Some(_p) => (),
-        //                     None => return Err(Error::UsernamePasswordIncorrect),
-        //                 }
-
-        //                 match AuthenticationMD5Password::parse(&buf, len as i32) {
-        //                     Some(challenge) => {
-        //                         println!("DEBUG: Sending encrypted password");
-
-        //                         let password_message: Vec<u8> = PasswordMessage::new(
-        //                             username,
-        //                             password.unwrap(),
-        //                             &challenge.salt,
-        //                         )
-        //                         .into();
-        //                         match sock.write_all(&password_message).await {
-        //                             Ok(_) => (),
-        //                             Err(err) => return Err(Error::BadServer),
-        //                         };
-
-        //                         // Reset buffer
-        //                         n = 0;
-
-        //                         // Grab the remaining packets
-        //                         buffer_until_complete(&mut sock, &mut buf).await;
-
-        //                         match messages::parse(&buf) {
-        //                             Ok((len, name)) => {
-        //                                 n += len;
-
-        //                                 match name {
-        //                                     MessageName::AuthenticationOk => (),
-        //                                     MessageName::ErrorResponse => {
-        //                                         // Something bad happened
-        //                                         let error = ErrorResponse::parse(&buf, len as i32);
-
-        //                                         println!("DEBUG: {:?}", error);
-
-        //                                         return Err(Error::BadServer);
-        //                                     }
-        //                                     _ => return Err(Error::BadServer),
-        //                                 }
-        //                             }
-
-        //                             Err(_) => return Err(Error::BadServer),
-        //                         }
-        //                     },
-
-        //                     None => return Err(Error::BadServer),
-        //                 }
-        //             }
-
-        //             _ => return Err(Error::BadServer),
-        //         }
-        //     }
-
-        //     Err(_) => {
-        //         println!("DEBUG: No packets received");
-        //         return Err(Error::BadServer);
-        //     }
-        // };
-
-        // // Parse the params
-        // // check(&buf[n..], Some(MessageName::ReadyForQuery));
-
-        // Ok(Server {
-        //     host: String::new(),
-        //     username: username.to_string(),
-        //     password: Some(password.unwrap().to_string()),
-        //     database: "lev".to_string(),
-        //     stream: sock,
-        //     buffer: vec![0u8; 8192],
-        //     state: ServerState::Idle,
-        // })
     }
 
     pub async fn handle(&mut self) -> Result<(), &'static str> {
         loop {
+            println!("DEBUG: server state {:?}", self.state);
+
             match self.state {
                 ServerState::Connecting => {
                     let startup: Vec<u8> = StartupMessage::new(&self.username, &self.database).into();
@@ -181,13 +86,15 @@ impl Server {
                 },
 
                 ServerState::WaitingForChallenge => {
-                    read_all(&mut self.stream, &mut self.buffer).await?;
+                    // let b = tokio::io::ReadBuf::new(&mut self.buffer);
+                    self.stream.read_buf(&mut self.buffer).await;
 
                     let (len, message_name) = parse(&self.buffer)?;
 
                     match message_name {
                         MessageName::AuthenticationOk => {
                             self.state = ServerState::LoginSuccessful;
+                            self.buffer.clear();
                         },
 
                         MessageName::AuthenticationMD5Password => {
@@ -199,7 +106,8 @@ impl Server {
                             )
                             .into();
 
-                            write_all(&mut self.stream, &password_message).await?;
+                            self.stream.write_all(&password_message).await;
+                            self.buffer.clear();
                         },
 
                         MessageName::ErrorResponse => {
@@ -211,8 +119,40 @@ impl Server {
                 },
 
                 ServerState::LoginSuccessful => {
+                    // Parse server status messages
+                    self.state = ServerState::Idle;
                     break;
-                }
+                },
+
+                ServerState::Active => {
+                    // Data in buffer?
+                    if self.buffer.len() > 0 {
+                        self.stream.write_buf(&mut self.buffer).await;
+                        self.buffer.clear();
+
+                        // TODO: handle multiple statements in a transaction
+                        self.state = ServerState::WaitingForBackend;
+                    }
+
+                    else {
+                        self.state = ServerState::Idle;
+                    }
+                },
+
+                ServerState::WaitingForBackend => {
+                    let n = self.stream.read_buf(&mut self.buffer).await.unwrap();
+                    self.state = ServerState::DataReady;
+                    break;
+                },
+
+                ServerState::DataReady => {
+                    break;
+                },
+
+                ServerState::Idle => {
+                    break;
+                },
+
                 _ => (),
             };
         }
@@ -220,12 +160,35 @@ impl Server {
         Ok(())
     }
 
-    pub async fn handle_query(
-        &mut self,
-        query: &messages::query::Query,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn forward(&mut self, buf: &[u8]) -> Result<(), &'static str> {
+        match self.state {
+            ServerState::Idle => (),
+            ServerState::Active => (),
+            ServerState::InTransaction => (),
+            _ => return Err("ERROR: client and server out of sync"),
+        };
+
+        self.buffer.put(buf);
+        self.state = ServerState::Active;
+
         Ok(())
     }
 
-    async fn handle_message(&self, buf: &[u8]) {}
+    pub async fn receive(&mut self, buf: &mut bytes::BytesMut) -> Result<(), &'static str> {
+        self.handle().await?;
+
+        match self.state {
+            ServerState::DataReady => {
+                while self.buffer.has_remaining() {
+                    buf.put_u8(self.buffer.get_u8());
+                }
+                self.buffer.clear();
+                Ok(())
+            },
+
+            _ => {
+                Err("ERROR: server and client out of sync with bad state")
+            },
+        }
+    }
 }

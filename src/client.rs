@@ -11,13 +11,16 @@ use crate::server::Server;
 use std::sync::{Arc};
 use tokio::sync::Mutex;
 
+use bytes::{BufMut, Buf};
+use std::io::BufRead;
+
 pub struct Client {
     stream: tokio::net::TcpStream,
 
     username: Option<String>,
     database: Option<String>,
 
-    buffer: Vec<u8>,
+    buffer: bytes::BytesMut,
     offset: usize,
     state: ClientState,
     
@@ -48,7 +51,7 @@ impl Client {
             client_idle_timeout: 0.0,
             server: None,
             state: ClientState::Connecting,
-            buffer: vec![0u8; 8196],
+            buffer: bytes::BytesMut::with_capacity(8196),
             offset: 0,
         }
     }
@@ -61,19 +64,19 @@ impl Client {
                 // Client just connected
                 ClientState::Connecting => {
                     let mut n = 0;
-                    n = match self.stream.read(&mut self.buffer[n..]).await {
+                    n = match self.stream.read_buf(&mut self.buffer).await {
                         Ok(n) => n,
                         Err(_err) => return Err("ERROR: client disconnected during startup"),
                     };
 
-                    let len = i32::from_be_bytes(self.buffer[0..4].try_into().unwrap());
+                    let len = self.buffer.get_i32();
 
                     // Read what's remaining
-                    if n < len as usize {
-                        self.stream.read_exact(&mut self.buffer[n..(n - len as usize)]);
-                    }
+                    // if n < len as usize {
+                    //     self.stream.read_exact(&mut self.buffer[n..(n - len as usize)]);
+                    // }
 
-                    let code = i32::from_be_bytes(self.buffer[4..8].try_into().unwrap());
+                    let code = self.buffer.get_i32();
 
                     match code {
                         80877103 => {
@@ -96,10 +99,11 @@ impl Client {
                 },
 
                 ClientState::LoginRequest => {
-                    let msg = startup_message::StartupMessage::parse(&self.buffer[8..]).unwrap();
+                    let msg = startup_message::StartupMessage::parse(&self.buffer).unwrap();
                     self.username = Some(msg.username());
                     self.database = Some(msg.database());
                     self.state = ClientState::LoggingIn;
+                    self.buffer.clear();
                 },
 
                 ClientState::LoggingIn => {
@@ -119,8 +123,9 @@ impl Client {
                     self.offset = 0;
 
                     // Read all messages pending
-                    read_all(&mut self.stream, &mut self.buffer).await?;
-                    let (len, message_name) = parse(&self.buffer[self.offset..])?;
+                    self.stream.read_buf(&mut self.buffer).await;
+                    // read_all(&mut self.stream, &mut self.buffer).await?;
+                    let (len, message_name) = parse(&self.buffer)?;
 
                     match message_name {
                         MessageName::Query => {
@@ -143,11 +148,26 @@ impl Client {
                             self.server = Some(Arc::new(Mutex::new(server)));
 
                             // Perform the connection authentication
-                            self.server.as_ref().unwrap().lock().await.handle().await?;
+                            let mut server = self.server.as_ref().unwrap().lock().await;
+
+                            server.handle().await?;
+
+                            // TODO: handle multiple statements
                             self.state = ClientState::Active;
+
+                            server.forward(&self.buffer).await?;
+                            self.buffer.clear();
                         },
                         Err(err) => return Err("ERROR: could not connect to server"),
                     };
+                },
+
+                ClientState::Active => {
+                    let mut server = self.server.as_ref().unwrap().lock().await;
+                    server.receive(&mut self.buffer).await?;
+                    self.stream.write_buf(&mut self.buffer).await;
+                    self.buffer.clear();
+                    self.state = ClientState::Idle;
                 },
 
                 _ => return Err("ERROR: unexpected message"),
