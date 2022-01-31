@@ -30,15 +30,16 @@ impl std::fmt::Display for MessageName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let c = match self {
             // TODO: finish these
-            SslRequest => '_',
-            StartupMessage => '_',
-            Termination => 'X',
-            AuthenticationOk => '_',
-            ReadyForQuery => 'Z',
-            Query => '_',
-            ParameterStatus => '_',
-            BackendKeyData => '_',
-            AuthenticationMD5Password => '_',
+            MessageName::SslRequest => '_',
+            MessageName::StartupMessage => '_',
+            MessageName::Termination => 'X',
+            MessageName::AuthenticationOk => '_',
+            MessageName::ReadyForQuery => 'Z',
+            MessageName::Query => '_',
+            MessageName::ParameterStatus => '_',
+            MessageName::BackendKeyData => '_',
+            MessageName::AuthenticationMD5Password => '_',
+            _ => '_',
         };
 
         f.write_char(c)

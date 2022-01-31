@@ -8,6 +8,8 @@ use crate::messages::authentication_ok::AuthenticationOk;
 use crate::messages::ready_for_query::*;
 use crate::messages::query::*;
 use crate::server::Server;
+use std::sync::{Arc};
+use tokio::sync::Mutex;
 
 pub struct Client {
     stream: tokio::net::TcpStream,
@@ -16,10 +18,10 @@ pub struct Client {
     database: Option<String>,
 
     buffer: Vec<u8>,
-
+    offset: usize,
     state: ClientState,
     
-    server: Option<Server>,
+    server: Option<Arc<Mutex<Server>>>,
 
     // Settings
     client_idle_timeout: f64,
@@ -47,6 +49,7 @@ impl Client {
             server: None,
             state: ClientState::Connecting,
             buffer: vec![0u8; 8196],
+            offset: 0,
         }
     }
 
@@ -112,26 +115,35 @@ impl Client {
                 },
 
                 ClientState::Idle => {
+                    // Reset buffer offset
+                    self.offset = 0;
+
+                    // Read all messages pending
                     read_all(&mut self.stream, &mut self.buffer).await?;
-                    let (len, message_name) = parse(&self.buffer)?;
+                    let (len, message_name) = parse(&self.buffer[self.offset..])?;
 
                     match message_name {
                         MessageName::Query => {
-                            let query = Query::parse(&self.buffer, len as i32).unwrap();
-                            println!("Got query: {:?}", query);
+                            let _query = Query::parse(&self.buffer, len as i32).unwrap();
                             self.state = ClientState::WaitingForServer;
                         },
 
                         MessageName::Termination => return Ok(()),
+
+                        // Move offset in case we want to read more messages later
+                        // self.offset += len;
 
                         _ => return Err("ERROR: unexpected message while idle"),
                     }
                 },
 
                 ClientState::WaitingForServer => {
-                    let server = match Server::connect("127.0.0.1:5432", "lev", Some("lev"), Some("lev")).await {
+                    let server = match Server::connect("127.0.0.1:5432", "lev", "lev", "lev").await {
                         Ok(server) => {
-                            self.server = Some(server);
+                            self.server = Some(Arc::new(Mutex::new(server)));
+
+                            // Perform the connection authentication
+                            self.server.as_ref().unwrap().lock().await.handle().await?;
                             self.state = ClientState::Active;
                         },
                         Err(err) => return Err("ERROR: could not connect to server"),
@@ -141,116 +153,5 @@ impl Client {
                 _ => return Err("ERROR: unexpected message"),
             };
         }
-
-        Ok(())
-        // let mut buf = vec![0u8; 1024];
-        // let mut n = 0;
-
-        // loop {
-        //     n = n + match self.client_idle_timeout {
-        //         0.0 => match self.stream.read(&mut buf[n..]).await {
-        //             Ok(n) => n,
-        //             Err(err) => {
-        //                 println!("ERROR: Client closed connection or died: {}", err);
-        //                 return;
-        //             }
-        //         },
-
-        //         // Timeout
-        //         _ => {
-        //             match tokio::time::timeout(
-        //                 tokio::time::Duration::from_millis(
-        //                     (self.client_idle_timeout * 1000.0) as u64,
-        //                 ),
-        //                 self.stream.read(&mut buf[n..]),
-        //             )
-        //             .await
-        //             {
-        //                 Ok(res) => match res {
-        //                     Ok(n) => n,
-        //                     Err(err) => {
-        //                         println!("ERROR: Client clsoed connection or died: {}", err);
-        //                         return;
-        //                     }
-        //                 },
-        //                 Err(_) => {
-        //                     println!("ERROR: Timed out waiting for client");
-        //                     return;
-        //                 }
-        //             }
-        //         }
-        //     };
-
-        //     match n {
-        //         0 => {
-        //             println!("INFO: Client closed connection");
-        //         }
-        //         _ => {
-        //             if self.is_message_complete(&buf[0..n]) {
-        //                 self.handle_message(&buf[0..n]).await;
-        //                 n = 0;
-        //             }
-        //         }
-        //     };
-        // }
     }
-
-    // fn is_message_complete(&self, buf: &[u8]) -> bool {
-    //     if buf.len() < 5 {
-    //         false
-    //     } else {
-    //         let len = i32::from_be_bytes(buf[1..5].try_into().unwrap());
-    //         if buf.len() == (len + 1) as usize {
-    //             println!("DEBUG: Packet complete");
-    //             true
-    //         } else {
-    //             println!(
-    //                 "DEBUG: Packet incomplete, len: {}, expected: {}",
-    //                 len,
-    //                 buf.len()
-    //             );
-    //             false
-    //         }
-    //     }
-    // }
-
-    // async fn handle_query(&self, query: &crate::messages::query::Query) {}
-
-    // async fn handle_message(&self, buf: &[u8]) {
-    //     match crate::messages::parse(&buf) {
-    //         Some((len, message_name)) => {
-    //             match message_name {
-    //                 crate::messages::MessageName::Query => {
-    //                     let mut server = crate::server::Server::connect(
-    //                         "127.0.0.1:5432",
-    //                         "lev",
-    //                         Some("lev"),
-    //                         Some("lev"),
-    //                     )
-    //                     .await
-    //                     .unwrap();
-
-    //                     // Parse / rewrite query here is possible.
-    //                     let query = crate::messages::query::Query::parse(&buf, len as i32).unwrap();
-    //                     let data: Vec<u8> = query.into();
-
-    //                     println!("after: {:?}\nbefore: {:?}", data, buf);
-    //                     server.send(&data).await;
-
-    //                     let mut buf = vec![0u8; 1024];
-    //                     let n = server.recv(&mut buf).await;
-    //                     println!("Result: {:?}", String::from_utf8_lossy(&buf[0..n]));
-    //                 }
-    //                 _ => (),
-    //             }
-    //         }
-
-    //         None => {
-    //             println!("ERROR: Unknown message");
-    //         }
-    //     };
-
-    //     println!("OK DONE");
-    // }
 }
-// 

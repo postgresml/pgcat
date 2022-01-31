@@ -89,6 +89,10 @@ pub fn check(buf: &[u8]) -> (usize, usize) {
             checked += 1;
         }
 
+        else {
+            break;
+        }
+
         let len = i32::from_be_bytes(buf[checked..checked + 4].try_into().unwrap());
 
         // Enough data in the buffer for the message to be complete.

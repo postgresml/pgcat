@@ -42,15 +42,12 @@ impl std::convert::From<&StartupMessage> for Vec<u8> {
 }
 
 impl StartupMessage {
-    pub fn new(username: &str, database: Option<&str>) -> StartupMessage {
+    pub fn new(username: &str, database: &str) -> StartupMessage {
         let mut arguments =
-            std::collections::HashMap::from([("user".to_string(), username.to_string())]);
-        match database {
-            Some(d) => {
-                arguments.insert("database".to_string(), d.to_string());
-            }
-            None => (),
-        };
+            std::collections::HashMap::from([
+                ("user".to_string(), username.to_string()),
+                ("database".to_string(), database.to_string())
+            ]);
 
         StartupMessage {
             arguments: arguments,
