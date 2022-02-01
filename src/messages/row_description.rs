@@ -22,7 +22,7 @@ impl Message for RowDescription {
         self.len
     }
 
-    fn parse(buf: &[u8], len: i32) -> Option<RowDescription> {
+    fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<RowDescription> {
         let mut buf = &buf[5..(len as usize + 1)];
         let num_fields = i16::from_be_bytes(buf[0..2].try_into().unwrap());
 

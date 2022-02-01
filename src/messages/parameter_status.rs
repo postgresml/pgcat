@@ -1,3 +1,5 @@
+use bytes::Buf;
+
 /// ParameterStatus (B)
 #[derive(Debug, Clone)]
 pub struct ParameterStatus {
@@ -11,11 +13,14 @@ impl crate::messages::Message for ParameterStatus {
         self.len
     }
 
-    fn parse(buf: &[u8], len: i32) -> Option<ParameterStatus> {
+    fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<ParameterStatus> {
         // 'S': 1 byte
         // Len: 4 bytes
-        let buf = &buf[5..(len + 1) as usize];
-        let args = crate::communication::parse_parameters(buf);
+        let _c = buf.get_u8();
+        let len = buf.get_i32() as usize;
+        let mut args = buf.copy_to_bytes(len-4);
+
+        let args = crate::communication::parse_parameters(&mut args);
 
         let name = match args.clone().into_keys().next() {
             Some(n) => n,
@@ -28,7 +33,7 @@ impl crate::messages::Message for ParameterStatus {
         };
 
         Some(ParameterStatus {
-            len: len,
+            len: len as i32,
             name: name,
             value: value,
         })

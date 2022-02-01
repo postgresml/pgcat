@@ -1,3 +1,4 @@
+use bytes::Buf;
 
 #[derive(Debug)]
 pub struct Query {
@@ -10,14 +11,17 @@ impl crate::messages::Message for Query {
         self.len
     }
 
-    fn parse(buf: &[u8], len: i32) -> Option<Query> {
+    fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<Query> {
         // 'Q': 1 byte
         // Len: 4 bytes
-        let buf = &buf[5..(len + 1) as usize];
-        let query = String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string();
+        let _c = buf.get_u8();
+        let _len = buf.get_i32();
+        let bytes = buf.copy_to_bytes(len as usize - 4);
+
+        let query = String::from_utf8_lossy(&bytes).to_string();
 
         Some(Query {
-            len: len,
+            len: len as i32,
             query: query,
         })
     }

@@ -1,3 +1,5 @@
+use bytes::Buf;
+
 pub struct BackendKeyData {
     len: i32,
     process_id: i32,
@@ -9,12 +11,14 @@ impl crate::messages::Message for BackendKeyData {
         self.len
     }
 
-    fn parse(buf: &[u8], len: i32) -> Option<BackendKeyData> {
+    fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<BackendKeyData> {
         // 'K': 1 byte
         // Len: 4 bytes
-        let buf = &buf[5..(len as usize) + 1];
-        let process_id = i32::from_be_bytes(buf[0..4].try_into().unwrap());
-        let secret_key = i32::from_be_bytes(buf[4..8].try_into().unwrap());
+        let _c = buf.get_u8();
+        let _len = buf.get_i32();
+
+        let process_id = buf.get_i32();
+        let secret_key = buf.get_i32();
 
         Some(BackendKeyData {
             len: len,

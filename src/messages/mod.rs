@@ -8,6 +8,7 @@ pub mod query;
 pub mod ready_for_query;
 pub mod row_description;
 pub mod startup_message;
+pub mod terminate;
 
 use std::fmt::Write;
 
@@ -48,7 +49,7 @@ impl std::fmt::Display for MessageName {
 
 pub trait Message {
     fn len(&self) -> i32;
-    fn parse(buf: &[u8], len: i32) -> Option<Self>
+    fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<Self>
     where
         Self: Sized;
     fn to_vec(&self) -> Vec<u8>;
@@ -58,7 +59,6 @@ pub trait Message {
 pub fn parse(buf: &[u8]) -> Result<(usize, MessageName), &'static str> {
     let c = buf[0] as char;
     let len = i32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
-    println!("DEBUG: {:?}", &buf[0..(len as usize)]);
     match c {
         'S' => Ok((len, MessageName::ParameterStatus)),
 

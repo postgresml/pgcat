@@ -23,8 +23,6 @@ impl std::convert::From<&PasswordMessage> for Vec<u8> {
 
         let len = ((encrypted_password.len() + 4) as i32).to_be_bytes();
 
-        println!("{:?}", encrypted_password);
-
         res.extend(&len);
         res.extend(&encrypted_password);
 

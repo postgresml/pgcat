@@ -1,3 +1,5 @@
+use bytes::Buf;
+
 /// Client authentication was successful.
 pub struct AuthenticationOk {}
 
@@ -29,7 +31,11 @@ impl crate::messages::Message for AuthenticationOk {
         8
     }
 
-    fn parse(buf: &[u8], len: i32) -> Option<AuthenticationOk> {
+    fn parse(buf: &mut bytes::BytesMut, _len: i32) -> Option<AuthenticationOk> {
+        let _c = buf.get_u8();
+        let _len = buf.get_i32();
+        let _code = buf.get_i32();
+
         Some(AuthenticationOk {})
     }
 

@@ -1,18 +1,17 @@
 /// psql client
-use crate::messages::startup_message::StartupMessage;
+use crate::messages::startup_message::*;
 // use crate::messages::{parse, Message};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::communication::{read_all, write_all};
-use crate::messages::*;
-use crate::messages::authentication_ok::AuthenticationOk;
-use crate::messages::ready_for_query::*;
+use crate::communication::{write_all};
+use crate::messages::authentication_ok::*;
 use crate::messages::query::*;
-use crate::server::Server;
-use std::sync::{Arc};
+use crate::messages::ready_for_query::*;
+use crate::messages::*;
+use crate::server::{Server};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
-use bytes::{BufMut, Buf};
-use std::io::BufRead;
+use bytes::Buf;
 
 pub struct Client {
     stream: tokio::net::TcpStream,
@@ -21,9 +20,8 @@ pub struct Client {
     database: Option<String>,
 
     buffer: bytes::BytesMut,
-    offset: usize,
     state: ClientState,
-    
+
     server: Option<Arc<Mutex<Server>>>,
 
     // Settings
@@ -40,6 +38,8 @@ pub enum ClientState {
     WaitingForServer,
     Active,
     InTransaction,
+    ShuttingDown,
+    Disconnected,
 }
 
 impl Client {
@@ -50,15 +50,14 @@ impl Client {
             database: None,
             client_idle_timeout: 0.0,
             server: None,
-            state: ClientState::Connecting,
             buffer: bytes::BytesMut::with_capacity(8196),
-            offset: 0,
+            state: ClientState::Connecting,
+
         }
     }
 
     pub async fn handle(&mut self) -> Result<(), &'static str> {
         loop {
-            println!("DEBUG: client state {:?}", self.state);
 
             match self.state {
                 // Client just connected
@@ -69,7 +68,7 @@ impl Client {
                         Err(_err) => return Err("ERROR: client disconnected during startup"),
                     };
 
-                    let len = self.buffer.get_i32();
+                    let _len = self.buffer.get_i32();
 
                     // Read what's remaining
                     // if n < len as usize {
@@ -81,69 +80,87 @@ impl Client {
                     match code {
                         80877103 => {
                             self.state = ClientState::SslRequest;
-                        },
+                        }
 
                         196608 => {
                             self.state = ClientState::LoginRequest;
-                        },
+                        }
 
                         _ => return Err("ERROR: unsupported startup message"),
                     };
-                },
+                }
 
                 ClientState::SslRequest => {
                     // No SSL for now
                     let res = vec![b'N'];
                     write_all(&mut self.stream, &res[..]).await?;
                     self.state = ClientState::Connecting;
-                },
+                }
 
                 ClientState::LoginRequest => {
-                    let msg = startup_message::StartupMessage::parse(&self.buffer).unwrap();
+                    let msg = StartupMessage::parse(&self.buffer).unwrap();
                     self.username = Some(msg.username());
                     self.database = Some(msg.database());
                     self.state = ClientState::LoggingIn;
                     self.buffer.clear();
-                },
+                }
 
                 ClientState::LoggingIn => {
                     // TODO: Challenge for password
                     // Let the client in and tell it we are ready for queries.
-                    let auth_ok: Vec<u8> = AuthenticationOk{}.into();
-                    let ready_for_query: Vec<u8> = ready_for_query::ReadyForQuery::new(TransactionStatusIndicator::Idle).into();
+                    let auth_ok: Vec<u8> = AuthenticationOk {}.into();
+                    let ready_for_query: Vec<u8> =
+                        ReadyForQuery::new(TransactionStatusIndicator::Idle)
+                            .into();
 
                     write_all(&mut self.stream, &auth_ok).await?;
                     write_all(&mut self.stream, &ready_for_query).await?;
 
                     self.state = ClientState::Idle;
-                },
+                }
 
                 ClientState::Idle => {
-                    // Reset buffer offset
-                    self.offset = 0;
+                    // Read some messages pending
+                    let n = match self.stream.read_buf(&mut self.buffer).await {
+                        Ok(n) => n,
+                        Err(_err) => 0,
+                    };
 
-                    // Read all messages pending
-                    self.stream.read_buf(&mut self.buffer).await;
+                    if n == 0 {
+                        self.state = ClientState::Disconnected;
+                        return Ok(());
+                    }
+
                     // read_all(&mut self.stream, &mut self.buffer).await?;
                     let (len, message_name) = parse(&self.buffer)?;
 
                     match message_name {
                         MessageName::Query => {
-                            let _query = Query::parse(&self.buffer, len as i32).unwrap();
+                            // Buffer the whole query if it's not here yet
+                            if len > self.buffer.len() {
+                                continue;
+                            }
+
                             self.state = ClientState::WaitingForServer;
-                        },
+                        }
 
                         MessageName::Termination => return Ok(()),
 
                         // Move offset in case we want to read more messages later
                         // self.offset += len;
-
                         _ => return Err("ERROR: unexpected message while idle"),
                     }
-                },
+                }
 
                 ClientState::WaitingForServer => {
-                    let server = match Server::connect("127.0.0.1:5432", "lev", "lev", "lev").await {
+                    match Server::connect(
+                        "127.0.0.1:5432",
+                        &self.username.as_ref().unwrap(),
+                        "lev",
+                        &self.database.as_ref().unwrap(),
+                    )
+                    .await
+                    {
                         Ok(server) => {
                             self.server = Some(Arc::new(Mutex::new(server)));
 
@@ -157,10 +174,10 @@ impl Client {
 
                             server.forward(&self.buffer).await?;
                             self.buffer.clear();
-                        },
-                        Err(err) => return Err("ERROR: could not connect to server"),
+                        }
+                        Err(_err) => return Err("ERROR: could not connect to server"),
                     };
-                },
+                }
 
                 ClientState::Active => {
                     let mut server = self.server.as_ref().unwrap().lock().await;
@@ -168,7 +185,7 @@ impl Client {
                     self.stream.write_buf(&mut self.buffer).await;
                     self.buffer.clear();
                     self.state = ClientState::Idle;
-                },
+                }
 
                 _ => return Err("ERROR: unexpected message"),
             };

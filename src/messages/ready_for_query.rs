@@ -1,3 +1,5 @@
+use bytes::Buf;
+
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum TransactionStatusIndicator {
     Idle,
@@ -57,11 +59,13 @@ impl crate::messages::Message for ReadyForQuery {
         5
     }
 
-    fn parse(buf: &[u8], len: i32) -> Option<ReadyForQuery> {
+    fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<ReadyForQuery> {
         // 'S': 1 byte
         // Len: 4 bytes
-        let buf = &buf[5..(len + 1) as usize];
-        let transaction_indicator = match buf[0] as char {
+        let _c = buf.get_u8();
+        let _len = buf.get_i32();
+
+        let transaction_indicator = match buf.get_u8() as char {
             'I' => TransactionStatusIndicator::Idle,
             'T' => TransactionStatusIndicator::TransactionBlock,
             'E' => TransactionStatusIndicator::FailedTransactionBlock,

@@ -1,7 +1,6 @@
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-
-use crate::messages::MessageName;
+use bytes::Buf;
 
 pub struct BufferResult {
     complete_messages: usize,
@@ -64,8 +63,7 @@ pub async fn buffer_until_complete(
         if bytes_checked == bytes_read {
             break;
         } else {
-            buffer_result =
-                buffer(stream, buf, bytes_read, bytes_checked).await?
+            buffer_result = buffer(stream, buf, bytes_read, bytes_checked).await?
         }
     }
 
@@ -88,9 +86,7 @@ pub fn check(buf: &[u8]) -> (usize, usize) {
         // Hit a null-byte, there is nothing more in the buffer
         if c != 0 {
             checked += 1;
-        }
-
-        else {
+        } else {
             break;
         }
 
@@ -111,14 +107,16 @@ pub fn check(buf: &[u8]) -> (usize, usize) {
     return (checked, complete_messages);
 }
 
-pub fn parse_parameters(buf: &[u8]) -> std::collections::HashMap<String, String> {
+pub fn parse_parameters(buf: &mut bytes::Bytes) -> std::collections::HashMap<String, String> {
     let mut sbuf = String::from("");
     let mut tuple = Vec::new();
     let mut args = std::collections::HashMap::new();
 
-    for c in buf {
+    while buf.has_remaining() {
+        let c = buf.get_u8();
+
         // Strings are null-terminated
-        if *c == 0 {
+        if c == 0 {
             // We have key
             if tuple.len() < 2 {
                 tuple.push(sbuf.clone());
@@ -135,7 +133,7 @@ pub fn parse_parameters(buf: &[u8]) -> std::collections::HashMap<String, String>
         }
         // Normal character
         else {
-            sbuf.push(*c as char);
+            sbuf.push(c as char);
         }
     }
 
@@ -158,14 +156,20 @@ pub async fn write_all(stream: &mut tokio::net::TcpStream, buf: &[u8]) -> Result
     }
 }
 
-pub async fn read_all(stream: &mut tokio::net::TcpStream, buf: &mut bytes::BytesMut) -> Result<(), &'static str> {
+pub async fn read_all(
+    stream: &mut tokio::net::TcpStream,
+    buf: &mut bytes::BytesMut,
+) -> Result<(), &'static str> {
     match buffer_until_complete(stream, buf).await {
         Ok(_) => Ok(()),
         Err(_err) => Err("ERROR: socket died"),
     }
 }
 
-pub async fn write_buf(stream: &mut tokio::net::TcpStream, buf: &mut bytes::BytesMut) -> Result<(), &'static str> {
+pub async fn write_buf(
+    stream: &mut tokio::net::TcpStream,
+    buf: &mut bytes::BytesMut,
+) -> Result<(), &'static str> {
     let mut len = buf.len();
     while len > 0 {
         len -= match stream.write_buf(buf).await {

@@ -1,21 +1,19 @@
-use md5::{Digest, Md5};
 /// The PostgreSQL backend.
+use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::oneshot::{Sender, Receiver};
 
 use crate::messages::authentication_md5_password::*;
+use crate::messages::authentication_ok::*;
 use crate::messages::error_response::*;
 use crate::messages::parameter_status::*;
 use crate::messages::password_message::*;
 use crate::messages::startup_message::*;
+use crate::messages::terminate::*;
+use crate::messages::ready_for_query::*;
+use crate::messages::backend_key_data::*;
 
-use crate::communication::{write_buf};
-use crate::messages::{self, Message, MessageName, parse};
-use crate::client::Client;
-
-use bb8::ManageConnection;
-use bytes::{BufMut, Buf};
-use std::io::BufRead;
+use crate::messages::{parse, Message, MessageName};
+use bytes::{Buf, BufMut};
 
 #[derive(Debug, PartialEq)]
 pub enum ServerState {
@@ -28,6 +26,8 @@ pub enum ServerState {
     InTransaction,
     WaitingForBackend,
     DataReady,
+    Error,
+    Terminatation,
 }
 
 pub struct Server {
@@ -54,12 +54,12 @@ impl Server {
         database: &str,
     ) -> Result<Server, &'static str> {
         // TCP connection
-        let mut stream = match tokio::net::TcpStream::connect(host).await {
+        let stream = match tokio::net::TcpStream::connect(host).await {
             Ok(stream) => stream,
             Err(err) => return Err("ERROR: cannot connect to server"),
         };
 
-        Ok(Server{
+        Ok(Server {
             host: host.to_string(),
             username: username.to_string(),
             password: password.to_string(),
@@ -72,33 +72,36 @@ impl Server {
 
     pub async fn handle(&mut self) -> Result<(), &'static str> {
         loop {
-            println!("DEBUG: server state {:?}", self.state);
 
             match self.state {
                 ServerState::Connecting => {
-                    let startup: Vec<u8> = StartupMessage::new(&self.username, &self.database).into();
+                    let startup: Vec<u8> =
+                        StartupMessage::new(&self.username, &self.database).into();
                     match self.stream.write_all(&startup).await {
                         Ok(_) => (),
-                        Err(err) => return Err("ERROR: server socket died"),
+                        Err(_err) => return Err("ERROR: server socket died"),
                     };
 
                     self.state = ServerState::WaitingForChallenge;
-                },
+                }
 
                 ServerState::WaitingForChallenge => {
                     // let b = tokio::io::ReadBuf::new(&mut self.buffer);
-                    self.stream.read_buf(&mut self.buffer).await;
+                    if !self.buffer.has_remaining() {
+                        self.stream.read_buf(&mut self.buffer).await;
+                    }
 
-                    let (len, message_name) = parse(&self.buffer)?;
+                    let (len, message_name) = parse(&mut self.buffer)?;
 
                     match message_name {
                         MessageName::AuthenticationOk => {
-                            self.state = ServerState::LoginSuccessful;
-                            self.buffer.clear();
+                            AuthenticationOk::parse(&mut self.buffer, len as i32);
                         },
 
                         MessageName::AuthenticationMD5Password => {
-                            let challenge = AuthenticationMD5Password::parse(&self.buffer, len as i32).unwrap();
+                            let challenge =
+                                AuthenticationMD5Password::parse(&mut self.buffer, len as i32)
+                                    .unwrap();
                             let password_message: Vec<u8> = PasswordMessage::new(
                                 &self.username,
                                 &self.password,
@@ -108,50 +111,88 @@ impl Server {
 
                             self.stream.write_all(&password_message).await;
                             self.buffer.clear();
-                        },
+                        }
 
                         MessageName::ErrorResponse => {
-                            return Err("ERROR: bad password for server");
+                            let _error = ErrorResponse::parse(&mut self.buffer, len as i32).unwrap();
+                            self.state = ServerState::Terminatation;
                         },
+
+                        MessageName::ParameterStatus => {
+                            ParameterStatus::parse(&mut self.buffer, len as i32);
+                        },
+
+                        MessageName::ReadyForQuery => {
+                            ReadyForQuery::parse(&mut self.buffer, len as i32);
+                            self.state = ServerState::LoginSuccessful;
+                        },
+
+                        MessageName::BackendKeyData => {
+                            BackendKeyData::parse(&mut self.buffer, len as i32);
+                        }
 
                         _ => return Err("ERROR: bad message from server"),
                     }
-                },
+                }
 
                 ServerState::LoginSuccessful => {
-                    // Parse server status messages
                     self.state = ServerState::Idle;
                     break;
-                },
+                }
 
                 ServerState::Active => {
                     // Data in buffer?
-                    if self.buffer.len() > 0 {
+                    if self.buffer.has_remaining() {
                         self.stream.write_buf(&mut self.buffer).await;
                         self.buffer.clear();
 
                         // TODO: handle multiple statements in a transaction
                         self.state = ServerState::WaitingForBackend;
-                    }
-
-                    else {
+                    } else {
                         self.state = ServerState::Idle;
                     }
-                },
+                }
 
                 ServerState::WaitingForBackend => {
                     let n = self.stream.read_buf(&mut self.buffer).await.unwrap();
-                    self.state = ServerState::DataReady;
+
+                    // Not enough data yet
+                    if self.buffer.len() < 5 {
+                        continue;
+                    }
+
+                    let mut i = 0;
+                    while i < self.buffer.len() {
+                        let c = self.buffer[i];
+                        let len = i32::from_be_bytes(self.buffer[i+1..i+5].try_into().unwrap()) as usize;
+                        if c == b'Z' {
+                            if self.buffer.len() - i < 6 {
+                                self.stream.read_buf(&mut self.buffer).await.unwrap();
+                            }
+                            self.state = ServerState::DataReady;
+                        }
+
+                        i += len + 1;
+                    }
+                }
+
+                ServerState::Error => {
                     break;
-                },
+                }
+
+                ServerState::Terminatation => {
+                    let terminate: Vec<u8> = Terminate {}.into();
+                    self.buffer.put_slice(&terminate);
+                    self.state = ServerState::Error;
+                }
 
                 ServerState::DataReady => {
                     break;
-                },
+                }
 
                 ServerState::Idle => {
                     break;
-                },
+                }
 
                 _ => (),
             };
@@ -165,6 +206,10 @@ impl Server {
             ServerState::Idle => (),
             ServerState::Active => (),
             ServerState::InTransaction => (),
+            ServerState::Error => {
+                self.state = ServerState::DataReady;
+                return Ok(());
+            }
             _ => return Err("ERROR: client and server out of sync"),
         };
 
@@ -184,11 +229,11 @@ impl Server {
                 }
                 self.buffer.clear();
                 Ok(())
-            },
+            }
 
             _ => {
                 Err("ERROR: server and client out of sync with bad state")
-            },
+            }
         }
     }
 }
