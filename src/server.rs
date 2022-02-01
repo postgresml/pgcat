@@ -4,13 +4,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::messages::authentication_md5_password::*;
 use crate::messages::authentication_ok::*;
+use crate::messages::backend_key_data::*;
 use crate::messages::error_response::*;
 use crate::messages::parameter_status::*;
 use crate::messages::password_message::*;
+use crate::messages::ready_for_query::*;
 use crate::messages::startup_message::*;
 use crate::messages::terminate::*;
-use crate::messages::ready_for_query::*;
-use crate::messages::backend_key_data::*;
 
 use crate::messages::{parse, Message, MessageName};
 use bytes::{Buf, BufMut};
@@ -72,7 +72,6 @@ impl Server {
 
     pub async fn handle(&mut self) -> Result<(), &'static str> {
         loop {
-
             match self.state {
                 ServerState::Connecting => {
                     let startup: Vec<u8> =
@@ -96,7 +95,7 @@ impl Server {
                     match message_name {
                         MessageName::AuthenticationOk => {
                             AuthenticationOk::parse(&mut self.buffer, len as i32);
-                        },
+                        }
 
                         MessageName::AuthenticationMD5Password => {
                             let challenge =
@@ -114,18 +113,19 @@ impl Server {
                         }
 
                         MessageName::ErrorResponse => {
-                            let _error = ErrorResponse::parse(&mut self.buffer, len as i32).unwrap();
+                            let _error =
+                                ErrorResponse::parse(&mut self.buffer, len as i32).unwrap();
                             self.state = ServerState::Terminatation;
-                        },
+                        }
 
                         MessageName::ParameterStatus => {
                             ParameterStatus::parse(&mut self.buffer, len as i32);
-                        },
+                        }
 
                         MessageName::ReadyForQuery => {
                             ReadyForQuery::parse(&mut self.buffer, len as i32);
                             self.state = ServerState::LoginSuccessful;
-                        },
+                        }
 
                         MessageName::BackendKeyData => {
                             BackendKeyData::parse(&mut self.buffer, len as i32);
@@ -143,8 +143,10 @@ impl Server {
                 ServerState::Active => {
                     // Data in buffer?
                     if self.buffer.has_remaining() {
-                        self.stream.write_buf(&mut self.buffer).await;
-                        self.buffer.clear();
+                        while self.buffer.has_remaining() {
+                            self.stream.write_buf(&mut self.buffer).await;
+                        }
+                        // self.buffer.clear();
 
                         // TODO: handle multiple statements in a transaction
                         self.state = ServerState::WaitingForBackend;
@@ -159,20 +161,26 @@ impl Server {
                     // Not enough data yet
                     if self.buffer.len() < 5 {
                         continue;
+                    } else if self.buffer.len() == 5 {
+                        let c = self.buffer[0] as char;
+
+                        match c {
+                            'C' => {
+                                continue;
+                            }
+                            'X' => {
+                                self.state = ServerState::DataReady;
+                                break;
+                            }
+                            _ => (),
+                        };
                     }
 
-                    let mut i = 0;
-                    while i < self.buffer.len() {
-                        let c = self.buffer[i];
-                        let len = i32::from_be_bytes(self.buffer[i+1..i+5].try_into().unwrap()) as usize;
-                        if c == b'Z' {
-                            if self.buffer.len() - i < 6 {
-                                self.stream.read_buf(&mut self.buffer).await.unwrap();
-                            }
-                            self.state = ServerState::DataReady;
-                        }
+                    let len = self.buffer.len();
 
-                        i += len + 1;
+                    // We have the whole thing
+                    if self.buffer[len - 6] == b'Z' {
+                        self.state = ServerState::DataReady;
                     }
                 }
 
@@ -210,7 +218,9 @@ impl Server {
                 self.state = ServerState::DataReady;
                 return Ok(());
             }
-            _ => return Err("ERROR: client and server out of sync"),
+            _ => {
+                return Err("ERROR: client and server out of sync");
+            }
         };
 
         self.buffer.put(buf);
@@ -228,12 +238,11 @@ impl Server {
                     buf.put_u8(self.buffer.get_u8());
                 }
                 self.buffer.clear();
+                self.state = ServerState::Idle;
                 Ok(())
             }
 
-            _ => {
-                Err("ERROR: server and client out of sync with bad state")
-            }
+            _ => Err("ERROR: server and client out of sync with bad state"),
         }
     }
 }

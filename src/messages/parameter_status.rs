@@ -18,7 +18,7 @@ impl crate::messages::Message for ParameterStatus {
         // Len: 4 bytes
         let _c = buf.get_u8();
         let len = buf.get_i32() as usize;
-        let mut args = buf.copy_to_bytes(len-4);
+        let mut args = buf.copy_to_bytes(len - 4);
 
         let args = crate::communication::parse_parameters(&mut args);
 

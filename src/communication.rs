@@ -1,6 +1,6 @@
+use bytes::Buf;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use bytes::Buf;
 
 pub struct BufferResult {
     complete_messages: usize,

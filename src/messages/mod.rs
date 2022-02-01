@@ -57,6 +57,10 @@ pub trait Message {
 }
 
 pub fn parse(buf: &[u8]) -> Result<(usize, MessageName), &'static str> {
+    // if buf.len() < 5 {
+    //     return Err("Incomplete");
+    // }
+
     let c = buf[0] as char;
     let len = i32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
     match c {
@@ -81,6 +85,9 @@ pub fn parse(buf: &[u8]) -> Result<(usize, MessageName), &'static str> {
         'E' => Ok((len, MessageName::ErrorResponse)),
         'Q' => Ok((len, MessageName::Query)),
         'X' => Ok((len, MessageName::Termination)),
-        _ => Err("ERROR: unknown message"),
+        _ => {
+            println!("Message: {}", c);
+            Err("ERROR: unknown message")
+        }
     }
 }
