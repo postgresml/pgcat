@@ -60,7 +60,7 @@ impl crate::messages::Message for ReadyForQuery {
     }
 
     fn parse(buf: &mut bytes::BytesMut, len: i32) -> Option<ReadyForQuery> {
-        // 'S': 1 byte
+        // 'Z': 1 byte
         // Len: 4 bytes
         let _c = buf.get_u8();
         let _len = buf.get_i32();

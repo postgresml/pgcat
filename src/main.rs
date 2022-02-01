@@ -2,6 +2,7 @@
 
 mod client;
 mod communication;
+mod error;
 mod messages;
 mod server;
 

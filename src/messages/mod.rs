@@ -57,10 +57,6 @@ pub trait Message {
 }
 
 pub fn parse(buf: &[u8]) -> Result<(usize, MessageName), &'static str> {
-    // if buf.len() < 5 {
-    //     return Err("Incomplete");
-    // }
-
     let c = buf[0] as char;
     let len = i32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
     match c {

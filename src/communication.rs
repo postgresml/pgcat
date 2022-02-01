@@ -140,13 +140,14 @@ pub fn parse_parameters(buf: &mut bytes::Bytes) -> std::collections::HashMap<Str
     args
 }
 
-pub fn parse_string(buf: &[u8]) -> (usize, String) {
-    let mut len = 0;
-    while buf[len] != 0 {
-        len += 1;
+pub fn parse_string(buf: &mut bytes::BytesMut) -> String {
+    let mut b = Vec::new();
+    let c = buf.get_u8();
+    while c != 0 {
+        b.push(c);
     }
 
-    (len, String::from_utf8_lossy(&buf[0..len]).to_string())
+    String::from_utf8_lossy(&b).to_string()
 }
 
 pub async fn write_all(stream: &mut tokio::net::TcpStream, buf: &[u8]) -> Result<(), &'static str> {
@@ -178,4 +179,89 @@ pub async fn write_buf(
         };
     }
     Ok(())
+}
+
+async fn read_stream(
+    stream: &mut tokio::net::TcpStream,
+    buffer: &mut bytes::BytesMut,
+) -> Result<(), crate::error::Error> {
+    match stream.read_buf(buffer).await {
+        Ok(n) => {
+            if n == 0 {
+                return Err(crate::error::Error::new(
+                    crate::error::ErrorCode::ClientDisconnected,
+                ));
+            }
+        }
+        Err(_err) => {
+            return Err(crate::error::Error::new(
+                crate::error::ErrorCode::SocketError,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read messages from the stream until we have a complete communication
+/// from the client or the server.
+pub async fn read_messages(
+    stream: &mut tokio::net::TcpStream,
+    buffer: &mut bytes::BytesMut,
+) -> Result<(), crate::error::Error> {
+    let mut i = 0;
+    loop {
+        // Smallest Postgres message is 5 bytes
+        if buffer[i..].len() < 5 {
+            read_stream(stream, buffer).await?;
+            // TODO: check for error
+            continue;
+        }
+
+        let code = buffer[i] as char;
+        let len = i32::from_be_bytes(buffer[i+1..i+5].try_into().unwrap()) as usize;
+
+        // We have at least that message
+        if buffer[i..].len() > len {
+            match code {
+                'Z' => break, // Waiting for query
+                'Q' => break, // Query
+                'R' => {
+                    let r_code = i32::from_be_bytes(buffer[i+5..i+5+4].try_into().unwrap());
+
+                    match r_code {
+                        0 => (), // Keep going, there is more, we logged in successfully,
+                        _ => break, // Auth challenge
+                    };
+                },
+
+                _ => (), // Something else, keep going
+            };
+
+            i += len + 1;
+        }
+        // Read some more, we don't even have a single message
+        else {
+            read_stream(stream, buffer).await?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn write_buffer(
+    stream: &mut tokio::net::TcpStream,
+    buffer: &mut bytes::BytesMut,
+) -> Result<(), crate::error::Error> {
+    match stream.write_all(buffer).await {
+        Ok(_) => {
+            // Buffer should be empty
+            if buffer.len() > 0 {
+                Err(crate::error::Error::new(crate::error::ErrorCode::SocketError))
+            } else {
+                Ok(())
+            }
+        },
+        Err(_err) => Err(crate::error::Error::new(crate::error::ErrorCode::SocketError)),
+    }
 }

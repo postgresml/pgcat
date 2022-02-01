@@ -1,15 +1,17 @@
 /// psql client
 use crate::messages::startup_message::*;
 // use crate::messages::{parse, Message};
-use crate::communication::write_all;
+use crate::communication::{write_all, read_messages};
 use crate::messages::authentication_ok::*;
 use crate::messages::query::*;
 use crate::messages::ready_for_query::*;
 use crate::messages::*;
 use crate::server::Server;
+use crate::error::{Error, ErrorCode};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+
 
 use bytes::Buf;
 
@@ -122,19 +124,35 @@ impl Client {
 
                 ClientState::Idle => {
                     // Read some messages pending
-                    let n = match self.stream.read_buf(&mut self.buffer).await {
-                        Ok(n) => n,
-                        Err(_err) => 0,
-                    };
+                    match read_messages(&mut self.stream, &mut self.buffer).await {
+                        Ok(()) => (),
+                        Err(err) => {
+                            match err.code {
+                                ErrorCode::ClientDisconnected => {
+                                    self.state = ClientState::Disconnected;
+                                    return Ok(());
+                                },
 
-                    if n == 0 {
-                        self.state = ClientState::Disconnected;
-                        return Ok(());
+                                _ => {
+                                    println!("DEBUG: Client error {:?}", err.code);
+                                    return Err("Client error");
+                                }
+                            }
+                        }
                     }
+                    // let n = match self.stream.read_buf(&mut self.buffer).await {
+                    //     Ok(n) => n,
+                    //     Err(_err) => 0,
+                    // };
 
-                    if self.buffer.len() < 6 {
-                        continue;
-                    }
+                    // if n == 0 {
+                    //     self.state = ClientState::Disconnected;
+                    //     return Ok(());
+                    // }
+
+                    // if self.buffer.len() < 6 {
+                    //     continue;
+                    // }
 
                     // read_all(&mut self.stream, &mut self.buffer).await?;
                     let (len, message_name) = parse(&self.buffer)?;
@@ -142,9 +160,9 @@ impl Client {
                     match message_name {
                         MessageName::Query => {
                             // Buffer the whole query if it's not here yet
-                            if len + 1 > self.buffer.len() {
-                                continue;
-                            }
+                            // if len + 1 > self.buffer.len() {
+                            //     continue;
+                            // }
 
                             self.state = ClientState::WaitingForServer;
                         }
@@ -158,27 +176,11 @@ impl Client {
                 }
 
                 ClientState::WaitingForServer => {
-                    // match Server::connect(
-                    //     "127.0.0.1:5432",
-                    //     &self.username.as_ref().unwrap(),
-                    //     "lev",
-                    //     &self.database.as_ref().unwrap(),
-                    // )
-                    // .await
-                    // {
-                    //     Ok(server) => {
-                    //         self.server = Some(Arc::new(Mutex::new(server)));
-
-                    //         // Perform the connection authentication
-                    //         let mut server = self.server.as_ref().unwrap().lock().await;
-
                     // TODO: handle multiple statements
                     self.state = ClientState::Active;
 
                     self.server.forward(&self.buffer).await?;
                     self.buffer.clear();
-                    // }
-                    // Err(_err) => return Err("ERROR: could not connect to server"),
                 }
 
                 ClientState::Active => {

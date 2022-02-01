@@ -11,6 +11,7 @@ use crate::messages::password_message::*;
 use crate::messages::ready_for_query::*;
 use crate::messages::startup_message::*;
 use crate::messages::terminate::*;
+use crate::communication::read_messages;
 
 use crate::messages::{parse, Message, MessageName};
 use bytes::{Buf, BufMut};
@@ -85,9 +86,8 @@ impl Server {
                 }
 
                 ServerState::WaitingForChallenge => {
-                    // let b = tokio::io::ReadBuf::new(&mut self.buffer);
                     if !self.buffer.has_remaining() {
-                        self.stream.read_buf(&mut self.buffer).await;
+                        read_messages(&mut self.stream, &mut self.buffer).await;
                     }
 
                     let (len, message_name) = parse(&mut self.buffer)?;
@@ -146,9 +146,9 @@ impl Server {
                         while self.buffer.has_remaining() {
                             self.stream.write_buf(&mut self.buffer).await;
                         }
-                        // self.buffer.clear();
 
-                        // TODO: handle multiple statements in a transaction
+                        // Server will acklnowledge every query sent
+                        // with a result or an ok message.
                         self.state = ServerState::WaitingForBackend;
                     } else {
                         self.state = ServerState::Idle;
@@ -156,32 +156,8 @@ impl Server {
                 }
 
                 ServerState::WaitingForBackend => {
-                    let n = self.stream.read_buf(&mut self.buffer).await.unwrap();
-
-                    // Not enough data yet
-                    if self.buffer.len() < 5 {
-                        continue;
-                    } else if self.buffer.len() == 5 {
-                        let c = self.buffer[0] as char;
-
-                        match c {
-                            'C' => {
-                                continue;
-                            }
-                            'X' => {
-                                self.state = ServerState::DataReady;
-                                break;
-                            }
-                            _ => (),
-                        };
-                    }
-
-                    let len = self.buffer.len();
-
-                    // We have the whole thing
-                    if self.buffer[len - 6] == b'Z' {
-                        self.state = ServerState::DataReady;
-                    }
+                    read_messages(&mut self.stream, &mut self.buffer).await;
+                    self.state = ServerState::DataReady;
                 }
 
                 ServerState::Error => {
