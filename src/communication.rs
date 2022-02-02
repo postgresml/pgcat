@@ -1,6 +1,13 @@
 use bytes::Buf;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
+use bytes::BufMut;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum Protocol {
+    Simple,
+    Extended,
+}
 
 pub struct BufferResult {
     complete_messages: usize,
@@ -150,7 +157,7 @@ pub fn parse_string(buf: &mut bytes::BytesMut) -> String {
     String::from_utf8_lossy(&b).to_string()
 }
 
-pub async fn write_all(stream: &mut tokio::net::TcpStream, buf: &[u8]) -> Result<(), &'static str> {
+pub async fn write_all(stream: &mut tokio::io::BufReader<tokio::net::TcpStream>, buf: &[u8]) -> Result<(), &'static str> {
     match stream.write_all(&buf).await {
         Ok(_n) => Ok(()),
         Err(_err) => Err("ERROR: socket died"),
@@ -208,9 +215,11 @@ async fn read_stream(
 pub async fn read_messages(
     stream: &mut tokio::net::TcpStream,
     buffer: &mut bytes::BytesMut,
+    protocol: Protocol,
 ) -> Result<(), crate::error::Error> {
     let mut i = 0;
     loop {
+        // println!("Buf: {:?}", buffer);
         // Smallest Postgres message is 5 bytes
         if buffer[i..].len() < 5 {
             read_stream(stream, buffer).await?;
@@ -221,17 +230,32 @@ pub async fn read_messages(
         let code = buffer[i] as char;
         let len = i32::from_be_bytes(buffer[i+1..i+5].try_into().unwrap()) as usize;
 
+        // println!("Protocol code: {}", code);
+
         // We have at least that message
         if buffer[i..].len() > len {
             match code {
                 'Z' => break, // Waiting for query
                 'Q' => break, // Query
+                // 'P' => break, // Parse
+                // '1' => break, // ParseComplete
+                // 'B' => break, // Bind
+                // '2' => break, // BindComplete
+                // 'E' => break, // Execute
+                'S' => break, // Sync
                 'R' => {
                     let r_code = i32::from_be_bytes(buffer[i+5..i+5+4].try_into().unwrap());
 
                     match r_code {
                         0 => (), // Keep going, there is more, we logged in successfully,
                         _ => break, // Auth challenge
+                    };
+                },
+                'C' => {
+                    // Command complete
+                    match protocol {
+                        Protocol::Simple => (), // ReadyForQuery is still coming
+                        Protocol::Extended => break, // No more messages in extended protocol
                     };
                 },
 
@@ -265,3 +289,55 @@ pub async fn write_buffer(
         Err(_err) => Err(crate::error::Error::new(crate::error::ErrorCode::SocketError)),
     }
 }
+
+pub async fn read_message(
+    stream: &mut tokio::io::BufReader<tokio::net::TcpStream>,
+    buffer: &mut bytes::BytesMut,
+) -> Result<(), crate::error::Error> {
+    let code = stream.read_u8().await.unwrap();
+    let len = stream.read_i32().await.unwrap();
+
+
+    let mut buf = vec![0u8; len as usize];
+    stream.read_exact(&mut buf).await.unwrap();
+
+    buffer.put_u8(code);
+    buffer.put_i32(len);
+    buffer.put_slice(&buf);
+    // loop {
+    //     if buffer.len() >= 5 {
+    //         let code = buffer[0];
+    //         let len = i32::from_be_bytes(buffer[1..5].try_into().unwrap());
+    //         if buffer.len() > len as usize {
+    //             // println!("No syscall");
+    //             return Ok(())
+    //         }
+    //     }
+
+    //     // println!("Syscall");
+    //     stream.read_buf(buffer).await.unwrap();
+    // }
+
+    // Protocol code = one char.
+    // let code = match stream.read_u8().await {
+    //     Ok(code) => code,
+    //     Err(_err) => return Err(crate::error::Error::new(crate::error::ErrorCode::SocketError)),
+    // };
+
+    // // Message length = 32 bit int.
+    // let len = match stream.read_i32().await {
+    //     Ok(len) => len,
+    //     Err(_err) => return Err(crate::error::Error::new(crate::error::ErrorCode::SocketError)),
+    // };
+
+    // buffer.put_u8(code);
+    // buffer.put_i32(len);
+
+    // // The message, len includes itself which is 4 bytes (32-bit int).
+    // let mut buf = vec![0u8; (len - 4) as usize];
+    // stream.read_exact(&mut buf).await;
+
+    // buffer.put_slice(&buf);
+
+    Ok(())
+} 

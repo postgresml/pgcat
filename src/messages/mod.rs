@@ -20,11 +20,20 @@ pub enum MessageName {
     AuthenticationOk,
     ReadyForQuery,
     Query,
+    Prepare,
+    PrepareComplete,
+    Bind,
+    BindComplete,
+    Execute,
+    CommandComplete,
+    Sync,
     ParameterStatus,
     BackendKeyData,
     AuthenticationMD5Password,
     ErrorResponse,
     RowDescription,
+    DataRow,
+    NoData,
 }
 
 impl std::fmt::Display for MessageName {
@@ -77,9 +86,20 @@ pub fn parse(buf: &[u8]) -> Result<(usize, MessageName), &'static str> {
         }
 
         'T' => Ok((len, MessageName::RowDescription)),
+        'D' => Ok((len, MessageName::DataRow)),
+        'n' => Ok((len, MessageName::NoData)),
 
         'E' => Ok((len, MessageName::ErrorResponse)),
         'Q' => Ok((len, MessageName::Query)),
+
+        // Extended
+        'P' => Ok((len, MessageName::Prepare)),
+        '1' => Ok((len, MessageName::PrepareComplete)),
+        'B' => Ok((len, MessageName::Bind)),
+        '2' => Ok((len, MessageName::BindComplete)),
+        'E' => Ok((len, MessageName::Execute)),
+        'S' => Ok((len, MessageName::Sync)),
+        'C' => Ok((len, MessageName::CommandComplete)),
         'X' => Ok((len, MessageName::Termination)),
         _ => {
             println!("Message: {}", c);

@@ -1,7 +1,7 @@
 /// psql client
 use crate::messages::startup_message::*;
-// use crate::messages::{parse, Message};
-use crate::communication::{write_all, read_messages};
+use crate::messages::{parse, MessageName};
+use crate::communication::{write_all, read_messages, read_message, Protocol};
 use crate::messages::authentication_ok::*;
 use crate::messages::query::*;
 use crate::messages::ready_for_query::*;
@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 use bytes::Buf;
 
 pub struct Client {
-    stream: tokio::net::TcpStream,
+    stream: tokio::io::BufReader<tokio::net::TcpStream>,
 
     username: Option<String>,
     database: Option<String>,
@@ -25,6 +25,7 @@ pub struct Client {
     state: ClientState,
 
     server: Server,
+    protocol: Protocol,
 
     // Settings
     client_idle_timeout: f64,
@@ -51,11 +52,12 @@ impl Client {
             .unwrap();
         server.handle().await.unwrap();
         Client {
-            stream: stream,
+            stream: tokio::io::BufReader::new(stream),
             username: None,
             database: None,
             client_idle_timeout: 0.0,
             server: server,
+            protocol: Protocol::Simple,
             buffer: bytes::BytesMut::with_capacity(8196),
             state: ClientState::Connecting,
         }
@@ -63,6 +65,8 @@ impl Client {
 
     pub async fn handle(&mut self) -> Result<(), &'static str> {
         loop {
+            // println!("Client state: {:?}", self.state);
+
             match self.state {
                 // Client just connected
                 ClientState::Connecting => {
@@ -124,74 +128,142 @@ impl Client {
 
                 ClientState::Idle => {
                     // Read some messages pending
-                    match read_messages(&mut self.stream, &mut self.buffer).await {
-                        Ok(()) => (),
-                        Err(err) => {
-                            match err.code {
-                                ErrorCode::ClientDisconnected => {
-                                    self.state = ClientState::Disconnected;
-                                    return Ok(());
-                                },
+                    // match read_messages(&mut self.stream, &mut self.buffer, self.protocol).await {
+                    //     Ok(()) => (),
+                    //     Err(err) => {
+                    //         match err.code {
+                    //             ErrorCode::ClientDisconnected => {
+                    //                 self.state = ClientState::Disconnected;
+                    //                 return Ok(());
+                    //             },
 
-                                _ => {
-                                    println!("DEBUG: Client error {:?}", err.code);
-                                    return Err("Client error");
-                                }
-                            }
-                        }
-                    }
-                    // let n = match self.stream.read_buf(&mut self.buffer).await {
-                    //     Ok(n) => n,
-                    //     Err(_err) => 0,
-                    // };
-
-                    // if n == 0 {
-                    //     self.state = ClientState::Disconnected;
-                    //     return Ok(());
+                    //             _ => {
+                    //                 println!("DEBUG: Client error {:?}", err.code);
+                    //                 return Err("Client error");
+                    //             }
+                    //         }
+                    //     }
                     // }
+                    // // let n = match self.stream.read_buf(&mut self.buffer).await {
+                    // //     Ok(n) => n,
+                    // //     Err(_err) => 0,
+                    // // };
 
-                    // if self.buffer.len() < 6 {
-                    //     continue;
+                    // // if n == 0 {
+                    // //     self.state = ClientState::Disconnected;
+                    // //     return Ok(());
+                    // // }
+
+                    // // if self.buffer.len() < 6 {
+                    // //     continue;
+                    // // }
+
+                    // // read_all(&mut self.stream, &mut self.buffer).await?;
+                    // let (len, message_name) = parse(&self.buffer)?;
+
+                    // println!("Client message: {:?}", message_name);
+
+                    // match message_name {
+                    //     MessageName::Query => {
+                    //         // Buffer the whole query if it's not here yet
+                    //         // if len + 1 > self.buffer.len() {
+                    //         //     continue;
+                    //         // }
+
+                    //         self.state = ClientState::WaitingForServer;
+                    //         self.protocol = Protocol::Simple;
+                    //     },
+
+                    //     MessageName::Prepare => {
+                    //         self.state = ClientState::WaitingForServer;
+                    //         self.protocol = Protocol::Extended;
+                    //     },
+
+                    //     MessageName::Bind => {
+                    //         self.state = ClientState::WaitingForServer;
+                    //     },
+
+                    //     MessageName::Execute => {
+                    //         self.state = ClientState::WaitingForServer;
+                    //     },
+
+                    //     MessageName::Sync => {
+                    //         self.state = ClientState::WaitingForServer;
+                    //     },
+
+                    //     MessageName::Termination => return Ok(()),
+
+                    //     // Move offset in case we want to read more messages later
+                    //     // self.offset += len;
+                    //     _ => return Err("ERROR: unexpected message while idle"),
                     // }
-
-                    // read_all(&mut self.stream, &mut self.buffer).await?;
-                    let (len, message_name) = parse(&self.buffer)?;
-
-                    match message_name {
-                        MessageName::Query => {
-                            // Buffer the whole query if it's not here yet
-                            // if len + 1 > self.buffer.len() {
-                            //     continue;
-                            // }
-
+                    match read_message(&mut self.stream, &mut self.buffer).await {
+                        Ok(()) => {
                             self.state = ClientState::WaitingForServer;
+                        },
+                        Err(_err) => {
+                            self.state = ClientState::Disconnected;
                         }
-
-                        MessageName::Termination => return Ok(()),
-
-                        // Move offset in case we want to read more messages later
-                        // self.offset += len;
-                        _ => return Err("ERROR: unexpected message while idle"),
                     }
                 }
 
                 ClientState::WaitingForServer => {
                     // TODO: handle multiple statements
-                    self.state = ClientState::Active;
+                    // self.state = ClientState::Active;
+                    // println!("Buf: {:?}", self.buffer);
+                    let (len, message_name) = parse(&self.buffer)?;
 
-                    self.server.forward(&self.buffer).await?;
-                    self.buffer.clear();
+                    match message_name {
+                        MessageName::Query => {
+                            self.protocol = Protocol::Simple;
+                            self.state = ClientState::Active;
+                        },
+
+                        MessageName::Prepare => {
+                            self.protocol = Protocol::Extended;
+                            self.state = ClientState::Idle;
+                        },
+
+                        MessageName::Execute => {
+                            self.state = ClientState::Active;
+                        },
+
+                        MessageName::Sync => {
+                            self.state = ClientState::Active;
+                        },
+
+                        MessageName::ParameterStatus => {
+                            self.state = ClientState::Active;
+                        },
+
+                        _ => {
+                            self.state = ClientState::Idle; // More messages to follow
+                        },
+                    };
+                    // println!("client buf: {:?}", self.buffer);
+                    self.server.forward(&mut self.buffer, self.protocol, len + 1).await?;
+                    // println!("client buf: {:?}", self.buffer);
+                    // self.buffer.clear();
                 }
 
                 ClientState::Active => {
-                    self.server.receive(&mut self.buffer).await?;
+                    let done = self.server.receive(&mut self.buffer).await?;
 
                     while self.buffer.has_remaining() {
                         self.stream.write_buf(&mut self.buffer).await;
                     }
                     self.buffer.clear();
-                    self.state = ClientState::Idle;
-                }
+
+                    // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+                    if done {
+                        self.state = ClientState::Idle;
+                    }
+                },
+
+                ClientState::Disconnected => {
+                    return Ok(());
+                },
 
                 _ => return Err("ERROR: unexpected message"),
             };

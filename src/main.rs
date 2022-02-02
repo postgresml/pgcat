@@ -5,6 +5,7 @@ mod communication;
 mod error;
 mod messages;
 mod server;
+mod splits;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

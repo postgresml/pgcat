@@ -11,7 +11,7 @@ use crate::messages::password_message::*;
 use crate::messages::ready_for_query::*;
 use crate::messages::startup_message::*;
 use crate::messages::terminate::*;
-use crate::communication::read_messages;
+use crate::communication::{Protocol, read_messages, read_message};
 
 use crate::messages::{parse, Message, MessageName};
 use bytes::{Buf, BufMut};
@@ -36,9 +36,11 @@ pub struct Server {
     username: String,
     password: String,
     database: String,
-    stream: tokio::net::TcpStream,
+    stream: tokio::io::BufReader<tokio::net::TcpStream>,
     state: ServerState,
     buffer: bytes::BytesMut,
+    protocol: Protocol,
+    data_available: usize,
 }
 
 #[derive(Debug)]
@@ -55,8 +57,8 @@ impl Server {
         database: &str,
     ) -> Result<Server, &'static str> {
         // TCP connection
-        let stream = match tokio::net::TcpStream::connect(host).await {
-            Ok(stream) => stream,
+        let (read, write) = match tokio::net::TcpStream::connect(host).await {
+            Ok(stream) => (tokio::io::BufReader::new(stream), tokio::io::BufWriter::new(stream)),
             Err(err) => return Err("ERROR: cannot connect to server"),
         };
 
@@ -65,14 +67,17 @@ impl Server {
             username: username.to_string(),
             password: password.to_string(),
             database: database.to_string(),
-            stream: stream,
+            stream: read,
             state: ServerState::Connecting,
             buffer: bytes::BytesMut::with_capacity(8196),
+            protocol: Protocol::Simple,
+            data_available: 0,
         })
     }
 
     pub async fn handle(&mut self) -> Result<(), &'static str> {
         loop {
+            // println!("Server state: {:?}", self.state);
             match self.state {
                 ServerState::Connecting => {
                     let startup: Vec<u8> =
@@ -86,9 +91,7 @@ impl Server {
                 }
 
                 ServerState::WaitingForChallenge => {
-                    if !self.buffer.has_remaining() {
-                        read_messages(&mut self.stream, &mut self.buffer).await;
-                    }
+                    read_message(&mut self.stream, &mut self.buffer).await.unwrap(); // Panic for now
 
                     let (len, message_name) = parse(&mut self.buffer)?;
 
@@ -156,8 +159,33 @@ impl Server {
                 }
 
                 ServerState::WaitingForBackend => {
-                    read_messages(&mut self.stream, &mut self.buffer).await;
-                    self.state = ServerState::DataReady;
+                    // read_messages(&mut self.stream, &mut self.buffer, self.protocol).await;
+                    read_message(&mut self.stream, &mut self.buffer).await.unwrap();
+
+                    let (len, message_name) = parse(&mut self.buffer)?;
+                    self.data_available += len + 1;
+
+                    // println!("Backend msg: {:?}", message_name);
+
+                    match message_name {
+                        MessageName::ReadyForQuery => {
+                            self.state = ServerState::Idle;
+                        },
+
+                        MessageName::CommandComplete => {
+                            if self.protocol == Protocol::Extended {
+                                self.state = ServerState::DataReady;
+                            }
+
+                            else {
+                                self.state = ServerState::DataReady;
+                            }
+                        },
+
+                        _ => {
+                            self.state = ServerState::DataReady;
+                        },
+                    };
                 }
 
                 ServerState::Error => {
@@ -185,7 +213,7 @@ impl Server {
         Ok(())
     }
 
-    pub async fn forward(&mut self, buf: &[u8]) -> Result<(), &'static str> {
+    pub async fn forward(&mut self, buf: &mut bytes::BytesMut, protocol: Protocol, len: usize) -> Result<(), &'static str> {
         match self.state {
             ServerState::Idle => (),
             ServerState::Active => (),
@@ -199,26 +227,38 @@ impl Server {
             }
         };
 
-        self.buffer.put(buf);
+        self.protocol = protocol;
+
+        for _ in 0..len {
+            self.buffer.put_u8(buf.get_u8());
+        }
+
         self.state = ServerState::Active;
 
         Ok(())
     }
 
-    pub async fn receive(&mut self, buf: &mut bytes::BytesMut) -> Result<(), &'static str> {
+    pub async fn receive(&mut self, buf: &mut bytes::BytesMut) -> Result<bool, &'static str> {
         self.handle().await?;
 
+        // Two acceptable states to return to the client.
+        let mut done = false;
         match self.state {
-            ServerState::DataReady => {
-                while self.buffer.has_remaining() {
-                    buf.put_u8(self.buffer.get_u8());
-                }
-                self.buffer.clear();
-                self.state = ServerState::Idle;
-                Ok(())
-            }
+            ServerState::DataReady => (),
+            ServerState::Idle => { done = true; },
+            _ => return Err("ERROR: server and client out of sync with bad state"),
+        };
 
-            _ => Err("ERROR: server and client out of sync with bad state"),
+        for _ in 0..self.data_available {
+            buf.put_u8(self.buffer.get_u8());
         }
+
+        self.data_available = 0;
+
+        if !done {
+            self.state = ServerState::WaitingForBackend;
+        }
+
+        Ok(done)
     }
 }
