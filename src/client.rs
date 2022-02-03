@@ -1,14 +1,14 @@
+use tokio::io::{AsyncReadExt, BufReader};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 /// PostgreSQL client (frontend).
 /// We are pretending to be the backend.
-
 use tokio::net::TcpStream;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::io::{AsyncReadExt, BufReader};
 
-use bytes::{BytesMut, Buf, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 
 use crate::errors::Error;
 use crate::messages::*;
+use crate::server::Server;
 
 pub struct Client {
     read: BufReader<OwnedReadHalf>,
@@ -43,7 +43,7 @@ impl Client {
                     no.put_u8(b'N');
 
                     write_all(&mut stream, no).await?;
-                },
+                }
 
                 // Regular startup message.
                 196608 => {
@@ -58,7 +58,7 @@ impl Client {
                         read: BufReader::new(read),
                         write: write,
                     });
-                },
+                }
 
                 _ => {
                     return Err(Error::ProtocolSyncError);
@@ -67,21 +67,28 @@ impl Client {
         }
     }
 
-    pub async fn handle(&mut self) -> Result<(), Error> {
+    pub async fn handle(&mut self, mut server: Server) -> Result<(), Error> {
         loop {
             let mut message = read_message(&mut self.read).await?;
             let original = message.clone(); // To be forwarded to the server
             let code = message.get_u8() as char;
-            let len = message.get_i32() as usize;
+            let _len = message.get_i32() as usize;
 
             match code {
                 'Q' => {
-                    println!(">>> Query: {:?}", message);
-                },
+                    server.send(original).await?;
+                    let response = server.recv().await?;
+                    write_all_half(&mut self.write, response).await?;
+                }
+
+                'X' => {
+                    // Client closing
+                    return Ok(());
+                }
 
                 _ => {
                     println!(">>> Unexpected code: {}", code);
-                },
+                }
             }
         }
     }

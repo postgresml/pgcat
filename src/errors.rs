@@ -1,7 +1,8 @@
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SocketError,
-    ClientDisconneted,
+    // ClientDisconnected,
     ClientBadStartup,
     ProtocolSyncError,
+    ServerError,
 }
