@@ -2,7 +2,8 @@
 /// We are pretending to be the backend.
 
 use tokio::net::TcpStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::{AsyncReadExt, BufReader};
 
 use bytes::{BytesMut, Buf, BufMut};
 
@@ -10,7 +11,8 @@ use crate::errors::Error;
 use crate::messages::*;
 
 pub struct Client {
-    stream: TcpStream,
+    read: BufReader<OwnedReadHalf>,
+    write: OwnedWriteHalf,
 }
 
 impl Client {
@@ -50,8 +52,11 @@ impl Client {
                     auth_ok(&mut stream).await?;
                     ready_for_query(&mut stream).await?;
 
+                    let (read, write) = stream.into_split();
+
                     return Ok(Client {
-                        stream: stream,
+                        read: BufReader::new(read),
+                        write: write,
                     });
                 },
 
@@ -59,6 +64,25 @@ impl Client {
                     return Err(Error::ProtocolSyncError);
                 }
             };
+        }
+    }
+
+    pub async fn handle(&mut self) -> Result<(), Error> {
+        loop {
+            let mut message = read_message(&mut self.read).await?;
+            let original = message.clone(); // To be forwarded to the server
+            let code = message.get_u8() as char;
+            let len = message.get_i32() as usize;
+
+            match code {
+                'Q' => {
+                    println!(">>> Query: {:?}", message);
+                },
+
+                _ => {
+                    println!(">>> Unexpected code: {}", code);
+                },
+            }
         }
     }
 }

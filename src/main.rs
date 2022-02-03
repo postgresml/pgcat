@@ -20,8 +20,8 @@ async fn main() {
     };
 
     loop {
-        let (mut socket, addr) = match listener.accept().await {
-            Ok((mut socket, addr)) => (socket, addr),
+        let (socket, addr) = match listener.accept().await {
+            Ok((socket, addr)) => (socket, addr),
             Err(err) => {
                 println!("> Listener: {:?}", err);
                 continue;
@@ -33,8 +33,9 @@ async fn main() {
             println!(">> Client {:?} connected", addr);
 
             match client::Client::startup(socket).await {
-                Ok(client) => {
+                Ok(mut client) => {
                     println!(">> Client {:?} connected successfully!", addr);
+                    client.handle().await;
                 },
 
                 Err(err) => {
