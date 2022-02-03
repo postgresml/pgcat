@@ -13,6 +13,7 @@ use crate::server::Server;
 pub struct Client {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
+    buffer: BytesMut,
 }
 
 impl Client {
@@ -57,6 +58,7 @@ impl Client {
                     return Ok(Client {
                         read: BufReader::new(read),
                         write: write,
+                        buffer: BytesMut::with_capacity(8196),
                     });
                 }
 
@@ -84,6 +86,33 @@ impl Client {
                 'X' => {
                     // Client closing
                     return Ok(());
+                }
+
+                'P' => {
+                    // Extended protocol, let's buffer most of it
+                    self.buffer.put(&original[..]);
+                }
+
+                'B' => {
+                    self.buffer.put(&original[..]);
+                }
+
+                'D' => {
+                    self.buffer.put(&original[..]);
+                }
+
+                'E' => {
+                    self.buffer.put(&original[..]);
+                }
+
+                'S' => {
+                    // Extended protocol, client requests sync
+                    self.buffer.put(&original[..]);
+                    server.send(self.buffer.clone()).await?;
+                    self.buffer.clear();
+
+                    let response = server.recv().await?;
+                    write_all_half(&mut self.write, response).await?;
                 }
 
                 _ => {

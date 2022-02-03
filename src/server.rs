@@ -135,6 +135,7 @@ impl Server {
             self.buffer.put(&message[..]);
 
             let code = message.get_u8() as char;
+
             match code {
                 'Z' => {
                     // Ready for query, time to forward buffer to client.
