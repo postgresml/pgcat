@@ -152,18 +152,4 @@ impl Server {
 
         Ok(bytes)
     }
-
-    // pub async fn handle(&mut self) -> Result<(), Error> {
-    //     loop {
-    //         let message = read_message(&mut self.read).await?;
-    //         let original = message.clone();
-
-    //         let code = message.get_u8() as char;
-    //         let len = message.get_i32();
-
-    //         match code {
-    //             '
-    //         }
-    //     }
-    // }
 }
