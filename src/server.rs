@@ -193,7 +193,7 @@ impl Server {
                         // Error client didn't clean up!
                         // We shuold drop this server
                         'E' => {
-                            self.in_transaction = false;
+                            self.in_transaction = true;
                         }
 
                         _ => {
