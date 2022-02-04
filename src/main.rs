@@ -1,17 +1,17 @@
+extern crate async_trait;
+extern crate bb8;
 extern crate bytes;
 extern crate md5;
 extern crate tokio;
-extern crate async_trait;
-extern crate bb8;
 
-use tokio::net::TcpListener;
 use bb8::Pool;
+use tokio::net::TcpListener;
 
 mod client;
 mod errors;
 mod messages;
-mod server;
 mod pool;
+mod server;
 
 #[tokio::main]
 async fn main() {
@@ -42,7 +42,7 @@ async fn main() {
         // Client goes to another thread, bye.
         tokio::task::spawn(async move {
             println!(">> Client {:?} connected.", addr);
-            
+
             let pool = pool.clone();
 
             match client::Client::startup(socket).await {

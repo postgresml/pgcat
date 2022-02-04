@@ -11,6 +11,7 @@ pub struct Server {
     write: OwnedWriteHalf,
     buffer: BytesMut,
     in_transaction: bool,
+    bad: bool,
 }
 
 impl Server {
@@ -114,6 +115,7 @@ impl Server {
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
                         in_transaction: false,
+                        bad: false,
                     });
                 }
 
@@ -126,12 +128,26 @@ impl Server {
     }
 
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
-        Ok(write_all_half(&mut self.write, messages).await?)
+        match write_all_half(&mut self.write, messages).await {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                println!(">> Terminating server because of: {:?}", err);
+                self.bad = true;
+                Err(err)
+            }
+        }
     }
 
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
         loop {
-            let mut message = read_message(&mut self.read).await?;
+            let mut message = match read_message(&mut self.read).await {
+                Ok(message) => message,
+                Err(err) => {
+                    println!(">> Terminating server because of: {:?}", err);
+                    self.bad = true;
+                    return Err(err);
+                }
+            };
 
             // Buffer the message we'll forward to the client in a bit.
             self.buffer.put(&message[..]);
@@ -143,23 +159,30 @@ impl Server {
                 'Z' => {
                     // Ready for query, time to forward buffer to client.
                     let transaction_state = message.get_u8() as char;
-                    
+
                     match transaction_state {
                         'T' => {
                             self.in_transaction = true;
-                        },
+                        }
 
                         'I' => {
                             self.in_transaction = false;
-                        },
+                        }
+
+                        // Error client didn't clean up!
+                        // We shuold drop this server
+                        'E' => {
+                            self.bad = true;
+                        }
 
                         _ => {
-                            self.in_transaction = false;
-                        },
+                            self.bad = true;
+                            return Err(Error::ProtocolSyncError);
+                        }
                     };
 
                     break;
-                },
+                }
 
                 _ => {
                     // Keep buffering,
@@ -175,5 +198,32 @@ impl Server {
 
     pub fn in_transaction(&self) -> bool {
         self.in_transaction
+    }
+
+    pub fn is_bad(&self) -> bool {
+        self.bad
+    }
+
+    pub fn mark_bad(&mut self) {
+        println!(">> Server marked bad");
+        self.bad = true;
+    }
+
+    pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
+        let mut query = BytesMut::from(&format!("SET application_name = {}", name).as_bytes()[..]);
+        query.put_u8(0);
+
+        let len = query.len() as i32 + 4;
+
+        let mut msg = BytesMut::with_capacity(len as usize + 1);
+
+        msg.put_u8(b'Q');
+        msg.put_i32(len);
+        msg.put_slice(&query[..]);
+
+        self.send(msg).await?;
+        let _ = self.recv().await?;
+
+        Ok(())
     }
 }

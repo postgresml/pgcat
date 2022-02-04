@@ -1,9 +1,8 @@
-
 use async_trait::async_trait;
 use bb8::{ManageConnection, PooledConnection};
 
-use crate::server::Server;
 use crate::errors::Error;
+use crate::server::Server;
 
 pub struct ServerPool {
     host: String,
@@ -30,10 +29,17 @@ impl ManageConnection for ServerPool {
     type Connection = Server;
     type Error = Error;
 
-   /// Attempts to create a new connection.
+    /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         println!(">> Getting connetion from pool");
-        Ok(Server::startup(&self.host, &self.port, &self.user, &self.password, &self.database).await?)
+        Ok(Server::startup(
+            &self.host,
+            &self.port,
+            &self.user,
+            &self.password,
+            &self.database,
+        )
+        .await?)
     }
 
     /// Determines if the connection is still connected to the database.
@@ -42,7 +48,7 @@ impl ManageConnection for ServerPool {
     }
 
     /// Synchronously determine if the connection is no longer usable, if possible.
-    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
-        false
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        conn.is_bad()
     }
 }

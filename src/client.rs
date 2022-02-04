@@ -9,13 +9,15 @@ use bytes::{Buf, BufMut, BytesMut};
 use crate::errors::Error;
 use crate::messages::*;
 
-use bb8::Pool;
 use crate::pool::ServerPool;
+use bb8::Pool;
+use rand::{distributions::Alphanumeric, Rng};
 
 pub struct Client {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
     buffer: BytesMut,
+    name: String,
 }
 
 impl Client {
@@ -57,10 +59,17 @@ impl Client {
 
                     let (read, write) = stream.into_split();
 
+                    let name: String = rand::thread_rng()
+                        .sample_iter(&Alphanumeric)
+                        .take(7)
+                        .map(char::from)
+                        .collect();
+
                     return Ok(Client {
                         read: BufReader::new(read),
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
+                        name: name,
                     });
                 }
 
@@ -72,7 +81,6 @@ impl Client {
     }
 
     pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
-        
         loop {
             // Only grab a connection once we have some traffic on the socket
             // TODO: this is not the most optimal way to share servers.
@@ -84,8 +92,20 @@ impl Client {
             let mut proxy = pool.get().await.unwrap();
             let server = &mut *proxy;
 
+            server.set_name(&self.name).await?;
+
             loop {
-                let mut message = read_message(&mut self.read).await?;
+                let mut message = match read_message(&mut self.read).await {
+                    Ok(message) => message,
+                    Err(err) => {
+                        if server.in_transaction() {
+                            server.mark_bad();
+                        }
+
+                        return Err(err);
+                    }
+                };
+
                 let original = message.clone(); // To be forwarded to the server
                 let code = message.get_u8() as char;
                 let _len = message.get_i32() as usize;
@@ -94,10 +114,17 @@ impl Client {
                     'Q' => {
                         server.send(original).await?;
                         let response = server.recv().await?;
-                        write_all_half(&mut self.write, response).await?;
+                        match write_all_half(&mut self.write, response).await {
+                            Ok(_) => (),
+                            Err(err) => {
+                                server.mark_bad();
+                                return Err(err);
+                            }
+                        };
 
-                         // Release server
+                        // Release server
                         if !server.in_transaction() {
+                            drop(server);
                             break;
                         }
                     }
@@ -131,10 +158,17 @@ impl Client {
                         self.buffer.clear();
 
                         let response = server.recv().await?;
-                        write_all_half(&mut self.write, response).await?;
+                        match write_all_half(&mut self.write, response).await {
+                            Ok(_) => (),
+                            Err(err) => {
+                                server.mark_bad();
+                                return Err(err);
+                            }
+                        };
 
                         // Release server
                         if !server.in_transaction() {
+                            drop(server);
                             break;
                         }
                     }
