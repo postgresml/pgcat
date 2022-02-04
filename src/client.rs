@@ -1,26 +1,32 @@
+/// Implementation of the PostgreSQL client.
+/// We are pretending to the server in this scenario,
+/// and this module implements that.
+use bb8::Pool;
+use bytes::{Buf, BufMut, BytesMut};
+use rand::{distributions::Alphanumeric, Rng};
 use tokio::io::{AsyncReadExt, BufReader, Interest};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-/// PostgreSQL client (frontend).
-/// We are pretending to be the backend.
 use tokio::net::TcpStream;
-
-use bytes::{Buf, BufMut, BytesMut};
 
 use crate::errors::Error;
 use crate::messages::*;
-
 use crate::pool::ServerPool;
-use bb8::Pool;
-use rand::{distributions::Alphanumeric, Rng};
 
+/// The client state.
 pub struct Client {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
     buffer: BytesMut,
     name: String,
+    cancel_mode: bool,
+    process_id: i32,
+    secret_key: i32,
 }
 
 impl Client {
+    /// Given a TCP socket, trick the client into thinking we are
+    /// the Postgres server. Perform the authentication and place
+    /// the client in query-ready mode.
     pub async fn startup(mut stream: TcpStream) -> Result<Client, Error> {
         loop {
             // Could be StartupMessage or SSLRequest
@@ -54,8 +60,14 @@ impl Client {
                 196608 => {
                     // TODO: perform actual auth.
                     // TODO: record startup parameters client sends over.
+
+                    // Generate random backend ID and secret key
+                    let process_id: i32 = rand::random();
+                    let secret_key: i32 = rand::random();
+
                     auth_ok(&mut stream).await?;
                     server_parameters(&mut stream).await?;
+                    backend_key_data(&mut stream, process_id, secret_key).await?;
                     ready_for_query(&mut stream).await?;
 
                     let (read, write) = stream.into_split();
@@ -71,6 +83,27 @@ impl Client {
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
                         name: name,
+                        cancel_mode: false,
+                        process_id: process_id,
+                        secret_key: secret_key,
+                    });
+                }
+
+                // Cancel request
+                80877102 => {
+                    let (read, write) = stream.into_split();
+
+                    let process_id = bytes.get_i32();
+                    let secret_key = bytes.get_i32();
+
+                    return Ok(Client {
+                        read: BufReader::new(read),
+                        write: write,
+                        buffer: BytesMut::with_capacity(8196),
+                        name: String::from("cancel_mode"),
+                        cancel_mode: true,
+                        process_id: process_id,
+                        secret_key: secret_key,
                     });
                 }
 
@@ -81,7 +114,18 @@ impl Client {
         }
     }
 
+    /// Client loop. We handle all messages between the client and the database here.
     pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
+        // Special: cancelling existing running query
+        if self.cancel_mode {
+            // TODO: Implement this
+            println!(
+                ">> Query cancellation requested: {}, {}",
+                self.process_id, self.secret_key
+            );
+            return Ok(());
+        }
+
         loop {
             // Only grab a connection once we have some traffic on the socket
             // TODO: this is not the most optimal way to share servers.

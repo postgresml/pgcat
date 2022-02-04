@@ -9,6 +9,16 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 1. Install Rust (latest stable is fine).
 2. `cargo run --release` (to get better benchmarks).
 
+### Tests
+
+You can just PgBench to test your changes:
+
+```
+pgbench -i -h 127.0.0.1 -p 5433 && \
+pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol simple && \
+pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol extended
+```
+
 ## Features
 
 1. Session mode.

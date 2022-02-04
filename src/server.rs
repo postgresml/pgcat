@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
+///! Implementation of the PostgreSQL server (database) protocol.
+///! Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -9,6 +11,7 @@ use tokio::net::TcpStream;
 use crate::errors::Error;
 use crate::messages::*;
 
+/// Server state.
 pub struct Server {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
@@ -22,6 +25,8 @@ pub struct Server {
 }
 
 impl Server {
+    /// Pretend to be the Postgres client and connect to the server given host, port and credentials.
+    /// Perform the authentication and return the server in a ready-for-query mode.
     pub async fn startup(
         host: &str,
         port: &str,
@@ -150,6 +155,7 @@ impl Server {
         }
     }
 
+    /// Send data to the server from the client.
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => Ok(()),
@@ -161,6 +167,9 @@ impl Server {
         }
     }
 
+    /// Receive data from the server in response to a client request sent previously.
+    /// This method must be called multiple times while `self.is_data_available()` is true
+    /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
         loop {
             let mut message = match read_message(&mut self.read).await {
@@ -237,27 +246,39 @@ impl Server {
         Ok(bytes)
     }
 
+    /// If the server is still inside a transaction.
+    /// If the client disconnects while the server is in a transaction, we will clean it up.
     pub fn in_transaction(&self) -> bool {
         self.in_transaction
     }
 
+    /// We don't buffer all of server responses, e.g. COPY OUT produces too much data.
+    /// The client is responsible to call `self.recv()` while this method returns true.
     pub fn is_data_available(&self) -> bool {
         self.data_available
     }
 
+    /// Server & client are out of sync, we must discard this connection.
+    /// This happens with clients that misbehave.
     pub fn is_bad(&self) -> bool {
         self.bad
     }
 
+    /// Get server startup information to forward it to the client.
+    /// Not used at the moment.
     pub fn server_info(&self) -> BytesMut {
         self.server_info.clone()
     }
 
+    /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
         println!(">> Server marked bad");
         self.bad = true;
     }
 
+    /// Execute an arbitrary query against the server.
+    /// It will use the Simple query protocol.
+    /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
         let mut query = BytesMut::from(&query.as_bytes()[..]);
         query.put_u8(0);
@@ -276,6 +297,7 @@ impl Server {
         Ok(())
     }
 
+    /// A shorthand for `SET application_name = $1`.
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
         Ok(self
             .query(&format!("SET application_name = '{}'", name))

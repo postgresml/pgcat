@@ -7,11 +7,16 @@ extern crate tokio;
 use bb8::Pool;
 use tokio::net::TcpListener;
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 mod client;
 mod errors;
 mod messages;
 mod pool;
 mod server;
+
+type ClientServerMap = Arc<Mutex<HashMap<i32, i32>>>;
 
 #[tokio::main]
 async fn main() {

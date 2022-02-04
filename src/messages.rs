@@ -28,6 +28,19 @@ pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
     Ok(write_all(stream, res).await?)
 }
 
+pub async fn backend_key_data(
+    stream: &mut TcpStream,
+    backend_id: i32,
+    secret_key: i32,
+) -> Result<(), Error> {
+    let mut key_data = BytesMut::from(&b"K"[..]);
+    key_data.put_i32(12);
+    key_data.put_i32(backend_id);
+    key_data.put_i32(secret_key);
+
+    Ok(write_all(stream, key_data).await?)
+}
+
 pub async fn ready_for_query(stream: &mut TcpStream) -> Result<(), Error> {
     let mut bytes = BytesMut::with_capacity(5);
 
