@@ -17,6 +17,7 @@ pub struct Server {
     backend_id: i32,
     secret_key: i32,
     in_transaction: bool,
+    data_available: bool,
     bad: bool,
 }
 
@@ -136,6 +137,7 @@ impl Server {
                         backend_id: backend_id,
                         secret_key: secret_key,
                         in_transaction: false,
+                        data_available: false,
                         bad: false,
                     });
                 }
@@ -208,6 +210,21 @@ impl Server {
                 // CopyInResponse: copy is starting from client to server
                 'G' => break,
 
+                // CopyOutResponse: copy is starting from the server to the client
+                'H' => {
+                    self.data_available = true;
+                    break;
+                }
+
+                // CopyData
+                'd' => break,
+
+                // CopyDone
+                'c' => {
+                    self.data_available = false;
+                    // Buffer until ReadyForQuery shows up
+                }
+
                 _ => {
                     // Keep buffering,
                 }
@@ -222,6 +239,10 @@ impl Server {
 
     pub fn in_transaction(&self) -> bool {
         self.in_transaction
+    }
+
+    pub fn is_data_available(&self) -> bool {
+        self.data_available
     }
 
     pub fn is_bad(&self) -> bool {

@@ -118,14 +118,21 @@ impl Client {
                 match code {
                     'Q' => {
                         server.send(original).await?;
-                        let response = server.recv().await?;
-                        match write_all_half(&mut self.write, response).await {
-                            Ok(_) => (),
-                            Err(err) => {
-                                server.mark_bad();
-                                return Err(err);
+
+                        loop {
+                            let response = server.recv().await?;
+                            match write_all_half(&mut self.write, response).await {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    server.mark_bad();
+                                    return Err(err);
+                                }
+                            };
+
+                            if !server.is_data_available() {
+                                break;
                             }
-                        };
+                        }
 
                         // Release server
                         if !server.in_transaction() {
@@ -166,14 +173,20 @@ impl Client {
                         server.send(self.buffer.clone()).await?;
                         self.buffer.clear();
 
-                        let response = server.recv().await?;
-                        match write_all_half(&mut self.write, response).await {
-                            Ok(_) => (),
-                            Err(err) => {
-                                server.mark_bad();
-                                return Err(err);
+                        loop {
+                            let response = server.recv().await?;
+                            match write_all_half(&mut self.write, response).await {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    server.mark_bad();
+                                    return Err(err);
+                                }
+                            };
+
+                            if !server.is_data_available() {
+                                break;
                             }
-                        };
+                        }
 
                         // Release server
                         if !server.in_transaction() {
