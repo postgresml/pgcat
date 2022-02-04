@@ -10,6 +10,7 @@ pub struct Server {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
     buffer: BytesMut,
+    in_transaction: bool,
 }
 
 impl Server {
@@ -112,6 +113,7 @@ impl Server {
                         read: BufReader::new(read),
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
+                        in_transaction: false,
                     });
                 }
 
@@ -135,12 +137,29 @@ impl Server {
             self.buffer.put(&message[..]);
 
             let code = message.get_u8() as char;
+            let _len = message.get_i32();
 
             match code {
                 'Z' => {
                     // Ready for query, time to forward buffer to client.
+                    let transaction_state = message.get_u8() as char;
+                    
+                    match transaction_state {
+                        'T' => {
+                            self.in_transaction = true;
+                        },
+
+                        'I' => {
+                            self.in_transaction = false;
+                        },
+
+                        _ => {
+                            self.in_transaction = false;
+                        },
+                    };
+
                     break;
-                }
+                },
 
                 _ => {
                     // Keep buffering,
@@ -152,5 +171,9 @@ impl Server {
         self.buffer.clear();
 
         Ok(bytes)
+    }
+
+    pub fn in_transaction(&self) -> bool {
+        self.in_transaction
     }
 }

@@ -1,4 +1,4 @@
-use tokio::io::{AsyncReadExt, BufReader};
+use tokio::io::{AsyncReadExt, BufReader, Interest};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 /// PostgreSQL client (frontend).
 /// We are pretending to be the backend.
@@ -8,7 +8,9 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use crate::errors::Error;
 use crate::messages::*;
-use crate::server::Server;
+
+use bb8::Pool;
+use crate::pool::ServerPool;
 
 pub struct Client {
     read: BufReader<OwnedReadHalf>,
@@ -69,54 +71,77 @@ impl Client {
         }
     }
 
-    pub async fn handle(&mut self, mut server: Server) -> Result<(), Error> {
+    pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
+        
         loop {
-            let mut message = read_message(&mut self.read).await?;
-            let original = message.clone(); // To be forwarded to the server
-            let code = message.get_u8() as char;
-            let _len = message.get_i32() as usize;
+            // Only grab a connection once we have some traffic on the socket
+            // TODO: this is not the most optimal way to share servers.
+            match self.read.get_ref().ready(Interest::READABLE).await {
+                Ok(_) => (),
+                Err(_) => return Err(Error::ClientDisconnected),
+            };
 
-            match code {
-                'Q' => {
-                    server.send(original).await?;
-                    let response = server.recv().await?;
-                    write_all_half(&mut self.write, response).await?;
-                }
+            let mut proxy = pool.get().await.unwrap();
+            let server = &mut *proxy;
 
-                'X' => {
-                    // Client closing
-                    return Ok(());
-                }
+            loop {
+                let mut message = read_message(&mut self.read).await?;
+                let original = message.clone(); // To be forwarded to the server
+                let code = message.get_u8() as char;
+                let _len = message.get_i32() as usize;
 
-                'P' => {
-                    // Extended protocol, let's buffer most of it
-                    self.buffer.put(&original[..]);
-                }
+                match code {
+                    'Q' => {
+                        server.send(original).await?;
+                        let response = server.recv().await?;
+                        write_all_half(&mut self.write, response).await?;
 
-                'B' => {
-                    self.buffer.put(&original[..]);
-                }
+                         // Release server
+                        if !server.in_transaction() {
+                            break;
+                        }
+                    }
 
-                'D' => {
-                    self.buffer.put(&original[..]);
-                }
+                    'X' => {
+                        // Client closing
+                        return Ok(());
+                    }
 
-                'E' => {
-                    self.buffer.put(&original[..]);
-                }
+                    'P' => {
+                        // Extended protocol, let's buffer most of it
+                        self.buffer.put(&original[..]);
+                    }
 
-                'S' => {
-                    // Extended protocol, client requests sync
-                    self.buffer.put(&original[..]);
-                    server.send(self.buffer.clone()).await?;
-                    self.buffer.clear();
+                    'B' => {
+                        self.buffer.put(&original[..]);
+                    }
 
-                    let response = server.recv().await?;
-                    write_all_half(&mut self.write, response).await?;
-                }
+                    'D' => {
+                        self.buffer.put(&original[..]);
+                    }
 
-                _ => {
-                    println!(">>> Unexpected code: {}", code);
+                    'E' => {
+                        self.buffer.put(&original[..]);
+                    }
+
+                    'S' => {
+                        // Extended protocol, client requests sync
+                        self.buffer.put(&original[..]);
+                        server.send(self.buffer.clone()).await?;
+                        self.buffer.clear();
+
+                        let response = server.recv().await?;
+                        write_all_half(&mut self.write, response).await?;
+
+                        // Release server
+                        if !server.in_transaction() {
+                            break;
+                        }
+                    }
+
+                    _ => {
+                        println!(">>> Unexpected code: {}", code);
+                    }
                 }
             }
         }
