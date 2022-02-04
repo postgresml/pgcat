@@ -99,6 +99,10 @@ impl Client {
                     Ok(message) => message,
                     Err(err) => {
                         if server.in_transaction() {
+                            // TODO: this is what PgBouncer does
+                            // which leads to connection thrashing.
+                            //
+                            // I think we could issue a ROLLBACK here instead.
                             server.mark_bad();
                         }
 
