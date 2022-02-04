@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use bytes::{Buf, BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -10,6 +13,9 @@ pub struct Server {
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
     buffer: BytesMut,
+    server_info: BytesMut,
+    backend_id: i32,
+    secret_key: i32,
     in_transaction: bool,
     bad: bool,
 }
@@ -31,6 +37,10 @@ impl Server {
         };
 
         startup(&mut stream, user, database).await?;
+
+        let mut server_info = BytesMut::with_capacity(25);
+        let mut backend_id: i32 = 0;
+        let mut secret_key: i32 = 0;
 
         loop {
             let code = match stream.read_u8().await {
@@ -88,14 +98,22 @@ impl Server {
                         Ok(_) => (),
                         Err(_) => return Err(Error::SocketError),
                     };
+
+                    server_info.put_u8(b'S');
+                    server_info.put_i32(len);
+                    server_info.put_slice(&param[..]);
                 }
 
                 'K' => {
-                    // TODO: save cancellation secret
-                    let mut cancel_secret = vec![0u8; len as usize - 4];
-                    match stream.read_exact(&mut cancel_secret).await {
-                        Ok(_) => (),
-                        Err(_) => return Err(Error::SocketError),
+                    // Query cancellation data.
+                    backend_id = match stream.read_i32().await {
+                        Ok(id) => id,
+                        Err(err) => return Err(Error::SocketError),
+                    };
+
+                    secret_key = match stream.read_i32().await {
+                        Ok(id) => id,
+                        Err(err) => return Err(Error::SocketError),
                     };
                 }
 
@@ -114,6 +132,9 @@ impl Server {
                         read: BufReader::new(read),
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
+                        server_info: server_info,
+                        backend_id: backend_id,
+                        secret_key: secret_key,
                         in_transaction: false,
                         bad: false,
                     });
@@ -202,6 +223,10 @@ impl Server {
 
     pub fn is_bad(&self) -> bool {
         self.bad
+    }
+
+    pub fn server_info(&self) -> BytesMut {
+        self.server_info.clone()
     }
 
     pub fn mark_bad(&mut self) {
