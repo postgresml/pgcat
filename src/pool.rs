@@ -43,8 +43,20 @@ impl ManageConnection for ServerPool {
     }
 
     /// Determines if the connection is still connected to the database.
-    async fn is_valid(&self, _conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
-        Ok(())
+    async fn is_valid(&self, conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+        let server = &mut *conn;
+
+        // If this fails, the connection will be closed and another will be grabbed from the pool quietly :-).
+        // Failover, step 1, complete.
+        match tokio::time::timeout(
+            tokio::time::Duration::from_millis(1000),
+            server.query("SELECT 1"),
+        )
+        .await
+        {
+            Ok(_) => Ok(()),
+            Err(_err) => Err(Error::ServerTimeout),
+        }
     }
 
     /// Synchronously determine if the connection is no longer usable, if possible.

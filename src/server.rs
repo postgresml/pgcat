@@ -209,8 +209,8 @@ impl Server {
         self.bad = true;
     }
 
-    pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
-        let mut query = BytesMut::from(&format!("SET application_name = {}", name).as_bytes()[..]);
+    pub async fn query(&mut self, query: &str) -> Result<(), Error> {
+        let mut query = BytesMut::from(&query.as_bytes()[..]);
         query.put_u8(0);
 
         let len = query.len() as i32 + 4;
@@ -225,5 +225,11 @@ impl Server {
         let _ = self.recv().await?;
 
         Ok(())
+    }
+
+    pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
+        Ok(self
+            .query(&format!("SET application_name = '{}'", name))
+            .await?)
     }
 }

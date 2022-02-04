@@ -5,4 +5,5 @@ pub enum Error {
     ClientBadStartup,
     ProtocolSyncError,
     ServerError,
+    ServerTimeout,
 }
