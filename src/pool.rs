@@ -32,6 +32,10 @@ impl ManageConnection for ServerPool {
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         println!(">> Getting connetion from pool");
+
+        //
+        // TODO: Pick a random connection from a replica pool here.
+        //
         Ok(Server::startup(
             &self.host,
             &self.port,
