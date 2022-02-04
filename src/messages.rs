@@ -16,6 +16,18 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
     Ok(write_all(stream, auth_ok).await?)
 }
 
+pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
+    let client_encoding = BytesMut::from(&b"client_encoding\0UTF8\0"[..]);
+    let len = client_encoding.len() as i32 + 4; // TODO: add more parameters here
+    let mut res = BytesMut::with_capacity(len as usize + 1);
+
+    res.put_u8(b'S');
+    res.put_i32(len);
+    res.put_slice(&client_encoding[..]);
+
+    Ok(write_all(stream, res).await?)
+}
+
 pub async fn ready_for_query(stream: &mut TcpStream) -> Result<(), Error> {
     let mut bytes = BytesMut::with_capacity(5);
 

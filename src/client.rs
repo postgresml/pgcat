@@ -55,6 +55,7 @@ impl Client {
                     // TODO: perform actual auth.
                     // TODO: record startup parameters client sends over.
                     auth_ok(&mut stream).await?;
+                    server_parameters(&mut stream).await?;
                     ready_for_query(&mut stream).await?;
 
                     let (read, write) = stream.into_split();
@@ -135,6 +136,10 @@ impl Client {
 
                     'X' => {
                         // Client closing
+                        if server.in_transaction() {
+                            server.query("ROLLBACK").await?;
+                        }
+
                         return Ok(());
                     }
 

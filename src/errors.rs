@@ -6,4 +6,5 @@ pub enum Error {
     ProtocolSyncError,
     ServerError,
     ServerTimeout,
+    DirtyServer,
 }

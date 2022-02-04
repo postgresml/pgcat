@@ -50,6 +50,11 @@ impl ManageConnection for ServerPool {
     async fn is_valid(&self, conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
         let server = &mut *conn;
 
+        // Client disconnected before cleaning up
+        if server.in_transaction() {
+            return Err(Error::DirtyServer);
+        }
+
         // If this fails, the connection will be closed and another will be grabbed from the pool quietly :-).
         // Failover, step 1, complete.
         match tokio::time::timeout(
