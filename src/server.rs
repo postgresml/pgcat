@@ -205,6 +205,9 @@ impl Server {
                     break;
                 }
 
+                // CopyInResponse: copy is starting from client to server
+                'G' => break,
+
                 _ => {
                     // Keep buffering,
                 }

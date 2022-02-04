@@ -182,6 +182,26 @@ impl Client {
                         }
                     }
 
+                    // CopyData
+                    'd' => {
+                        // Forward the data to the server,
+                        // don't buffer it since it can be rather large.
+                        server.send(original).await?;
+                    }
+
+                    'c' | 'f' => {
+                        // Copy is done.
+                        server.send(original).await?;
+                        let response = server.recv().await?;
+                        match write_all_half(&mut self.write, response).await {
+                            Ok(_) => (),
+                            Err(err) => {
+                                server.mark_bad();
+                                return Err(err);
+                            }
+                        };
+                    }
+
                     _ => {
                         println!(">>> Unexpected code: {}", code);
                     }

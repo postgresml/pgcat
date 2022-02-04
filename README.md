@@ -13,15 +13,23 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 
 1. Session mode.
 2. Transaction mode (basic).
+3. `COPY` protocol support.
 
 ## Missing
 
-1. `COPY` support.
-2. Query cancellation support.
-3. All the features I promised above. Will make them soon, promise :-).
-4. Authentication, ehem, this proxy is letting anyone in at the moment.
+1. Query cancellation support.
+2. All the features I promised above. Will make them soon, promise :-).
+3. Authentication, ehem, this proxy is letting anyone in at the moment.
 
 ## Benchmarks
+
+You can setup PgBench locally through PgCat:
+
+```
+pgbench -h 127.0.0.1 -p 5433 -i
+```
+
+Coincidenly, this uses `COPY` so you can test if that works.
 
 ### PgBouncer
 
