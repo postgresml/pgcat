@@ -24,12 +24,12 @@ pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol extended
 1. Session mode.
 2. Transaction mode (basic).
 3. `COPY` protocol support.
+4. Query cancellation.
 
 ## Missing
 
-1. Query cancellation support.
-2. All the features I promised above. Will make them soon, promise :-).
-3. Authentication, ehem, this proxy is letting anyone in at the moment.
+1. All the features I promised above. Will make them soon, promise :-).
+2. Authentication, ehem, this proxy is letting anyone in at the moment.
 
 ## Benchmarks
 
