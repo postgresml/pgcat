@@ -1,5 +1,7 @@
 # PgCat
 
+[![CircleCI](https://circleci.com/gh/levkk/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/levkk/pgcat/tree/main)
+
 Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover support.
 
 **Alpha**: don't use in production just yet.
