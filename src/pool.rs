@@ -47,8 +47,8 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        println!(">> Getting new connection from the pool");
         let address = self.replica_pool.get();
-        // println!(">> Getting connetion from pool");
 
         match Server::startup(
             &address.host,
@@ -107,9 +107,7 @@ impl ManageConnection for ServerPool {
 /// many sharded primaries or replicas.
 #[derive(Clone)]
 pub struct ReplicaPool {
-    // replicas: Vec<Pool<ServerPool>>,
     addresses: Vec<Address>,
-    // user: User,
     round_robin: Counter,
     banlist: BanList,
 }
