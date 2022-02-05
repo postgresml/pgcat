@@ -14,6 +14,8 @@ use crate::ClientServerMap;
 
 /// Server state.
 pub struct Server {
+    host: String,
+    port: String,
     read: BufReader<OwnedReadHalf>,
     write: OwnedWriteHalf,
     buffer: BytesMut,
@@ -138,6 +140,8 @@ impl Server {
                     let (read, write) = stream.into_split();
 
                     return Ok(Server {
+                        host: host.to_string(),
+                        port: port.to_string(),
                         read: BufReader::new(read),
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
@@ -308,7 +312,15 @@ impl Server {
     /// Claim this server as mine for the purposes of query cancellation.
     pub fn claim(&mut self, process_id: i32, secret_key: i32) {
         let mut guard = self.client_server_map.lock().unwrap();
-        guard.insert((process_id, secret_key), (self.backend_id, self.secret_key));
+        guard.insert(
+            (process_id, secret_key),
+            (
+                self.backend_id,
+                self.secret_key,
+                self.host.clone(),
+                self.port.clone(),
+            ),
+        );
     }
 
     /// Execute an arbitrary query against the server.

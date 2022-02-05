@@ -1,18 +1,16 @@
 /// Implementation of the PostgreSQL client.
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
-use bb8::Pool;
 use bytes::{Buf, BufMut, BytesMut};
 use rand::{distributions::Alphanumeric, Rng};
-use tokio::io::{AsyncReadExt, BufReader, Interest};
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::ServerPool;
+use crate::pool::{ClientServerMap, ReplicaPool};
 use crate::server::Server;
-use crate::ClientServerMap;
 
 /// The client state.
 pub struct Client {
@@ -123,19 +121,24 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
+    pub async fn handle(&mut self, mut pool: ReplicaPool) -> Result<(), Error> {
         // Special: cancelling existing running query
         if self.cancel_mode {
-            let (process_id, secret_key) = {
+            let (process_id, secret_key, address, port) = {
                 let guard = self.client_server_map.lock().unwrap();
                 match guard.get(&(self.process_id, self.secret_key)) {
-                    Some((process_id, secret_key)) => (process_id.clone(), secret_key.clone()),
+                    Some((process_id, secret_key, address, port)) => (
+                        process_id.clone(),
+                        secret_key.clone(),
+                        address.clone(),
+                        port.clone(),
+                    ),
                     None => return Ok(()),
                 }
             };
 
             // TODO: pass actual server host and port somewhere.
-            return Ok(Server::cancel("127.0.0.1", "5432", process_id, secret_key).await?);
+            return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
         loop {
@@ -147,7 +150,7 @@ impl Client {
                 Ok(_) => (),
                 Err(_) => return Err(Error::ClientDisconnected),
             };
-
+            let pool = pool.get().1;
             let mut proxy = pool.get().await.unwrap();
             let server = &mut *proxy;
 
