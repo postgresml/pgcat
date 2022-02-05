@@ -247,7 +247,19 @@ impl Server {
                         }
                     };
 
+                    self.data_available = false;
+
                     break;
+                }
+
+                'D' => {
+                    self.data_available = true;
+
+                    // Don't flush yet, the more we buffer, the faster this goes.
+                    // Up to a limit of course.
+                    if self.buffer.len() >= 8196 {
+                        break;
+                    }
                 }
 
                 // CopyInResponse: copy is starting from client to server
@@ -340,7 +352,12 @@ impl Server {
         msg.put_slice(&query[..]);
 
         self.send(msg).await?;
-        let _ = self.recv().await?;
+        loop {
+            let _ = self.recv().await?;
+            if !self.data_available {
+                break;
+            }
+        }
 
         Ok(())
     }
