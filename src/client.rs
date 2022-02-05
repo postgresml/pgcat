@@ -149,7 +149,10 @@ impl Client {
             let mut proxy = pool.get().await.unwrap();
             let server = &mut *proxy;
 
+            // TODO: maybe don't do this, I don't think it's useful.
             server.set_name(&self.name).await?;
+
+            // Claim this server as mine for query cancellation.
             server.claim(self.process_id, self.secret_key);
 
             loop {
@@ -280,6 +283,7 @@ impl Client {
         }
     }
 
+    /// Release the server from being mine. I can't cancel its queries anymore.
     pub fn release(&mut self) {
         let mut guard = self.client_server_map.lock().unwrap();
         guard.remove(&(self.process_id, self.secret_key));
