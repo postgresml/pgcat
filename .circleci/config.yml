@@ -14,9 +14,17 @@ jobs:
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
       - checkout
+      - restore_cache:
+          key: cargo-lock-{{ checksum "Cargo.lock" }}
       - run:
           name: "Build" 
           command: "cargo build --release"
+      - save_cache:
+          key: cargo-lock-{{ checksum "Cargo.lock" }}
+          paths:
+            - target
+            - ~/.cargo
+
 
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
