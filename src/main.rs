@@ -16,7 +16,7 @@ mod messages;
 mod pool;
 mod server;
 
-type ClientServerMap = Arc<Mutex<HashMap<i32, i32>>>;
+type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32)>>>;
 
 #[tokio::main]
 async fn main() {
@@ -30,11 +30,20 @@ async fn main() {
         }
     };
 
-    let manager = pool::ServerPool::new("127.0.0.1", "5432", "lev", "lev", "lev");
+    let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
+    let manager = pool::ServerPool::new(
+        "127.0.0.1",
+        "5432",
+        "lev",
+        "lev",
+        "lev",
+        client_server_map.clone(),
+    );
     let pool = Pool::builder().max_size(15).build(manager).await.unwrap();
 
     loop {
         let pool = pool.clone();
+        let client_server_map = client_server_map.clone();
 
         let (socket, addr) = match listener.accept().await {
             Ok((socket, addr)) => (socket, addr),
@@ -49,8 +58,9 @@ async fn main() {
             println!(">> Client {:?} connected.", addr);
 
             let pool = pool.clone();
+            let client_server_map = client_server_map.clone();
 
-            match client::Client::startup(socket).await {
+            match client::Client::startup(socket, client_server_map).await {
                 Ok(mut client) => {
                     println!(">> Client {:?} authenticated successfully!", addr);
 
@@ -61,6 +71,7 @@ async fn main() {
 
                         Err(err) => {
                             println!(">> Client disconnected with error: {:?}", err);
+                            client.release();
                         }
                     }
                 }

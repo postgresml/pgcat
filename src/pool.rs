@@ -3,6 +3,7 @@ use bb8::{ManageConnection, PooledConnection};
 
 use crate::errors::Error;
 use crate::server::Server;
+use crate::ClientServerMap;
 
 pub struct ServerPool {
     host: String,
@@ -10,16 +11,25 @@ pub struct ServerPool {
     user: String,
     password: String,
     database: String,
+    client_server_map: ClientServerMap,
 }
 
 impl ServerPool {
-    pub fn new(host: &str, port: &str, user: &str, password: &str, database: &str) -> ServerPool {
+    pub fn new(
+        host: &str,
+        port: &str,
+        user: &str,
+        password: &str,
+        database: &str,
+        client_server_map: ClientServerMap,
+    ) -> ServerPool {
         ServerPool {
             host: host.to_string(),
             port: port.to_string(),
             user: user.to_string(),
             password: password.to_string(),
             database: database.to_string(),
+            client_server_map: client_server_map,
         }
     }
 }
@@ -42,6 +52,7 @@ impl ManageConnection for ServerPool {
             &self.user,
             &self.password,
             &self.database,
+            self.client_server_map.clone(),
         )
         .await?)
     }

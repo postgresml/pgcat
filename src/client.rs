@@ -11,6 +11,8 @@ use tokio::net::TcpStream;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ServerPool;
+use crate::server::Server;
+use crate::ClientServerMap;
 
 /// The client state.
 pub struct Client {
@@ -21,13 +23,17 @@ pub struct Client {
     cancel_mode: bool,
     process_id: i32,
     secret_key: i32,
+    client_server_map: ClientServerMap,
 }
 
 impl Client {
     /// Given a TCP socket, trick the client into thinking we are
     /// the Postgres server. Perform the authentication and place
     /// the client in query-ready mode.
-    pub async fn startup(mut stream: TcpStream) -> Result<Client, Error> {
+    pub async fn startup(
+        mut stream: TcpStream,
+        client_server_map: ClientServerMap,
+    ) -> Result<Client, Error> {
         loop {
             // Could be StartupMessage or SSLRequest
             // which makes this variable length.
@@ -86,6 +92,7 @@ impl Client {
                         cancel_mode: false,
                         process_id: process_id,
                         secret_key: secret_key,
+                        client_server_map: client_server_map,
                     });
                 }
 
@@ -104,6 +111,7 @@ impl Client {
                         cancel_mode: true,
                         process_id: process_id,
                         secret_key: secret_key,
+                        client_server_map: client_server_map,
                     });
                 }
 
@@ -118,12 +126,16 @@ impl Client {
     pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
         // Special: cancelling existing running query
         if self.cancel_mode {
-            // TODO: Implement this
-            println!(
-                ">> Query cancellation requested: {}, {}",
-                self.process_id, self.secret_key
-            );
-            return Ok(());
+            let (process_id, secret_key) = {
+                let guard = self.client_server_map.lock().unwrap();
+                match guard.get(&(self.process_id, self.secret_key)) {
+                    Some((process_id, secret_key)) => (process_id.clone(), secret_key.clone()),
+                    None => return Ok(()),
+                }
+            };
+
+            // TODO: pass actual server host and port somewhere.
+            return Ok(Server::cancel("127.0.0.1", "5432", process_id, secret_key).await?);
         }
 
         loop {
@@ -138,6 +150,7 @@ impl Client {
             let server = &mut *proxy;
 
             server.set_name(&self.name).await?;
+            server.claim(self.process_id, self.secret_key);
 
             loop {
                 let mut message = match read_message(&mut self.read).await {
@@ -180,7 +193,6 @@ impl Client {
 
                         // Release server
                         if !server.in_transaction() {
-                            drop(server);
                             break;
                         }
                     }
@@ -234,7 +246,6 @@ impl Client {
 
                         // Release server
                         if !server.in_transaction() {
-                            drop(server);
                             break;
                         }
                     }
@@ -264,6 +275,13 @@ impl Client {
                     }
                 }
             }
+
+            self.release();
         }
+    }
+
+    pub fn release(&mut self) {
+        let mut guard = self.client_server_map.lock().unwrap();
+        guard.remove(&(self.process_id, self.secret_key));
     }
 }
