@@ -8,6 +8,7 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 
 1. Install Rust (latest stable is fine).
 2. `cargo run --release` (to get better benchmarks).
+3. Install Postgres and create a user and a DB, e.g. `CREATE ROLE lev ENCRYPTED PASSWORD 'lev' LOGIN;` and `createdb lev`.
 
 ### Tests
 
