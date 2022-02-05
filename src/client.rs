@@ -141,7 +141,9 @@ impl Client {
         loop {
             // Only grab a connection once we have some traffic on the socket
             // TODO: this is not the most optimal way to share servers.
-            match self.read.get_ref().ready(Interest::READABLE).await {
+            let mut peek_buf = vec![0u8; 2];
+
+            match self.read.get_mut().peek(&mut peek_buf).await {
                 Ok(_) => (),
                 Err(_) => return Err(Error::ClientDisconnected),
             };
