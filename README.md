@@ -2,7 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/levkk/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/levkk/pgcat/tree/main)
 
-![PgCat](./pgcat2.png)
+![PgCat](./pgcat3.png)
 
 Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover support.
 
