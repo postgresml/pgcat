@@ -25,10 +25,44 @@ pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol extended
 2. Transaction mode (basic).
 3. `COPY` protocol support.
 4. Query cancellation.
+5. Round-robin load balancing of replicas.
+6. Banlist & failover
+
+### Session mode
+Each client owns its own server for the duration of the session. Commands like `SET` are allowed.
+This is identical to PgBouncer session mode.
+
+### Transaction mode
+The connection is attached to the server for the duration of the transaction. `SET` will pollute the connection,
+but `SET LOCAL` works great. Identical to PgBouncer transaction mode.
+
+### COPY protocol
+That one isn't particularly special, but good to mention that you can `COPY` data in and from the server
+using this pooler.
+
+### Query cancellation
+Okay, this is just basic stuff, but we support cancelling queries. If you know the Postgres protocol,
+this might be relevant given than this is a transactional pooler but if you're new to Pg, don't worry about it, it works.
+
+### Round-robin load balancing
+This is the novel part. PgBouncer doesn't support it and suggests we use DNS of a TCP proxy instead.
+We prefer to have everything as part of one package; arguably, it's easier to understand and optimize.
+This pooler will round-robin between multiple replicas keeping load reasonably even.
+
+### Banlist & failover
+This is where it gets even more interesting. If we fail to connect to one of the replicas or it fails a health check,
+we add it to a ban list. No more new transactions will be served by that replica for, in our case, 60 seconds. This
+gives it the opportunity to recover while clients are happily served by the remaining replicas.
+
+This decreases error rates substantially! Worth noting here that on busy systems, if the replicas are running too hot,
+failing over could bring even more load and tip over the remaining healthy-ish replicas. In this case, a decision should be made:
+either lose 1/x of your traffic or risk losing it all eventually. Ideally you overprovision your system, so you don't necessarily need
+to make this choice :-).
+
 
 ## Missing
 
-1. All the features I promised above. Will make them soon, promise :-).
+1. Sharding. Soon :-).
 2. Authentication, ehem, this proxy is letting anyone in at the moment.
 
 ## Benchmarks
