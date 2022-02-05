@@ -30,7 +30,7 @@ pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
 
     // Client encoding
     let len = client_encoding.len() as i32 + 4; // TODO: add more parameters here
-    let mut res = BytesMut::with_capacity(len as usize + 1);
+    let mut res = BytesMut::with_capacity(64);
 
     res.put_u8(b'S');
     res.put_i32(len);

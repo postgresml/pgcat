@@ -27,7 +27,7 @@ pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol extended
 ## Features
 
 1. Session mode.
-2. Transaction mode (basic).
+2. Transaction mode.
 3. `COPY` protocol support.
 4. Query cancellation.
 5. Round-robin load balancing of replicas.
