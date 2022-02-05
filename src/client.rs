@@ -9,8 +9,9 @@ use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{ClientServerMap, ReplicaPool};
+use crate::pool::{ClientServerMap, ServerPool};
 use crate::server::Server;
+use bb8::Pool;
 
 /// The client state.
 pub struct Client {
@@ -121,7 +122,7 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(&mut self, mut pool: ReplicaPool) -> Result<(), Error> {
+    pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
         // Special: cancelling existing running query
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
@@ -150,7 +151,6 @@ impl Client {
                 Ok(_) => (),
                 Err(_) => return Err(Error::ClientDisconnected),
             };
-            let pool = pool.get().1;
             let mut proxy = pool.get().await.unwrap();
             let server = &mut *proxy;
 

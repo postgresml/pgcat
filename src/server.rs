@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
+use crate::config::Address;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::ClientServerMap;
@@ -349,5 +350,12 @@ impl Server {
         Ok(self
             .query(&format!("SET application_name = '{}'", name))
             .await?)
+    }
+
+    pub fn address(&self) -> Address {
+        Address {
+            host: self.host.to_string(),
+            port: self.port.to_string(),
+        }
     }
 }

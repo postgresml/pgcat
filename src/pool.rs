@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bb8::{ManageConnection, Pool, PooledConnection};
+use bb8::{ManageConnection, PooledConnection};
 use chrono::naive::NaiveDateTime;
 
 use crate::config::{Address, User};
@@ -18,28 +18,22 @@ pub type Counter = Arc<AtomicUsize>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
 pub struct ServerPool {
-    host: String,
-    port: String,
-    user: String,
-    password: String,
+    replica_pool: ReplicaPool,
+    user: User,
     database: String,
     client_server_map: ClientServerMap,
 }
 
 impl ServerPool {
     pub fn new(
-        host: &str,
-        port: &str,
-        user: &str,
-        password: &str,
+        replica_pool: ReplicaPool,
+        user: User,
         database: &str,
         client_server_map: ClientServerMap,
     ) -> ServerPool {
         ServerPool {
-            host: host.to_string(),
-            port: port.to_string(),
-            user: user.to_string(),
-            password: password.to_string(),
+            replica_pool: replica_pool,
+            user: user,
             database: database.to_string(),
             client_server_map: client_server_map,
         }
@@ -53,20 +47,28 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        println!(">> Getting connetion from pool");
+        let address = self.replica_pool.get();
+        // println!(">> Getting connetion from pool");
 
-        //
-        // TODO: Pick a random connection from a replica pool here.
-        //
-        Ok(Server::startup(
-            &self.host,
-            &self.port,
-            &self.user,
-            &self.password,
+        match Server::startup(
+            &address.host,
+            &address.port,
+            &self.user.name,
+            &self.user.password,
             &self.database,
             self.client_server_map.clone(),
         )
-        .await?)
+        .await
+        {
+            Ok(server) => {
+                self.replica_pool.unban(&address);
+                Ok(server)
+            }
+            Err(err) => {
+                self.replica_pool.ban(&address);
+                Err(err)
+            }
+        }
     }
 
     /// Determines if the connection is still connected to the database.
@@ -87,7 +89,11 @@ impl ManageConnection for ServerPool {
         .await
         {
             Ok(_) => Ok(()),
-            Err(_err) => Err(Error::ServerTimeout),
+            Err(_err) => {
+                println!(">> Unhealthy!");
+                self.replica_pool.ban(&server.address());
+                Err(Error::ServerTimeout)
+            }
         }
     }
 
@@ -101,7 +107,7 @@ impl ManageConnection for ServerPool {
 /// many sharded primaries or replicas.
 #[derive(Clone)]
 pub struct ReplicaPool {
-    replicas: Vec<Pool<ServerPool>>,
+    // replicas: Vec<Pool<ServerPool>>,
     addresses: Vec<Address>,
     // user: User,
     round_robin: Counter,
@@ -109,47 +115,22 @@ pub struct ReplicaPool {
 }
 
 impl ReplicaPool {
-    pub async fn new(
-        addresses: Vec<Address>,
-        user: User,
-        database: &str,
-        client_server_map: ClientServerMap,
-    ) -> ReplicaPool {
-        let mut replicas = Vec::new();
-
-        for address in &addresses {
-            let client_server_map = client_server_map.clone();
-
-            let manager = ServerPool::new(
-                &address.host,
-                &address.port,
-                &user.name,
-                &user.password,
-                database,
-                client_server_map,
-            );
-
-            let pool = Pool::builder().max_size(15).build(manager).await.unwrap();
-
-            replicas.push(pool);
-        }
-
+    pub async fn new(addresses: Vec<Address>) -> ReplicaPool {
         ReplicaPool {
             addresses: addresses,
-            replicas: replicas,
-            // user: user,
             round_robin: Arc::new(AtomicUsize::new(0)),
             banlist: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn ban(&mut self, address: &Address) {
+    pub fn ban(&self, address: &Address) {
+        println!(">> Banning {:?}", address);
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.lock().unwrap();
         guard.insert(address.clone(), now);
     }
 
-    pub fn unban(&mut self, address: &Address) {
+    pub fn unban(&self, address: &Address) {
         let mut guard = self.banlist.lock().unwrap();
         guard.remove(address);
     }
@@ -160,6 +141,8 @@ impl ReplicaPool {
         // Everything is banned, nothig is banned
         if guard.len() == self.addresses.len() {
             guard.clear();
+            drop(guard);
+            println!(">> Unbanning all");
             return false;
         }
 
@@ -180,14 +163,14 @@ impl ReplicaPool {
         }
     }
 
-    pub fn get(&mut self) -> (Address, Pool<ServerPool>) {
+    pub fn get(&self) -> Address {
         loop {
             // We'll never hit a 64-bit overflow right....right? :-)
             let index = self.round_robin.fetch_add(1, Ordering::SeqCst) % self.addresses.len();
 
             let address = &self.addresses[index];
             if !self.is_banned(address) {
-                return (address.clone(), self.replicas[index].clone());
+                return address.clone();
             } else {
                 continue;
             }

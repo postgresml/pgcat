@@ -6,6 +6,7 @@ extern crate tokio;
 
 use tokio::net::TcpListener;
 
+use bb8::Pool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -19,8 +20,14 @@ mod server;
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
 use config::{Address, User};
-use pool::{ClientServerMap, ReplicaPool};
+use pool::{ClientServerMap, ReplicaPool, ServerPool};
 
+//
+// Poor man's config
+//
+const POOL_SIZE: u32 = 15;
+
+/// Main!
 #[tokio::main]
 async fn main() {
     println!("> Welcome to PgCat! Meow.");
@@ -38,7 +45,7 @@ async fn main() {
 
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
-    // Note in the logs that it will fetch two connections!
+    // Replica pool.
     let addresses = vec![
         Address {
             host: "127.0.0.1".to_string(),
@@ -49,17 +56,35 @@ async fn main() {
             port: "5432".to_string(),
         },
     ];
+    let num_addresses = addresses.len() as u32;
 
     let user = User {
         name: "lev".to_string(),
         password: "lev".to_string(),
     };
 
-    let replica_pool = ReplicaPool::new(addresses, user, "lev", client_server_map.clone()).await;
+    let database = "lev";
+
+    let replica_pool = ReplicaPool::new(addresses).await;
+    let manager = ServerPool::new(replica_pool, user, database, client_server_map.clone());
+
+    // We are round-robining, so ideally the replicas will be equally loaded.
+    // Therefore, we are allocating number of replicas * pool size of connections.
+    // However, if a replica dies, the remaining replicas will share the burden,
+    // also equally.
+    //
+    // Note that failover in this case could bring down the remaining replicas, so
+    // in certain situations, e.g. when replicas are running hot already, failover
+    // is not at all desirable!!
+    let pool = Pool::builder()
+        .max_size(POOL_SIZE * num_addresses)
+        .build(manager)
+        .await
+        .unwrap();
 
     loop {
+        let pool = pool.clone();
         let client_server_map = client_server_map.clone();
-        let replica_pool = replica_pool.clone();
 
         let (socket, addr) = match listener.accept().await {
             Ok((socket, addr)) => (socket, addr),
@@ -77,7 +102,7 @@ async fn main() {
                 Ok(mut client) => {
                     println!(">> Client {:?} authenticated successfully!", addr);
 
-                    match client.handle(replica_pool).await {
+                    match client.handle(pool).await {
                         Ok(()) => {
                             println!(">> Client {:?} disconnected.", addr);
                         }

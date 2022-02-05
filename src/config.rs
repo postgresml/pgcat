@@ -1,4 +1,4 @@
-#[derive(Clone, PartialEq, Hash, std::cmp::Eq)]
+#[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
     pub host: String,
     pub port: String,
