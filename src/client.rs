@@ -20,6 +20,7 @@ pub struct Client {
     buffer: BytesMut,
     name: String,
     cancel_mode: bool,
+    transaction_mode: bool,
     process_id: i32,
     secret_key: i32,
     client_server_map: ClientServerMap,
@@ -89,6 +90,7 @@ impl Client {
                         buffer: BytesMut::with_capacity(8196),
                         name: name,
                         cancel_mode: false,
+                        transaction_mode: true,
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
@@ -108,6 +110,7 @@ impl Client {
                         buffer: BytesMut::with_capacity(8196),
                         name: String::from("cancel_mode"),
                         cancel_mode: true,
+                        transaction_mode: true,
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
@@ -200,7 +203,7 @@ impl Client {
                         }
 
                         // Release server
-                        if !server.in_transaction() {
+                        if !server.in_transaction() && self.transaction_mode {
                             break;
                         }
                     }
@@ -253,7 +256,7 @@ impl Client {
                         }
 
                         // Release server
-                        if !server.in_transaction() {
+                        if !server.in_transaction() && self.transaction_mode {
                             break;
                         }
                     }
@@ -276,6 +279,12 @@ impl Client {
                                 return Err(err);
                             }
                         };
+
+                        // Release the server
+                        if !server.in_transaction() && self.transaction_mode {
+                            println!("Releasing after copy done");
+                            break;
+                        }
                     }
 
                     _ => {
