@@ -28,8 +28,8 @@ const POOL_SIZE: u32 = 15;
 
 #[derive(Clone)]
 pub struct ConnectionPool {
-    databases: Vec<Pool<ServerPool>>,
-    addresses: Vec<Address>,
+    databases: Vec<Vec<Pool<ServerPool>>>,
+    addresses: Vec<Vec<Address>>,
     round_robin: Counter,
     banlist: BanList,
 }
@@ -62,8 +62,8 @@ impl ConnectionPool {
         }
 
         ConnectionPool {
-            databases: databases,
-            addresses: addresses,
+            databases: vec![databases],
+            addresses: vec![addresses],
             round_robin: Arc::new(AtomicUsize::new(0)),
             banlist: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -72,63 +72,56 @@ impl ConnectionPool {
     /// Get a connection from the pool. Either round-robin or pick a specific one in case they are sharded.
     pub async fn get(
         &self,
-        index: Option<usize>,
+        shard: Option<usize>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
-        match index {
-            // Asking for a specific database, must be sharded.
-            // No failover here.
-            Some(index) => {
-                assert!(index < self.databases.len());
-                match self.databases[index].get().await {
-                    Ok(conn) => Ok((conn, self.addresses[index].clone())),
-                    Err(err) => {
-                        println!(">> Shard {} down: {:?}", index, err);
-                        Err(Error::ServerTimeout)
-                    }
-                }
+        // Set this to false to gain ~3-4% speed.
+        let with_health_check = true;
+
+        let shard = match shard {
+            Some(shard) => shard,
+            None => 0, // TODO: pick a shard at random
+        };
+
+        loop {
+            let index =
+                self.round_robin.fetch_add(1, Ordering::SeqCst) % self.databases[shard].len();
+            let address = self.addresses[shard][index].clone();
+
+            if self.is_banned(&address) {
+                continue;
             }
 
-            // Any database is fine, we're using round-robin here.
-            // Failover included if the server doesn't answer a health check.
-            None => {
-                loop {
-                    let index =
-                        self.round_robin.fetch_add(1, Ordering::SeqCst) % self.databases.len();
-                    let address = self.addresses[index].clone();
+            // Check if we can connect
+            let mut conn = match self.databases[shard][index].get().await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    println!(">> Banning replica {}, error: {:?}", index, err);
+                    self.ban(&address);
+                    continue;
+                }
+            };
 
-                    if self.is_banned(&address) {
-                        continue;
-                    }
+            if !with_health_check {
+                return Ok((conn, address));
+            }
 
-                    // Check if we can connect
-                    let mut conn = match self.databases[index].get().await {
-                        Ok(conn) => conn,
-                        Err(err) => {
-                            println!(">> Banning replica {}, error: {:?}", index, err);
-                            self.ban(&address);
-                            continue;
-                        }
-                    };
+            // // Check if this server is alive with a health check
+            let server = &mut *conn;
 
-                    // Check if this server is alive with a health check
-                    let server = &mut *conn;
-
-                    match tokio::time::timeout(
-                        tokio::time::Duration::from_millis(1000),
-                        server.query("SELECT 1"),
-                    )
-                    .await
-                    {
-                        Ok(_) => return Ok((conn, address)),
-                        Err(_) => {
-                            println!(
-                                ">> Banning replica {} because of failed health check",
-                                index
-                            );
-                            self.ban(&address);
-                            continue;
-                        }
-                    }
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(1000),
+                server.query("SELECT 1"),
+            )
+            .await
+            {
+                Ok(_) => return Ok((conn, address)),
+                Err(_) => {
+                    println!(
+                        ">> Banning replica {} because of failed health check",
+                        index
+                    );
+                    self.ban(&address);
+                    continue;
                 }
             }
         }
@@ -179,6 +172,10 @@ impl ConnectionPool {
 
             None => false,
         }
+    }
+
+    pub fn shards(&self) -> usize {
+        self.databases.len()
     }
 }
 

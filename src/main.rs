@@ -30,6 +30,7 @@ mod errors;
 mod messages;
 mod pool;
 mod server;
+mod sharding;
 
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
@@ -41,7 +42,7 @@ use pool::{ClientServerMap, ConnectionPool};
 async fn main() {
     println!("> Welcome to PgCat! Meow.");
 
-    let addr = "0.0.0.0:5433";
+    let addr = "0.0.0.0:6432";
     let listener = match TcpListener::bind(addr).await {
         Ok(sock) => sock,
         Err(err) => {
