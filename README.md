@@ -19,9 +19,9 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 You can just PgBench to test your changes:
 
 ```
-pgbench -i -h 127.0.0.1 -p 5433 && \
-pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol simple && \
-pgbench -t 1000 -p 5433 -h 127.0.0.1 --protocol extended
+pgbench -i -h 127.0.0.1 -p 6432 && \
+pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && \
+pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 ```
 
 ## Features
@@ -75,7 +75,7 @@ to make this choice :-).
 You can setup PgBench locally through PgCat:
 
 ```
-pgbench -h 127.0.0.1 -p 5433 -i
+pgbench -h 127.0.0.1 -p 6432 -i
 ```
 
 Coincidenly, this uses `COPY` so you can test if that works.
@@ -83,7 +83,25 @@ Coincidenly, this uses `COPY` so you can test if that works.
 ### PgBouncer
 
 ```
-pgbench -h 127.0.0.1 -p 6432 --protocol extended -t 1000
+$ pgbench -i -h 127.0.0.1 -p 6432 && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
+dropping old tables...
+creating tables...
+generating data...
+100000 of 100000 tuples (100%) done (elapsed 0.01 s, remaining 0.00 s)
+vacuuming...
+creating primary keys...
+done.
+starting vacuum...end.
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 1
+query mode: simple
+number of clients: 1
+number of threads: 1
+number of transactions per client: 1000
+number of transactions actually processed: 1000/1000
+latency average = 1.089 ms
+tps = 918.687098 (including connections establishing)
+tps = 918.847790 (excluding connections establishing)
 starting vacuum...end.
 transaction type: <builtin: TPC-B (sort of)>
 scaling factor: 1
@@ -92,15 +110,34 @@ number of clients: 1
 number of threads: 1
 number of transactions per client: 1000
 number of transactions actually processed: 1000/1000
-latency average = 1.116 ms
-tps = 895.900600 (including connections establishing)
-tps = 896.115205 (excluding connections establishing)
+latency average = 1.136 ms
+tps = 880.622009 (including connections establishing)
+tps = 880.769550 (excluding connections establishing)
 ```
 
 ### PgCat
 
+
 ```
-pgbench -h 127.0.0.1 -p 5433 --protocol extended -t 1000
+$ pgbench -i -h 127.0.0.1 -p 6432 && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
+dropping old tables...
+creating tables...
+generating data...
+100000 of 100000 tuples (100%) done (elapsed 0.01 s, remaining 0.00 s)
+vacuuming...
+creating primary keys...
+done.
+starting vacuum...end.
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 1
+query mode: simple
+number of clients: 1
+number of threads: 1
+number of transactions per client: 1000
+number of transactions actually processed: 1000/1000
+latency average = 1.142 ms
+tps = 875.645437 (including connections establishing)
+tps = 875.799995 (excluding connections establishing)
 starting vacuum...end.
 transaction type: <builtin: TPC-B (sort of)>
 scaling factor: 1
@@ -109,15 +146,36 @@ number of clients: 1
 number of threads: 1
 number of transactions per client: 1000
 number of transactions actually processed: 1000/1000
-latency average = 1.152 ms
-tps = 867.761579 (including connections establishing)
-tps = 867.881391 (excluding connections establishing)
+latency average = 1.181 ms
+tps = 846.539176 (including connections establishing)
+tps = 846.713636 (excluding connections establishing)
 ```
 
 ### Direct Postgres
 
 ```
-pgbench -h 127.0.0.1 -p 5432 --protocol extended -t 1000
+$ pgbench -i -h 127.0.0.1 -p 5432 && pgbench -t 1000 -p 5432 -h 127.0.0.1 --protocol simple && pgbench -t 1000 -p
+5432 -h 127.0.0.1 --protocol extended
+Password:
+dropping old tables...
+creating tables...
+generating data...
+100000 of 100000 tuples (100%) done (elapsed 0.01 s, remaining 0.00 s)
+vacuuming...
+creating primary keys...
+done.
+Password:
+starting vacuum...end.
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 1
+query mode: simple
+number of clients: 1
+number of threads: 1
+number of transactions per client: 1000
+number of transactions actually processed: 1000/1000
+latency average = 0.902 ms
+tps = 1109.014867 (including connections establishing)
+tps = 1112.318595 (excluding connections establishing)
 Password:
 starting vacuum...end.
 transaction type: <builtin: TPC-B (sort of)>
@@ -127,7 +185,7 @@ number of clients: 1
 number of threads: 1
 number of transactions per client: 1000
 number of transactions actually processed: 1000/1000
-latency average = 0.944 ms
-tps = 1059.007346 (including connections establishing)
-tps = 1061.700877 (excluding connections establishing)
+latency average = 0.931 ms
+tps = 1074.017747 (including connections establishing)
+tps = 1077.121752 (excluding connections establishing)
 ```

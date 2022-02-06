@@ -63,7 +63,7 @@ async fn main() {
         },
         Address {
             host: "localhost".to_string(),
-            port: "5432".to_string(),
+            port: "5433".to_string(),
         },
     ];
 
