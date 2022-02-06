@@ -75,14 +75,6 @@ async fn main() {
     let database = "lev";
 
     let pool = ConnectionPool::new(addresses, user, database, client_server_map.clone()).await;
-    // We are round-robining, so ideally the replicas will be equally loaded.
-    // Therefore, we are allocating number of replicas * pool size of connections.
-    // However, if a replica dies, the remaining replicas will share the burden,
-    // also equally.
-    //
-    // Note that failover in this case could bring down the remaining replicas, so
-    // in certain situations, e.g. when replicas are running hot already, failover
-    // is not at all desirable!!
 
     loop {
         let pool = pool.clone();
