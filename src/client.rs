@@ -9,9 +9,8 @@ use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{ClientServerMap, ServerPool};
+use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::server::Server;
-use bb8::Pool;
 
 /// The client state.
 pub struct Client {
@@ -125,7 +124,7 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(&mut self, pool: Pool<ServerPool>) -> Result<(), Error> {
+    pub async fn handle(&mut self, pool: ConnectionPool) -> Result<(), Error> {
         // Special: cancelling existing running query
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
@@ -148,13 +147,17 @@ impl Client {
         loop {
             // Only grab a connection once we have some traffic on the socket
             // TODO: this is not the most optimal way to share servers.
-            let mut peek_buf = vec![0u8; 2];
+            // let mut peek_buf = vec![0u8; 2];
 
-            match self.read.get_mut().peek(&mut peek_buf).await {
-                Ok(_) => (),
-                Err(_) => return Err(Error::ClientDisconnected),
-            };
-            let mut proxy = pool.get().await.unwrap();
+            // match self.read.get_mut().peek(&mut peek_buf).await {
+            //     Ok(_) => (),
+            //     Err(_) => return Err(Error::ClientDisconnected),
+            // };
+            let message = read_message(&mut self.read).await?;
+
+            self.buffer.put(message);
+
+            let mut proxy = pool.get(None).await.unwrap().0;
             let server = &mut *proxy;
 
             // TODO: maybe don't do this, I don't think it's useful.
@@ -164,18 +167,28 @@ impl Client {
             server.claim(self.process_id, self.secret_key);
 
             loop {
-                let mut message = match read_message(&mut self.read).await {
-                    Ok(message) => message,
-                    Err(err) => {
-                        if server.in_transaction() {
-                            // TODO: this is what PgBouncer does
-                            // which leads to connection thrashing.
-                            //
-                            // I think we could issue a ROLLBACK here instead.
-                            server.mark_bad();
-                        }
+                let mut message = match self.buffer.len() {
+                    0 => {
+                        match read_message(&mut self.read).await {
+                            Ok(message) => message,
+                            Err(err) => {
+                                if server.in_transaction() {
+                                    // TODO: this is what PgBouncer does
+                                    // which leads to connection thrashing.
+                                    //
+                                    // I think we could issue a ROLLBACK here instead.
+                                    server.mark_bad();
+                                }
 
-                        return Err(err);
+                                return Err(err);
+                            }
+                        }
+                    }
+
+                    _ => {
+                        let message = self.buffer.clone();
+                        self.buffer.clear();
+                        message
                     }
                 };
 

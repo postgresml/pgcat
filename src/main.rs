@@ -21,7 +21,6 @@ extern crate tokio;
 
 use tokio::net::TcpListener;
 
-use bb8::Pool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -35,12 +34,7 @@ mod server;
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
 use config::{Address, User};
-use pool::{ClientServerMap, ReplicaPool, ServerPool};
-
-//
-// Poor man's config
-//
-const POOL_SIZE: u32 = 15;
+use pool::{ClientServerMap, ConnectionPool};
 
 /// Main!
 #[tokio::main]
@@ -71,7 +65,6 @@ async fn main() {
             port: "5432".to_string(),
         },
     ];
-    let num_addresses = addresses.len() as u32;
 
     let user = User {
         name: "lev".to_string(),
@@ -80,9 +73,7 @@ async fn main() {
 
     let database = "lev";
 
-    let replica_pool = ReplicaPool::new(addresses).await;
-    let manager = ServerPool::new(replica_pool, user, database, client_server_map.clone());
-
+    let pool = ConnectionPool::new(addresses, user, database, client_server_map.clone()).await;
     // We are round-robining, so ideally the replicas will be equally loaded.
     // Therefore, we are allocating number of replicas * pool size of connections.
     // However, if a replica dies, the remaining replicas will share the burden,
@@ -91,11 +82,6 @@ async fn main() {
     // Note that failover in this case could bring down the remaining replicas, so
     // in certain situations, e.g. when replicas are running hot already, failover
     // is not at all desirable!!
-    let pool = Pool::builder()
-        .max_size(POOL_SIZE * num_addresses)
-        .build(manager)
-        .await
-        .unwrap();
 
     loop {
         let pool = pool.clone();

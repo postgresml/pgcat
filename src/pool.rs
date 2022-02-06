@@ -1,6 +1,6 @@
 /// Pooling and failover and banlist.
 use async_trait::async_trait;
-use bb8::{ManageConnection, PooledConnection};
+use bb8::{ManageConnection, Pool, PooledConnection};
 use chrono::naive::NaiveDateTime;
 
 use crate::config::{Address, User};
@@ -21,109 +21,116 @@ pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, Stri
 // 60 seconds of ban time.
 // After that, the replica will be allowed to serve traffic again.
 const BAN_TIME: i64 = 60;
+//
+// Poor man's config
+//
+const POOL_SIZE: u32 = 15;
 
-pub struct ServerPool {
-    replica_pool: ReplicaPool,
-    user: User,
-    database: String,
-    client_server_map: ClientServerMap,
-}
-
-impl ServerPool {
-    pub fn new(
-        replica_pool: ReplicaPool,
-        user: User,
-        database: &str,
-        client_server_map: ClientServerMap,
-    ) -> ServerPool {
-        ServerPool {
-            replica_pool: replica_pool,
-            user: user,
-            database: database.to_string(),
-            client_server_map: client_server_map,
-        }
-    }
-}
-
-#[async_trait]
-impl ManageConnection for ServerPool {
-    type Connection = Server;
-    type Error = Error;
-
-    /// Attempts to create a new connection.
-    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        println!(">> Getting new connection from the pool");
-        let address = self.replica_pool.get();
-
-        match Server::startup(
-            &address.host,
-            &address.port,
-            &self.user.name,
-            &self.user.password,
-            &self.database,
-            self.client_server_map.clone(),
-        )
-        .await
-        {
-            Ok(server) => {
-                self.replica_pool.unban(&address);
-                Ok(server)
-            }
-            Err(err) => {
-                self.replica_pool.ban(&address);
-                Err(err)
-            }
-        }
-    }
-
-    /// Determines if the connection is still connected to the database.
-    async fn is_valid(&self, conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
-        let server = &mut *conn;
-
-        // Client disconnected before cleaning up
-        if server.in_transaction() {
-            return Err(Error::DirtyServer);
-        }
-
-        // If this fails, the connection will be closed and another will be grabbed from the pool quietly :-).
-        // Failover, step 1, complete.
-        match tokio::time::timeout(
-            tokio::time::Duration::from_millis(1000),
-            server.query("SELECT 1"),
-        )
-        .await
-        {
-            Ok(_) => Ok(()),
-            Err(_err) => {
-                println!(">> Unhealthy!");
-                self.replica_pool.ban(&server.address());
-                Err(Error::ServerTimeout)
-            }
-        }
-    }
-
-    /// Synchronously determine if the connection is no longer usable, if possible.
-    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
-        conn.is_bad()
-    }
-}
-
-/// A collection of addresses, which could either be a single primary,
-/// many sharded primaries or replicas.
 #[derive(Clone)]
-pub struct ReplicaPool {
+pub struct ConnectionPool {
+    databases: Vec<Pool<ServerPool>>,
     addresses: Vec<Address>,
     round_robin: Counter,
     banlist: BanList,
 }
 
-impl ReplicaPool {
-    /// Create a new replica pool. Addresses must be known in advance.
-    pub async fn new(addresses: Vec<Address>) -> ReplicaPool {
-        ReplicaPool {
+impl ConnectionPool {
+    pub async fn new(
+        addresses: Vec<Address>,
+        user: User,
+        database: &str,
+        client_server_map: ClientServerMap,
+    ) -> ConnectionPool {
+        let mut databases = Vec::new();
+
+        for address in &addresses {
+            let manager = ServerPool::new(
+                address.clone(),
+                user.clone(),
+                database,
+                client_server_map.clone(),
+            );
+            let pool = Pool::builder()
+                .max_size(POOL_SIZE)
+                .connection_timeout(std::time::Duration::from_millis(5000))
+                .test_on_check_out(false)
+                .build(manager)
+                .await
+                .unwrap();
+
+            databases.push(pool);
+        }
+
+        ConnectionPool {
+            databases: databases,
             addresses: addresses,
             round_robin: Arc::new(AtomicUsize::new(0)),
             banlist: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Get a connection from the pool. Either round-robin or pick a specific one in case they are sharded.
+    pub async fn get(
+        &self,
+        index: Option<usize>,
+    ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
+        match index {
+            // Asking for a specific database, must be sharded.
+            // No failover here.
+            Some(index) => {
+                assert!(index < self.databases.len());
+                match self.databases[index].get().await {
+                    Ok(conn) => Ok((conn, self.addresses[index].clone())),
+                    Err(err) => {
+                        println!(">> Shard {} down: {:?}", index, err);
+                        Err(Error::ServerTimeout)
+                    }
+                }
+            }
+
+            // Any database is fine, we're using round-robin here.
+            // Failover included if the server doesn't answer a health check.
+            None => {
+                loop {
+                    let index =
+                        self.round_robin.fetch_add(1, Ordering::SeqCst) % self.databases.len();
+                    let address = self.addresses[index].clone();
+
+                    if self.is_banned(&address) {
+                        continue;
+                    }
+
+                    // Check if we can connect
+                    let mut conn = match self.databases[index].get().await {
+                        Ok(conn) => conn,
+                        Err(err) => {
+                            println!(">> Banning replica {}, error: {:?}", index, err);
+                            self.ban(&address);
+                            continue;
+                        }
+                    };
+
+                    // Check if this server is alive with a health check
+                    let server = &mut *conn;
+
+                    match tokio::time::timeout(
+                        tokio::time::Duration::from_millis(1000),
+                        server.query("SELECT 1"),
+                    )
+                    .await
+                    {
+                        Ok(_) => return Ok((conn, address)),
+                        Err(_) => {
+                            println!(
+                                ">> Banning replica {} because of failed health check",
+                                index
+                            );
+                            self.ban(&address);
+                            continue;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -150,7 +157,7 @@ impl ReplicaPool {
         let mut guard = self.banlist.lock().unwrap();
 
         // Everything is banned, nothig is banned
-        if guard.len() == self.addresses.len() {
+        if guard.len() == self.databases.len() {
             guard.clear();
             drop(guard);
             println!(">> Unbanning all replicas.");
@@ -173,22 +180,58 @@ impl ReplicaPool {
             None => false,
         }
     }
+}
 
-    /// Get a replica to route the query to.
-    /// Will attempt to fetch a healthy replica. It will also
-    /// round-robin them for reasonably equal load. Round-robin is done
-    /// per transaction.
-    pub fn get(&self) -> Address {
-        loop {
-            // We'll never hit a 64-bit overflow right....right? :-)
-            let index = self.round_robin.fetch_add(1, Ordering::SeqCst) % self.addresses.len();
+pub struct ServerPool {
+    address: Address,
+    user: User,
+    database: String,
+    client_server_map: ClientServerMap,
+}
 
-            let address = &self.addresses[index];
-            if !self.is_banned(address) {
-                return address.clone();
-            } else {
-                continue;
-            }
+impl ServerPool {
+    pub fn new(
+        address: Address,
+        user: User,
+        database: &str,
+        client_server_map: ClientServerMap,
+    ) -> ServerPool {
+        ServerPool {
+            address: address,
+            user: user,
+            database: database.to_string(),
+            client_server_map: client_server_map,
         }
+    }
+}
+
+#[async_trait]
+impl ManageConnection for ServerPool {
+    type Connection = Server;
+    type Error = Error;
+
+    /// Attempts to create a new connection.
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        println!(">> Getting new connection from the pool");
+
+        Server::startup(
+            &self.address.host,
+            &self.address.port,
+            &self.user.name,
+            &self.user.password,
+            &self.database,
+            self.client_server_map.clone(),
+        )
+        .await
+    }
+
+    /// Determines if the connection is still connected to the database.
+    async fn is_valid(&self, _conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    /// Synchronously determine if the connection is no longer usable, if possible.
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        conn.is_bad()
     }
 }
