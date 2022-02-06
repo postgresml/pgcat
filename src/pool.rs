@@ -157,7 +157,7 @@ impl ConnectionPool {
 
         // Everything is banned, nothig is banned
         if guard[shard].len() == self.databases[shard].len() {
-            guard.clear();
+            guard[shard].clear();
             drop(guard);
             println!(">> Unbanning all replicas.");
             return false;
