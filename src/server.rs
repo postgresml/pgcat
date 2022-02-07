@@ -86,10 +86,8 @@ impl Server {
                             md5_password(&mut stream, user, password, &salt[..]).await?;
                         }
 
-                        // We're in!
-                        0 => {
-                            println!(">> Server authentication successful!");
-                        }
+                        // Authentication handshake complete.
+                        0 => (),
 
                         _ => {
                             println!(">> Unsupported authentication mechanism: {}", code);
@@ -99,7 +97,23 @@ impl Server {
                 }
 
                 'E' => {
-                    println!(">> Database error");
+                    let error_code = match stream.read_u8().await {
+                        Ok(error_code) => error_code,
+                        Err(_) => return Err(Error::SocketError),
+                    };
+
+                    match error_code {
+                        0 => (), // Terminator
+                        _ => {
+                            let mut error = vec![0u8; len as usize - 4 - 1];
+                            match stream.read_exact(&mut error).await {
+                                Ok(_) => (),
+                                Err(_) => return Err(Error::SocketError),
+                            };
+
+                            println!(">> Server error: {}", String::from_utf8_lossy(&error));
+                        }
+                    };
                     return Err(Error::ServerError);
                 }
 
