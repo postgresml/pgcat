@@ -138,6 +138,23 @@ pub async fn md5_password(
     Ok(write_all(stream, message).await?)
 }
 
+pub async fn set_sharding_key(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+    let mut res = BytesMut::with_capacity(25);
+
+    let set_complete = BytesMut::from(&"SET SHARDING KEY\0"[..]);
+    let len = (set_complete.len() + 4) as i32;
+
+    res.put_u8(b'C');
+    res.put_i32(len);
+    res.put_slice(&set_complete[..]);
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
+}
+
 /// Write all data in the buffer to the TcpStream.
 pub async fn write_all(stream: &mut TcpStream, buf: BytesMut) -> Result<(), Error> {
     match stream.write_all(&buf).await {

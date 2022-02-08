@@ -3,6 +3,7 @@
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
 use rand::{distributions::Alphanumeric, Rng};
+use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
@@ -11,6 +12,9 @@ use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::server::Server;
+use crate::sharding::Sharder;
+
+const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -39,6 +43,9 @@ pub struct Client {
     // Clients are mapped to servers while they use them. This allows a client
     // to connect and cancel a query.
     client_server_map: ClientServerMap,
+
+    // sharding regex
+    sharding_regex: Regex,
 }
 
 impl Client {
@@ -50,6 +57,8 @@ impl Client {
         client_server_map: ClientServerMap,
         transaction_mode: bool,
     ) -> Result<Client, Error> {
+        let sharding_regex = Regex::new(SHARDING_REGEX).unwrap();
+
         loop {
             // Could be StartupMessage or SSLRequest
             // which makes this variable length.
@@ -105,6 +114,7 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
+                        sharding_regex: sharding_regex,
                     });
                 }
 
@@ -124,6 +134,7 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
+                        sharding_regex: sharding_regex,
                     });
                 }
 
@@ -156,6 +167,12 @@ impl Client {
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
+        // Active shard we're talking to.
+        // The lifetime of this depends on the pool mode:
+        // - if in session mode, this lives until client disconnects or changes it,
+        // - if in transaction mode, this lives for the duration of one transaction.
+        let mut shard: Option<usize> = None;
+
         loop {
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
@@ -164,15 +181,23 @@ impl Client {
             // SET sharding_context.key = '1234';
             let mut message = read_message(&mut self.read).await?;
 
-            // TODO: parse the message here. If it's part of our protocol,
-            // don't grab a server yet and continue loop.
+            // Parse for special select shard command.
+            // SET SHARDING KEY TO 'bigint';
+            match self.select_shard(message.clone(), pool.shards()).await {
+                Some(s) => {
+                    set_sharding_key(&mut self.write).await?;
+                    shard = Some(s);
+                    continue;
+                }
+                None => (),
+            };
 
             // The message is part of the regular protocol.
             // self.buffer.put(message);
 
             // Grab a server from the pool.
             // None = any shard
-            let connection = pool.get(None).await.unwrap();
+            let connection = pool.get(shard).await.unwrap();
             let mut proxy = connection.0;
             let _address = connection.1;
             let server = &mut *proxy;
@@ -230,6 +255,7 @@ impl Client {
 
                         // Release server
                         if !server.in_transaction() && self.transaction_mode {
+                            shard = None;
                             break;
                         }
                     }
@@ -288,6 +314,7 @@ impl Client {
 
                         // Release server
                         if !server.in_transaction() && self.transaction_mode {
+                            shard = None;
                             break;
                         }
                     }
@@ -314,6 +341,7 @@ impl Client {
                         // Release the server
                         if !server.in_transaction() && self.transaction_mode {
                             println!("Releasing after copy done");
+                            shard = None;
                             break;
                         }
                     }
@@ -332,5 +360,31 @@ impl Client {
     pub fn release(&mut self) {
         let mut guard = self.client_server_map.lock().unwrap();
         guard.remove(&(self.process_id, self.secret_key));
+    }
+
+    async fn select_shard(&mut self, mut buf: BytesMut, shards: usize) -> Option<usize> {
+        let code = buf.get_u8() as char;
+
+        match code {
+            'Q' => (),
+            // 'P' => (),
+            _ => return None,
+        };
+
+        let len = buf.get_i32();
+        let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase(); // Don't read the ternminating null
+
+        if self.sharding_regex.is_match(&query) {
+            let shard = query.split("'").collect::<Vec<&str>>()[1];
+            match shard.parse::<i64>() {
+                Ok(shard) => {
+                    let sharder = Sharder::new(shards);
+                    Some(sharder.pg_bigint_hash(shard))
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
     }
 }
