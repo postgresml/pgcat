@@ -27,11 +27,11 @@ impl Sharder {
     /// to put the row in when using HASH(column) partitioning.
     /// Source: https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/common/hashfn.c#L631
     /// Supports only 1 bigint at the moment, but we can add more later.
-    pub fn pg_bigint_hash(&self, key: i64) -> u64 {
+    pub fn pg_bigint_hash(&self, key: i64) -> usize {
         let mut lohalf = key as u32;
         let hihalf = (key >> 32) as u32;
         lohalf ^= if key >= 0 { hihalf } else { !hihalf };
-        Self::combine(0, Self::pg_u32_hash(lohalf)) % self.shards as u64
+        Self::combine(0, Self::pg_u32_hash(lohalf)) as usize % self.shards as usize
     }
 
     #[inline]
@@ -125,6 +125,9 @@ mod test {
         assert_eq!(shard, 1);
     }
 
+    // See tests/sharding/setup.sql
+    // The output of those SELECT statements will match this test,
+    // confirming that we implemented Postgres BIGINT hashing correctly.
     #[test]
     fn test_pg_bigint_hash() {
         let sharder = Sharder::new(5);
