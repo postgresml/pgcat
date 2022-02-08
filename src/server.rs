@@ -15,17 +15,38 @@ use crate::ClientServerMap;
 
 /// Server state.
 pub struct Server {
+    // Server host, e.g. localhost
     host: String,
+
+    // Server port: e.g. 5432
     port: String,
+
+    // Buffered read socket
     read: BufReader<OwnedReadHalf>,
+
+    // Unbuffered write socket (our client code buffers)
     write: OwnedWriteHalf,
+
+    // Our server response buffer
     buffer: BytesMut,
+
+    // Server information the server sent us over on startup
     server_info: BytesMut,
+
+    // Backend id and secret key used for query cancellation.
     backend_id: i32,
     secret_key: i32,
+
+    // Is the server inside a transaction at the moment.
     in_transaction: bool,
+
+    // Is there more data for the client to read.
     data_available: bool,
+
+    // Is the server broken? We'll remote it from the pool if so.
     bad: bool,
+
+    // Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
 }
 
@@ -48,6 +69,7 @@ impl Server {
             }
         };
 
+        // Send the startup packet.
         startup(&mut stream, user, database).await?;
 
         let mut server_info = BytesMut::with_capacity(25);

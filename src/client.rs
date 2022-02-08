@@ -48,6 +48,7 @@ impl Client {
     pub async fn startup(
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
+        transaction_mode: bool,
     ) -> Result<Client, Error> {
         loop {
             // Could be StartupMessage or SSLRequest
@@ -100,7 +101,7 @@ impl Client {
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
                         cancel_mode: false,
-                        transaction_mode: true,
+                        transaction_mode: transaction_mode,
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
@@ -119,7 +120,7 @@ impl Client {
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
                         cancel_mode: true,
-                        transaction_mode: true,
+                        transaction_mode: transaction_mode,
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,

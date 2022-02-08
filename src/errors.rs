@@ -7,4 +7,5 @@ pub enum Error {
     ServerError,
     ServerTimeout,
     DirtyServer,
+    BadConfig,
 }

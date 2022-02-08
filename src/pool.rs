@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use chrono::naive::NaiveDateTime;
 
-use crate::config::{Address, User};
+use crate::config::{Address, Config, User};
 use crate::errors::Error;
 use crate::server::Server;
 
@@ -31,15 +31,17 @@ const CONNECT_TIMEOUT: u64 = 5000;
 // How much time to give the server to answer a SELECT 1 query.
 const HEALTHCHECK_TIMEOUT: u64 = 1000;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConnectionPool {
     databases: Vec<Vec<Pool<ServerPool>>>,
     addresses: Vec<Vec<Address>>,
     round_robin: Counter,
     banlist: BanList,
+    healthcheck_timeout: u64,
 }
 
 impl ConnectionPool {
+    // Construct the connection pool for a single-shard cluster.
     pub async fn new(
         addresses: Vec<Address>,
         user: User,
@@ -71,10 +73,70 @@ impl ConnectionPool {
             addresses: vec![addresses],
             round_robin: Arc::new(AtomicUsize::new(0)),
             banlist: Arc::new(Mutex::new(vec![HashMap::new()])),
+            healthcheck_timeout: HEALTHCHECK_TIMEOUT,
         }
     }
 
-    /// Get a connection from the pool. Either round-robin or pick a specific one in case they are sharded.
+    /// Construct the connection pool from a config file.
+    pub async fn from_config(config: Config, client_server_map: ClientServerMap) -> ConnectionPool {
+        let mut shards = Vec::new();
+        let mut addresses = Vec::new();
+        let mut banlist = Vec::new();
+        let mut shard_ids = config
+            .shards
+            .clone()
+            .into_keys()
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>();
+        shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
+
+        for shard in shard_ids {
+            let shard = &config.shards[&shard];
+            let mut pools = Vec::new();
+            let mut replica_addresses = Vec::new();
+
+            for server in &shard.servers {
+                let address = Address {
+                    host: server.0.clone(),
+                    port: server.1.to_string(),
+                };
+
+                let manager = ServerPool::new(
+                    address.clone(),
+                    config.user.clone(),
+                    &shard.database,
+                    client_server_map.clone(),
+                );
+
+                let pool = Pool::builder()
+                    .max_size(config.general.pool_size)
+                    .connection_timeout(std::time::Duration::from_millis(
+                        config.general.connect_timeout,
+                    ))
+                    .test_on_check_out(false)
+                    .build(manager)
+                    .await
+                    .unwrap();
+
+                pools.push(pool);
+                replica_addresses.push(address);
+            }
+
+            shards.push(pools);
+            addresses.push(replica_addresses);
+            banlist.push(HashMap::new());
+        }
+
+        ConnectionPool {
+            databases: shards,
+            addresses: addresses,
+            round_robin: Arc::new(AtomicUsize::new(0)),
+            banlist: Arc::new(Mutex::new(banlist)),
+            healthcheck_timeout: config.general.healthcheck_timeout,
+        }
+    }
+
+    /// Get a connection from the pool.
     pub async fn get(
         &self,
         shard: Option<usize>,

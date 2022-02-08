@@ -17,7 +17,10 @@ extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
 extern crate md5;
+extern crate serde;
+extern crate serde_derive;
 extern crate tokio;
+extern crate toml;
 
 use tokio::net::TcpListener;
 
@@ -42,8 +45,15 @@ use pool::{ClientServerMap, ConnectionPool};
 async fn main() {
     println!("> Welcome to PgCat! Meow.");
 
-    let addr = "0.0.0.0:6432";
-    let listener = match TcpListener::bind(addr).await {
+    let config = match config::parse("pgcat.toml").await {
+        Ok(config) => config,
+        Err(err) => {
+            return;
+        }
+    };
+
+    let addr = format!("{}:{}", config.general.host, config.general.port);
+    let listener = match TcpListener::bind(&addr).await {
         Ok(sock) => sock,
         Err(err) => {
             println!("> Error: {:?}", err);
@@ -53,28 +63,21 @@ async fn main() {
 
     println!("> Running on {}", addr);
 
+    // Tracks which client is connected to which server for query cancellation.
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
-    // Replica pool.
-    let addresses = vec![
-        Address {
-            host: "127.0.0.1".to_string(),
-            port: "5432".to_string(),
-        },
-        Address {
-            host: "localhost".to_string(),
-            port: "5433".to_string(),
-        },
-    ];
+    println!("> Pool size: {}", config.general.pool_size);
+    println!("> Pool mode: {}", config.general.pool_mode);
+    println!("> Ban time: {}s", config.general.ban_time);
+    println!(
+        "> Healthcheck timeout: {}ms",
+        config.general.healthcheck_timeout
+    );
 
-    let user = User {
-        name: "lev".to_string(),
-        password: "lev".to_string(),
-    };
+    let pool = ConnectionPool::from_config(config.clone(), client_server_map.clone()).await;
+    let transaction_mode = config.general.pool_mode == "transaction";
 
-    let database = "lev";
-
-    let pool = ConnectionPool::new(addresses, user, database, client_server_map.clone()).await;
+    println!("> Waiting for clients...");
 
     loop {
         let pool = pool.clone();
@@ -90,9 +93,12 @@ async fn main() {
 
         // Client goes to another thread, bye.
         tokio::task::spawn(async move {
-            println!(">> Client {:?} connected.", addr);
+            println!(
+                ">> Client {:?} connected, transaction pooling: {}",
+                addr, transaction_mode
+            );
 
-            match client::Client::startup(socket, client_server_map).await {
+            match client::Client::startup(socket, client_server_map, transaction_mode).await {
                 Ok(mut client) => {
                     println!(">> Client {:?} authenticated successfully!", addr);
 
