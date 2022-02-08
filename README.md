@@ -70,11 +70,18 @@ We're implemeting Postgres' `PARTITION BY HASH` sharding function for `BIGINT` f
 The biggest advantage of using this sharding function is that anyone can shard the dataset using Postgres partitions
 while also access it for both reads and writes using this pooler. No custom obscure sharding function is needed and database sharding can be done entirely in Postgres.
 
+To select the shard we want to talk to, we introduced special syntax:
+
+```sql
+SET SHARDING KEY TO '1234';
+```
+
+This sharding key will be hashed and the pooler will select a shard to use for the next transaction. If the pooler is in session mode, this sharding key will be used until it's set again or the client disconnects.
+
 
 ## Missing
 
-1. Query routing based on shard.
-2. Authentication, ehem, this proxy is letting anyone in at the moment.
+1. Authentication, ehem, this proxy is letting anyone in at the moment.
 
 ## Benchmarks
 
