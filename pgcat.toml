@@ -32,8 +32,8 @@ ban_time = 60 # Seconds
 #
 # User to use for authentication against the server.
 [user]
-name = "lev"
-password = "lev"
+name = "sharding_user"
+password = "sharding_user"
 
 
 #
@@ -49,7 +49,7 @@ servers = [
     [ "localhost", 5432 ],
 ]
 # Database name (e.g. "postgres")
-database = "lev"
+database = "shard0"
 
 [shards.1]
 # [ host, port ]
@@ -57,4 +57,12 @@ servers = [
     [ "127.0.0.1", 5432 ],
     [ "localhost", 5432 ],
 ]
-database = "lev"
+database = "shard1"
+
+[shards.2]
+# [ host, port ]
+servers = [
+    [ "127.0.0.1", 5432 ],
+    [ "localhost", 5432 ],
+]
+database = "shard2"

@@ -66,7 +66,7 @@ either lose 1/x of your traffic or risk losing it all eventually. Ideally you ov
 to make this choice :-).
 
 ### Sharding
-We're implemeting Postgres' `PARTITION BY HASH` sharding function for `BIGINT` fields. This works well for tables that use `BIGSERIAL` primary key which I think is common enough these days. We can also add many more functions here, but this is a good start. See `src/sharding.rs` and `tests/sharding/setup.sql` for more details on the implementation.
+We're implemeting Postgres' `PARTITION BY HASH` sharding function for `BIGINT` fields. This works well for tables that use `BIGSERIAL` primary key which I think is common enough these days. We can also add many more functions here, but this is a good start. See `src/sharding.rs` and `tests/sharding/partition_hash_test_setup.sql` for more details on the implementation.
 
 The biggest advantage of using this sharding function is that anyone can shard the dataset using Postgres partitions
 while also access it for both reads and writes using this pooler. No custom obscure sharding function is needed and database sharding can be done entirely in Postgres.

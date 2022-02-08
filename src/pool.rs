@@ -185,10 +185,22 @@ impl ConnectionPool {
             )
             .await
             {
-                Ok(_) => return Ok((conn, address)),
+                // Check if health check succeeded
+                Ok(res) => match res {
+                    Ok(_) => return Ok((conn, address)),
+                    Err(_) => {
+                        println!(
+                            ">> Banning replica {} because of failed health check",
+                            index
+                        );
+                        self.ban(&address, shard);
+                        continue;
+                    }
+                },
+                // Health check never came back, database is really really down
                 Err(_) => {
                     println!(
-                        ">> Banning replica {} because of failed health check",
+                        ">> Banning replica {} because of health check timeout",
                         index
                     );
                     self.ban(&address, shard);
@@ -280,7 +292,7 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        println!(">> Getting new connection from the pool");
+        println!(">> Creating a new connection for the pool");
 
         Server::startup(
             &self.address.host,
