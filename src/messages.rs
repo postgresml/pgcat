@@ -13,6 +13,7 @@ use crate::errors::Error;
 //
 const SERVER_VESION: &str = "12.9 (Ubuntu 12.9-0ubuntu0.20.04.1)";
 
+/// Tell the client that authentication handshake completed successfully.
 pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
     let mut auth_ok = BytesMut::with_capacity(9);
 
@@ -23,6 +24,8 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
     Ok(write_all(stream, auth_ok).await?)
 }
 
+/// Send server parameters to the client. This will tell the client
+/// what server version and what's the encoding we're using.
 pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
     let client_encoding = BytesMut::from(&b"client_encoding\0UTF8\0"[..]);
     let server_version =
@@ -44,6 +47,8 @@ pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
     Ok(write_all(stream, res).await?)
 }
 
+/// Give the client the process_id and secret we generated
+/// used in query cancellation.
 pub async fn backend_key_data(
     stream: &mut TcpStream,
     backend_id: i32,
@@ -57,6 +62,7 @@ pub async fn backend_key_data(
     Ok(write_all(stream, key_data).await?)
 }
 
+/// Tell the client we're ready for another query.
 pub async fn ready_for_query(stream: &mut TcpStream) -> Result<(), Error> {
     let mut bytes = BytesMut::with_capacity(5);
 
@@ -67,6 +73,8 @@ pub async fn ready_for_query(stream: &mut TcpStream) -> Result<(), Error> {
     Ok(write_all(stream, bytes).await?)
 }
 
+/// Send the startup packet the server. We're pretending we're a Pg client.
+/// This tells the server which user we are and what database we want.
 pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Result<(), Error> {
     let mut bytes = BytesMut::with_capacity(25);
 
@@ -96,6 +104,8 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
     }
 }
 
+/// Send password challenge response to the server.
+/// This is the MD5 challenge.
 pub async fn md5_password(
     stream: &mut TcpStream,
     user: &str,
@@ -128,6 +138,7 @@ pub async fn md5_password(
     Ok(write_all(stream, message).await?)
 }
 
+/// Write all data in the buffer to the TcpStream.
 pub async fn write_all(stream: &mut TcpStream, buf: BytesMut) -> Result<(), Error> {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
@@ -135,6 +146,7 @@ pub async fn write_all(stream: &mut TcpStream, buf: BytesMut) -> Result<(), Erro
     }
 }
 
+/// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
 pub async fn write_all_half(stream: &mut OwnedWriteHalf, buf: BytesMut) -> Result<(), Error> {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
