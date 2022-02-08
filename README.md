@@ -50,7 +50,7 @@ Okay, this is just basic stuff, but we support cancelling queries. If you know t
 this might be relevant given than this is a transactional pooler but if you're new to Pg, don't worry about it, it works.
 
 ### Round-robin load balancing
-This is the novel part. PgBouncer doesn't support it and suggests we use DNS of a TCP proxy instead.
+This is the novel part. PgBouncer doesn't support it and suggests we use DNS or a TCP proxy instead.
 We prefer to have everything as part of one package; arguably, it's easier to understand and optimize.
 This pooler will round-robin between multiple replicas keeping load reasonably even.
 
@@ -64,10 +64,16 @@ failing over could bring even more load and tip over the remaining healthy-ish r
 either lose 1/x of your traffic or risk losing it all eventually. Ideally you overprovision your system, so you don't necessarily need
 to make this choice :-).
 
+### Sharding
+We're implemeting Postgres' `PARTITION BY HASH` sharding function for `BIGINT` fields. This works well for tables that use `BIGSERIAL` primary key which I think is common enough these days. We can also add many more functions here, but this is a good start. See `src/sharding.rs` and `tests/sharding/setup.sql` for more details on the implementation.
+
+The biggest advantage of using this sharding function is that anyone can shard the dataset using Postgres partitions
+while also access it for both reads and writes using this pooler. No custom obscure sharding function is needed and database sharding can be done entirely in Postgres.
+
 
 ## Missing
 
-1. Sharding. Soon :-).
+1. Query routing based on shard.
 2. Authentication, ehem, this proxy is letting anyone in at the moment.
 
 ## Benchmarks
