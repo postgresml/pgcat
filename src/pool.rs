@@ -38,6 +38,7 @@ pub struct ConnectionPool {
     round_robin: Counter,
     banlist: BanList,
     healthcheck_timeout: u64,
+    ban_time: i64,
 }
 
 impl ConnectionPool {
@@ -74,6 +75,7 @@ impl ConnectionPool {
             round_robin: Arc::new(AtomicUsize::new(0)),
             banlist: Arc::new(Mutex::new(vec![HashMap::new()])),
             healthcheck_timeout: HEALTHCHECK_TIMEOUT,
+            ban_time: BAN_TIME,
         }
     }
 
@@ -133,6 +135,7 @@ impl ConnectionPool {
             round_robin: Arc::new(AtomicUsize::new(0)),
             banlist: Arc::new(Mutex::new(banlist)),
             healthcheck_timeout: config.general.healthcheck_timeout,
+            ban_time: config.general.ban_time,
         }
     }
 
@@ -229,7 +232,7 @@ impl ConnectionPool {
         match guard[shard].get(address) {
             Some(timestamp) => {
                 let now = chrono::offset::Utc::now().naive_utc();
-                if now.timestamp() - timestamp.timestamp() > BAN_TIME {
+                if now.timestamp() - timestamp.timestamp() > self.ban_time {
                     // 1 minute
                     guard[shard].remove(address);
                     false
