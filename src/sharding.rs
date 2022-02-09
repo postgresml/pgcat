@@ -1,5 +1,3 @@
-use sha1::{Digest, Sha1};
-
 // https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/catalog/partition.h#L20
 const PARTITION_HASH_SEED: u64 = 0x7A5B22367996DCFD;
 
@@ -10,17 +8,6 @@ pub struct Sharder {
 impl Sharder {
     pub fn new(shards: usize) -> Sharder {
         Sharder { shards: shards }
-    }
-
-    /// Use SHA1 to pick a shard for the key. The key can be anything,
-    /// including an int or a string.
-    pub fn _sha1(&self, key: &[u8]) -> usize {
-        let mut hasher = Sha1::new();
-        hasher.update(key);
-        let result = hasher.finalize_reset();
-
-        let i = u32::from_le_bytes(result[result.len() - 4..result.len()].try_into().unwrap());
-        i as usize % self.shards
     }
 
     /// Hash function used by Postgres to determine which partition
@@ -116,14 +103,6 @@ impl Sharder {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_sha1() {
-        let sharder = Sharder::new(12);
-        let key = b"1234";
-        let shard = sharder.sha1(key);
-        assert_eq!(shard, 1);
-    }
 
     // See tests/sharding/partition_hash_test_setup.sql
     // The output of those SELECT statements will match this test,
