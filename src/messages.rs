@@ -26,6 +26,9 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
 
 /// Send server parameters to the client. This will tell the client
 /// what server version and what's the encoding we're using.
+//
+// TODO: Forward these from the server instead of hardcoding.
+//
 pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
     let client_encoding = BytesMut::from(&b"client_encoding\0UTF8\0"[..]);
     let server_version =
@@ -138,16 +141,20 @@ pub async fn md5_password(
     Ok(write_all(stream, message).await?)
 }
 
+/// Implements a response to our custom `SET SHARDING KEY` command.
+/// This tells the client we're ready for the next query.
 pub async fn set_sharding_key(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     let mut res = BytesMut::with_capacity(25);
 
     let set_complete = BytesMut::from(&"SET SHARDING KEY\0"[..]);
     let len = (set_complete.len() + 4) as i32;
 
+    // CommandComplete
     res.put_u8(b'C');
     res.put_i32(len);
     res.put_slice(&set_complete[..]);
 
+    // ReadyForQuery (idle)
     res.put_u8(b'Z');
     res.put_i32(5);
     res.put_u8(b'I');

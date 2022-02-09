@@ -43,8 +43,8 @@ pub struct Config {
     pub shards: HashMap<String, Shard>,
 }
 
+/// Parse the config.
 pub async fn parse(path: &str) -> Result<Config, Error> {
-    // let path = Path::new(path);
     let mut contents = String::new();
     let mut file = match File::open(path).await {
         Ok(file) => file,

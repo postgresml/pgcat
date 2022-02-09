@@ -182,7 +182,7 @@ impl ConnectionPool {
     pub fn is_banned(&self, address: &Address, shard: usize) -> bool {
         let mut guard = self.banlist.lock().unwrap();
 
-        // Everything is banned, nothig is banned
+        // Everything is banned = nothing is banned.
         if guard[shard].len() == self.databases[shard].len() {
             guard[shard].clear();
             drop(guard);
@@ -194,8 +194,8 @@ impl ConnectionPool {
         match guard[shard].get(address) {
             Some(timestamp) => {
                 let now = chrono::offset::Utc::now().naive_utc();
+                // Ban expired.
                 if now.timestamp() - timestamp.timestamp() > self.ban_time {
-                    // 1 minute
                     guard[shard].remove(address);
                     false
                 } else {

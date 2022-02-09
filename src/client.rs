@@ -168,7 +168,7 @@ impl Client {
 
         // Active shard we're talking to.
         // The lifetime of this depends on the pool mode:
-        // - if in session mode, this lives until client disconnects or changes it,
+        // - if in session mode, this lives until the client disconnects,
         // - if in transaction mode, this lives for the duration of one transaction.
         let mut shard: Option<usize> = None;
 
@@ -177,7 +177,7 @@ impl Client {
             // either a `Q` (query) or `P` (prepare, extended protocol).
             // We can parse it here before grabbing a server from the pool,
             // in case the client is sending some control messages, e.g.
-            // SET sharding_context.key = '1234';
+            // SET SHARDING KEY TO 'bigint';
             let mut message = read_message(&mut self.read).await?;
 
             // Parse for special select shard command.
@@ -190,9 +190,6 @@ impl Client {
                 }
                 None => (),
             };
-
-            // The message is part of the regular protocol.
-            // self.buffer.put(message);
 
             // Grab a server from the pool.
             // None = any shard
@@ -361,12 +358,19 @@ impl Client {
         guard.remove(&(self.process_id, self.secret_key));
     }
 
+    /// Determine if the query is part of our special syntax, extract
+    /// the shard key, and return the shard to query based on Postgres'
+    /// PARTITION BY HASH function.
     async fn select_shard(&mut self, mut buf: BytesMut, shards: usize) -> Option<usize> {
         let code = buf.get_u8() as char;
 
+        // Only supporting simpe protocol here, so
+        // one would have to execute something like this:
+        // psql -c "SET SHARDING KEY TO '1234'"
+        // after sanitizing the value manually, which can be just done with an
+        // int parser, e.g. `let key = "1234".parse::<i64>().unwrap()`.
         match code {
             'Q' => (),
-            // 'P' => (),
             _ => return None,
         };
 
