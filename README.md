@@ -80,7 +80,7 @@ To select the shard we want to talk to, we introduced special syntax:
 SET SHARDING KEY TO '1234';
 ```
 
-This sharding key will be hashed and the pooler will select a shard to use for the next transaction. If the pooler is in session mode, this sharding key will be used until it's set again or the client disconnects.
+This sharding key will be hashed and the pooler will select a shard to use for the next transaction. If the pooler is in session mode, this sharding key has to be set as the first query on startup & cannot be changed until the client re-connects.
 
 
 ## Missing
