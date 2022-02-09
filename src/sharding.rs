@@ -125,7 +125,7 @@ mod test {
         assert_eq!(shard, 1);
     }
 
-    // See tests/sharding/setup.sql
+    // See tests/sharding/partition_hash_test_setup.sql
     // The output of those SELECT statements will match this test,
     // confirming that we implemented Postgres BIGINT hashing correctly.
     #[test]
