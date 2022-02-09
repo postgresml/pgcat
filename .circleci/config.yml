@@ -15,12 +15,15 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: cargo-lock-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
       - run:
           name: "Build" 
-          command: "cargo build --release"
+          command: "cargo build"
+      - run:
+          name: "Test"
+          command: "cargo test"
       - save_cache:
-          key: cargo-lock-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
           paths:
             - target
             - ~/.cargo
