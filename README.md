@@ -25,6 +25,8 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && \
 pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 ```
 
+See [sharding README](./tests/sharding/README.md) for sharding logic testing.
+
 ## Features
 
 1. Session mode.
