@@ -35,6 +35,7 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 4. Query cancellation.
 5. Round-robin load balancing of replicas.
 6. Banlist & failover
+7. Sharding!
 
 ### Session mode
 Each client owns its own server for the duration of the session. Commands like `SET` are allowed.
