@@ -180,7 +180,7 @@ impl ConnectionPool {
             let server = &mut *conn;
 
             match tokio::time::timeout(
-                tokio::time::Duration::from_millis(HEALTHCHECK_TIMEOUT),
+                tokio::time::Duration::from_millis(self.healthcheck_timeout),
                 server.query("SELECT 1"),
             )
             .await
