@@ -14,7 +14,7 @@ impl Sharder {
 
     /// Use SHA1 to pick a shard for the key. The key can be anything,
     /// including an int or a string.
-    pub fn sha1(&self, key: &[u8]) -> usize {
+    pub fn _sha1(&self, key: &[u8]) -> usize {
         let mut hasher = Sha1::new();
         hasher.update(key);
         let result = hasher.finalize_reset();

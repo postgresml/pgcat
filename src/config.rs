@@ -1,9 +1,9 @@
 use serde_derive::Deserialize;
-use std::collections::HashMap;
-use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
+
+use std::collections::HashMap;
 
 use crate::errors::Error;
 
@@ -62,16 +62,6 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
         }
     };
 
-    // let config: toml::Value = match toml::from_str(&contents) {
-    //     Ok(config) => config,
-    //     Err(err) => {
-    //         println!("> Config error: {:?}", err);
-    //         return Err(Error::BadConfig);
-    //     }
-    // };
-
-    // println!("Config: {:?}", config);
-
     let config: Config = match toml::from_str(&contents) {
         Ok(config) => config,
         Err(err) => {
@@ -81,4 +71,17 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
     };
 
     Ok(config)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_config() {
+        let config = parse("pgcat.toml").await.unwrap();
+        assert_eq!(config.general.pool_size, 15);
+        assert_eq!(config.shards.len(), 3);
+        assert_eq!(config.shards["1"].servers[0].0, "127.0.0.1");
+    }
 }

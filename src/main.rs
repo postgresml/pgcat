@@ -37,7 +37,6 @@ mod sharding;
 
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
-use config::{Address, User};
 use pool::{ClientServerMap, ConnectionPool};
 
 /// Main!
@@ -48,6 +47,7 @@ async fn main() {
     let config = match config::parse("pgcat.toml").await {
         Ok(config) => config,
         Err(err) => {
+            println!("> Config parse error: {:?}", err);
             return;
         }
     };

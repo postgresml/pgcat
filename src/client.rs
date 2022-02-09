@@ -2,7 +2,6 @@
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
-use rand::{distributions::Alphanumeric, Rng};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};

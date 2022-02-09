@@ -18,19 +18,6 @@ pub type BanList = Arc<Mutex<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type Counter = Arc<AtomicUsize>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
-// 60 seconds of ban time.
-// After that, the replica will be allowed to serve traffic again.
-const BAN_TIME: i64 = 60;
-
-// DB pool size (per actual database server)
-const POOL_SIZE: u32 = 15;
-
-// 5 seconds to connect before we give up
-const CONNECT_TIMEOUT: u64 = 5000;
-
-// How much time to give the server to answer a SELECT 1 query.
-const HEALTHCHECK_TIMEOUT: u64 = 1000;
-
 #[derive(Clone, Debug)]
 pub struct ConnectionPool {
     databases: Vec<Vec<Pool<ServerPool>>>,
@@ -42,43 +29,6 @@ pub struct ConnectionPool {
 }
 
 impl ConnectionPool {
-    // Construct the connection pool for a single-shard cluster.
-    pub async fn new(
-        addresses: Vec<Address>,
-        user: User,
-        database: &str,
-        client_server_map: ClientServerMap,
-    ) -> ConnectionPool {
-        let mut databases = Vec::new();
-
-        for address in &addresses {
-            let manager = ServerPool::new(
-                address.clone(),
-                user.clone(),
-                database,
-                client_server_map.clone(),
-            );
-            let pool = Pool::builder()
-                .max_size(POOL_SIZE)
-                .connection_timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT))
-                .test_on_check_out(false)
-                .build(manager)
-                .await
-                .unwrap();
-
-            databases.push(pool);
-        }
-
-        ConnectionPool {
-            databases: vec![databases],
-            addresses: vec![addresses],
-            round_robin: Arc::new(AtomicUsize::new(0)),
-            banlist: Arc::new(Mutex::new(vec![HashMap::new()])),
-            healthcheck_timeout: HEALTHCHECK_TIMEOUT,
-            ban_time: BAN_TIME,
-        }
-    }
-
     /// Construct the connection pool from a config file.
     pub async fn from_config(config: Config, client_server_map: ClientServerMap) -> ConnectionPool {
         let mut shards = Vec::new();
@@ -222,7 +172,7 @@ impl ConnectionPool {
 
     /// Clear the replica to receive traffic again. Takes effect immediately
     /// for all new transactions.
-    pub fn unban(&self, address: &Address, shard: usize) {
+    pub fn _unban(&self, address: &Address, shard: usize) {
         let mut guard = self.banlist.lock().unwrap();
         guard[shard].remove(address);
     }
