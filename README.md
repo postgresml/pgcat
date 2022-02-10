@@ -110,114 +110,225 @@ You can setup PgBench locally through PgCat:
 pgbench -h 127.0.0.1 -p 6432 -i
 ```
 
-Coincidenly, this uses `COPY` so you can test if that works.
+Coincidenly, this uses `COPY` so you can test if that works. Additionally, we'll be running the following PgBench configurations:
+
+1. 16 clients, 2 threads
+2. 32 clients, 2 threads
+3. 64 clients, 2 threads
+4. 128 clients, 2 threads
+
+All queries will be `SELECT` only (`-S`) just so disks don't get in the way, since the dataset will be effectively all in RAM.
 
 ### PgBouncer
 
+#### Config
+
+```ini
+[databases]
+shard0 = host=localhost port=5432 user=sharding_user password=sharding_user
+
+pool_mode = transaction
+max_client_conn = 1000
 ```
-$ pgbench -i -h 127.0.0.1 -p 6432 && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
-dropping old tables...
-creating tables...
-generating data...
-100000 of 100000 tuples (100%) done (elapsed 0.01 s, remaining 0.00 s)
-vacuuming...
-creating primary keys...
-done.
+
+#### Runs
+
+
+```
+$ pgbench -t 1000 -c 16 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended shard0
+
 starting vacuum...end.
-transaction type: <builtin: TPC-B (sort of)>
-scaling factor: 1
-query mode: simple
-number of clients: 1
-number of threads: 1
-number of transactions per client: 1000
-number of transactions actually processed: 1000/1000
-latency average = 1.089 ms
-tps = 918.687098 (including connections establishing)
-tps = 918.847790 (excluding connections establishing)
-starting vacuum...end.
-transaction type: <builtin: TPC-B (sort of)>
+transaction type: <builtin: select only>
 scaling factor: 1
 query mode: extended
-number of clients: 1
-number of threads: 1
+number of clients: 16
+number of threads: 2
 number of transactions per client: 1000
-number of transactions actually processed: 1000/1000
-latency average = 1.136 ms
-tps = 880.622009 (including connections establishing)
-tps = 880.769550 (excluding connections establishing)
+number of transactions actually processed: 16000/16000
+latency average = 0.155 ms
+tps = 103417.377469 (including connections establishing)
+tps = 103510.639935 (excluding connections establishing)
+
+
+$ pgbench -t 1000 -c 32 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended shard0
+
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 32
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 32000/32000
+latency average = 0.290 ms
+tps = 110325.939785 (including connections establishing)
+tps = 110386.513435 (excluding connections establishing)
+
+
+$ pgbench -t 1000 -c 64 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended shard0
+
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 64
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 64000/64000
+latency average = 0.692 ms
+tps = 92470.427412 (including connections establishing)
+tps = 92618.389350 (excluding connections establishing)
+
+$ pgbench -t 1000 -c 128 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended shard0
+
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 128
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 128000/128000
+latency average = 1.406 ms
+tps = 91013.429985 (including connections establishing)
+tps = 91067.583928 (excluding connections establishing)
 ```
 
 ### PgCat
 
+#### Config
+
+The only thing that matters here is the number of workers in the Tokio pool. Make sure to set it to < than the number of your CPU cores.
+Also account for hyper-threading, so if you have that, take the number you got above and divide it by two, that way only "real" cores serving
+requests.
+
+My setup is 16 threads, 8 cores (`htop` shows as 16 CPUs), so I set the `max_workers` in Tokio to 4. Too many, and it starts conflicting with PgBench
+which is also running on the same system.
+
+#### Runs
+
 
 ```
-$ pgbench -i -h 127.0.0.1 -p 6432 && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
-dropping old tables...
-creating tables...
-generating data...
-100000 of 100000 tuples (100%) done (elapsed 0.01 s, remaining 0.00 s)
-vacuuming...
-creating primary keys...
-done.
+$ pgbench -t 1000 -c 16 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended
 starting vacuum...end.
-transaction type: <builtin: TPC-B (sort of)>
-scaling factor: 1
-query mode: simple
-number of clients: 1
-number of threads: 1
-number of transactions per client: 1000
-number of transactions actually processed: 1000/1000
-latency average = 1.142 ms
-tps = 875.645437 (including connections establishing)
-tps = 875.799995 (excluding connections establishing)
-starting vacuum...end.
-transaction type: <builtin: TPC-B (sort of)>
+transaction type: <builtin: select only>
 scaling factor: 1
 query mode: extended
-number of clients: 1
-number of threads: 1
+number of clients: 16
+number of threads: 2
 number of transactions per client: 1000
-number of transactions actually processed: 1000/1000
-latency average = 1.181 ms
-tps = 846.539176 (including connections establishing)
-tps = 846.713636 (excluding connections establishing)
+number of transactions actually processed: 16000/16000
+latency average = 0.164 ms
+tps = 97705.088232 (including connections establishing)
+tps = 97872.216045 (excluding connections establishing)
+
+
+$ pgbench -t 1000 -c 32 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended
+
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 32
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 32000/32000
+latency average = 0.288 ms
+tps = 111300.488119 (including connections establishing)
+tps = 111413.107800 (excluding connections establishing)
+
+
+$ pgbench -t 1000 -c 64 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended
+
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 64
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 64000/64000
+latency average = 0.556 ms
+tps = 115190.496139 (including connections establishing)
+tps = 115247.521295 (excluding connections establishing)
+
+$ pgbench -t 1000 -c 128 -j 2 -p 6432 -h 127.0.0.1 -S --protocol extended
+
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 128
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 128000/128000
+latency average = 1.135 ms
+tps = 112770.562239 (including connections establishing)
+tps = 112796.502381 (excluding connections establishing)
 ```
 
 ### Direct Postgres
 
+Always good to have a base line. Note, at 128 clients, having our pooler ends up being faster.
+
+#### Runs
+
 ```
-$ pgbench -i -h 127.0.0.1 -p 5432 && pgbench -t 1000 -p 5432 -h 127.0.0.1 --protocol simple && pgbench -t 1000 -p
-5432 -h 127.0.0.1 --protocol extended
-Password:
-dropping old tables...
-creating tables...
-generating data...
-100000 of 100000 tuples (100%) done (elapsed 0.01 s, remaining 0.00 s)
-vacuuming...
-creating primary keys...
-done.
-Password:
+$ pgbench -t 1000 -c 16 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
+Password: 
 starting vacuum...end.
-transaction type: <builtin: TPC-B (sort of)>
-scaling factor: 1
-query mode: simple
-number of clients: 1
-number of threads: 1
-number of transactions per client: 1000
-number of transactions actually processed: 1000/1000
-latency average = 0.902 ms
-tps = 1109.014867 (including connections establishing)
-tps = 1112.318595 (excluding connections establishing)
-Password:
-starting vacuum...end.
-transaction type: <builtin: TPC-B (sort of)>
+transaction type: <builtin: select only>
 scaling factor: 1
 query mode: extended
-number of clients: 1
-number of threads: 1
+number of clients: 16
+number of threads: 2
 number of transactions per client: 1000
-number of transactions actually processed: 1000/1000
-latency average = 0.931 ms
-tps = 1074.017747 (including connections establishing)
-tps = 1077.121752 (excluding connections establishing)
+number of transactions actually processed: 16000/16000
+latency average = 0.115 ms
+tps = 139443.955722 (including connections establishing)
+tps = 142314.859075 (excluding connections establishing)
+
+$ pgbench -t 1000 -c 32 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
+Password: 
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 32
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 32000/32000
+latency average = 0.212 ms
+tps = 150644.840891 (including connections establishing)
+tps = 152218.499430 (excluding connections establishing)
+
+$ pgbench -t 1000 -c 64 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
+Password: 
+starting vacuum...end.
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 64
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 64000/64000
+latency average = 0.420 ms
+tps = 152517.663404 (including connections establishing)
+tps = 153319.188482 (excluding connections establishing)
+
+$ pgbench -t 1000 -c 128 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
+Password: 
+starting vacuum...end.
+pgbench: error: connection to database "shard0" failed: FATAL:  sorry, too many clients already
+FATAL:  sorry, too many clients already
+transaction type: <builtin: select only>
+scaling factor: 1
+query mode: extended
+number of clients: 128
+number of threads: 2
+number of transactions per client: 1000
+number of transactions actually processed: 64000/128000
+latency average = 1.324 ms
+tps = 96692.385260 (including connections establishing)
+tps = 96854.431104 (excluding connections establishing)
 ```
