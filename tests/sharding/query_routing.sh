@@ -8,7 +8,7 @@ echo "Giving Postgres 5 seconds to start up..."
 
 # sleep 5
 
-psql -f query_routing_setup.sql
+# psql -f query_routing_setup.sql
 
 psql -h 127.0.0.1 -p 6432 -f query_routing_test_insert.sql
 

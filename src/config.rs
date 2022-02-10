@@ -77,13 +77,39 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
         }
     };
 
-    // We use addresses as unique identifiers,
-    // let's make sure they are unique in the config as well.
+    // Quick config sanity check.
     for shard in &config.shards {
+        // We use addresses as unique identifiers,
+        // let's make sure they are unique in the config as well.
         let mut dup_check = HashSet::new();
+        let mut primary_count = 0;
 
         for server in &shard.1.servers {
             dup_check.insert(server);
+
+            // Check that we define only zero or one primary.
+            match server.2.as_ref() {
+                "primary" => primary_count += 1,
+                _ => (),
+            };
+
+            // Check role spelling.
+            match server.2.as_ref() {
+                "primary" => (),
+                "replica" => (),
+                _ => {
+                    println!(
+                        "> Shard {} server role must be either 'primary' or 'replica', got: '{}'",
+                        shard.0, server.2
+                    );
+                    return Err(Error::BadConfig);
+                }
+            };
+        }
+
+        if primary_count > 1 {
+            println!("> Shard {} has more than on primary configured.", &shard.0);
+            return Err(Error::BadConfig);
         }
 
         if dup_check.len() != shard.1.servers.len() {
