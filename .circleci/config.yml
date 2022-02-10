@@ -25,7 +25,7 @@ jobs:
           key: cargo-lock-3-{{ checksum "Cargo.lock" }}
       - run:
           name: "Install dependencies"
-          command: "sudo apt-get update && sudo apt-get install postgresql-contrib-12 postgresql-client-12"
+          command: "sudo apt-get update && sudo apt-get install -y postgresql-contrib-12 postgresql-client-12"
       - run:
           name: "Build" 
           command: "cargo build --release"
@@ -34,13 +34,7 @@ jobs:
           command: "cargo test"
       - run:
           name: "Launch in background"
-          command: "./target/release/pgcat &"
-      - run:
-          name: "PgBench initialize"
-          command: "pgbench -i -h 127.0.0.1 -p 6432"
-      - run:
-          name: "PgBench run"
-          command: "pgbench -h 127.0.0.1 -p 6432 --protocol extended -t 100 -c 2"
+          command: "./target/release/pgcat & pgbench -i -h 127.0.0.1 -p 6432 & pgbench -h 127.0.0.1 -p 6432 --protocol extended -t 100 -c 2"
       - save_cache:
           key: cargo-lock-3-{{ checksum "Cargo.lock" }}
           paths:
