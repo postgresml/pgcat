@@ -15,28 +15,28 @@ jobs:
           username: mydockerhub-user
           password: $DOCKERHUB_PASSWORD
         environment:
-          POSTGRES_USER: sharding_user
-          POSTGRES_DB: shard0
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
       - checkout
       - restore_cache:
-          key: cargo-lock-3-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
       - run:
           name: "Install dependencies"
           command: "sudo apt-get update && sudo apt-get install -y postgresql-contrib-12 postgresql-client-12"
       - run:
           name: "Build" 
-          command: "cargo build --release"
+          command: "cargo build"
       - run:
           name: "Test"
           command: "cargo test"
       - run:
-          name: "Launch in background"
-          command: "./target/release/pgcat & pgbench -i -h 127.0.0.1 -p 6432 & pgbench -h 127.0.0.1 -p 6432 --protocol extended -t 100 -c 2"
+          name: "Test end-to-end"
+          command: "bash .circleci/run_tests.sh"
       - save_cache:
-          key: cargo-lock-3-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
           paths:
             - target
             - ~/.cargo
