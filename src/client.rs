@@ -153,7 +153,7 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(&mut self, pool: ConnectionPool) -> Result<(), Error> {
+    pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
         // Special: cancelling existing running query
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
