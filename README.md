@@ -34,8 +34,9 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 3. `COPY` protocol support.
 4. Query cancellation.
 5. Round-robin load balancing of replicas.
-6. Banlist & failover
+6. Banlist & failover.
 7. Sharding!
+8. Explicit query routing to primary or replicas.
 
 ### Session mode
 Each client owns its own server for the duration of the session. Commands like `SET` are allowed.
@@ -56,7 +57,8 @@ this might be relevant given than this is a transactional pooler but if you're n
 ### Round-robin load balancing
 This is the novel part. PgBouncer doesn't support it and suggests we use DNS or a TCP proxy instead.
 We prefer to have everything as part of one package; arguably, it's easier to understand and optimize.
-This pooler will round-robin between multiple replicas keeping load reasonably even.
+This pooler will round-robin between multiple replicas keeping load reasonably even. If the primary is in
+the pool as well, it'll be treated as a replica for read-only queries.
 
 ### Banlist & failover
 This is where it gets even more interesting. If we fail to connect to one of the replicas or it fails a health check,
@@ -81,6 +83,19 @@ SET SHARDING KEY TO '1234';
 ```
 
 This sharding key will be hashed and the pooler will select a shard to use for the next transaction. If the pooler is in session mode, this sharding key has to be set as the first query on startup & cannot be changed until the client re-connects.
+
+### Explicit read/write query routing
+
+If you want to have the primary and replicas in the same pooler, you'd probably want to
+route queries explicitely to the primary or replicas, depending if they are reads or writes (e.g `SELECT`s or `INSERT`/`UPDATE`, etc). To help with this, we introduce some more custom syntax:
+
+```sql
+SET SERVER ROLE TO 'primary';
+SET SERVER ROLE TO 'replica';
+```
+
+After executing this, the next transaction will be routed to the primary or replica respectively. By default, all queries will be load-balanced between all servers, so if the client wants to write or talk to the primary, they have to explicitely select it using the syntax above.
+
 
 
 ## Missing
