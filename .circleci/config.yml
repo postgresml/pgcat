@@ -12,10 +12,10 @@ jobs:
       - image: cimg/rust:1.58.1
       - image: cimg/postgres:14.0
         auth:
-          username: sharding_user
-          password: sharding_user
+          username: mydockerhub-user
+          password: $DOCKERHUB_PASSWORD
         environment:
-          POSTGRES_USER: root
+          POSTGRES_USER: sharding_user
           POSTGRES_DB: shard0
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
