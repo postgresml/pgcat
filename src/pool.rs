@@ -183,7 +183,6 @@ impl ConnectionPool {
             allowed_attempts -= 1;
 
             // Check if we can connect
-            // TODO: implement query wait timeout, i.e. time to get a conn from the pool
             let mut conn = match self.databases[shard][index].get().await {
                 Ok(conn) => conn,
                 Err(err) => {
