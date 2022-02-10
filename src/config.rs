@@ -3,14 +3,21 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::errors::Error;
+
+#[derive(Clone, PartialEq, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
+pub enum Role {
+    Primary,
+    Replica,
+}
 
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
     pub host: String,
     pub port: String,
+    pub role: Role,
 }
 
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Deserialize, Debug)]
@@ -32,7 +39,7 @@ pub struct General {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Shard {
-    pub servers: Vec<(String, u16)>,
+    pub servers: Vec<(String, u16, String)>,
     pub database: String,
 }
 
@@ -70,6 +77,47 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
         }
     };
 
+    // Quick config sanity check.
+    for shard in &config.shards {
+        // We use addresses as unique identifiers,
+        // let's make sure they are unique in the config as well.
+        let mut dup_check = HashSet::new();
+        let mut primary_count = 0;
+
+        for server in &shard.1.servers {
+            dup_check.insert(server);
+
+            // Check that we define only zero or one primary.
+            match server.2.as_ref() {
+                "primary" => primary_count += 1,
+                _ => (),
+            };
+
+            // Check role spelling.
+            match server.2.as_ref() {
+                "primary" => (),
+                "replica" => (),
+                _ => {
+                    println!(
+                        "> Shard {} server role must be either 'primary' or 'replica', got: '{}'",
+                        shard.0, server.2
+                    );
+                    return Err(Error::BadConfig);
+                }
+            };
+        }
+
+        if primary_count > 1 {
+            println!("> Shard {} has more than on primary configured.", &shard.0);
+            return Err(Error::BadConfig);
+        }
+
+        if dup_check.len() != shard.1.servers.len() {
+            println!("> Shard {} contains duplicate server configs.", &shard.0);
+            return Err(Error::BadConfig);
+        }
+    }
+
     Ok(config)
 }
 
@@ -83,5 +131,6 @@ mod test {
         assert_eq!(config.general.pool_size, 15);
         assert_eq!(config.shards.len(), 3);
         assert_eq!(config.shards["1"].servers[0].0, "127.0.0.1");
+        assert_eq!(config.shards["0"].servers[0].2, "primary");
     }
 }

@@ -7,6 +7,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
+use crate::config::Role;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{ClientServerMap, ConnectionPool};
@@ -14,6 +15,7 @@ use crate::server::Server;
 use crate::sharding::Sharder;
 
 const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
+const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -45,6 +47,9 @@ pub struct Client {
 
     // sharding regex
     sharding_regex: Regex,
+
+    // role detection regex
+    role_regex: Regex,
 }
 
 impl Client {
@@ -57,6 +62,7 @@ impl Client {
         transaction_mode: bool,
     ) -> Result<Client, Error> {
         let sharding_regex = Regex::new(SHARDING_REGEX).unwrap();
+        let role_regex = Regex::new(ROLE_REGEX).unwrap();
 
         loop {
             // Could be StartupMessage or SSLRequest
@@ -114,6 +120,7 @@ impl Client {
                         secret_key: secret_key,
                         client_server_map: client_server_map,
                         sharding_regex: sharding_regex,
+                        role_regex: role_regex,
                     });
                 }
 
@@ -134,6 +141,7 @@ impl Client {
                         secret_key: secret_key,
                         client_server_map: client_server_map,
                         sharding_regex: sharding_regex,
+                        role_regex: role_regex,
                     });
                 }
 
@@ -145,7 +153,7 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(&mut self, pool: ConnectionPool) -> Result<(), Error> {
+    pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
         // Special: cancelling existing running query
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
@@ -172,6 +180,9 @@ impl Client {
         // - if in transaction mode, this lives for the duration of one transaction.
         let mut shard: Option<usize> = None;
 
+        // Active database role we want to talk to, e.g. primary or replica.
+        let mut role: Option<Role> = None;
+
         loop {
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
@@ -182,10 +193,21 @@ impl Client {
 
             // Parse for special select shard command.
             // SET SHARDING KEY TO 'bigint';
-            match self.select_shard(message.clone(), pool.shards()).await {
+            match self.select_shard(message.clone(), pool.shards()) {
                 Some(s) => {
-                    set_sharding_key(&mut self.write).await?;
+                    custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
                     shard = Some(s);
+                    continue;
+                }
+                None => (),
+            };
+
+            // Parse for special server role selection command.
+            //
+            match self.select_role(message.clone()) {
+                Some(r) => {
+                    custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
+                    role = Some(r);
                     continue;
                 }
                 None => (),
@@ -193,7 +215,14 @@ impl Client {
 
             // Grab a server from the pool.
             // None = any shard
-            let connection = pool.get(shard).await.unwrap();
+            let connection = match pool.get(shard, role).await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    println!(">> Could not get connection from pool: {:?}", err);
+                    return Err(err);
+                }
+            };
+
             let mut proxy = connection.0;
             let _address = connection.1;
             let server = &mut *proxy;
@@ -232,10 +261,13 @@ impl Client {
 
                 match code {
                     'Q' => {
+                        // TODO: implement retries here for read-only transactions.
                         server.send(original).await?;
 
                         loop {
+                            // TODO: implement retries here for read-only transactions.
                             let response = server.recv().await?;
+
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),
                                 Err(err) => {
@@ -252,6 +284,7 @@ impl Client {
                         // Release server
                         if !server.in_transaction() && self.transaction_mode {
                             shard = None;
+                            role = None;
                             break;
                         }
                     }
@@ -290,10 +323,13 @@ impl Client {
                     'S' => {
                         // Extended protocol, client requests sync
                         self.buffer.put(&original[..]);
+
+                        // TODO: retries for read-only transactions
                         server.send(self.buffer.clone()).await?;
                         self.buffer.clear();
 
                         loop {
+                            // TODO: retries for read-only transactions
                             let response = server.recv().await?;
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),
@@ -311,6 +347,7 @@ impl Client {
                         // Release server
                         if !server.in_transaction() && self.transaction_mode {
                             shard = None;
+                            role = None;
                             break;
                         }
                     }
@@ -338,6 +375,7 @@ impl Client {
                         if !server.in_transaction() && self.transaction_mode {
                             println!("Releasing after copy done");
                             shard = None;
+                            role = None;
                             break;
                         }
                     }
@@ -361,7 +399,7 @@ impl Client {
     /// Determine if the query is part of our special syntax, extract
     /// the shard key, and return the shard to query based on Postgres'
     /// PARTITION BY HASH function.
-    async fn select_shard(&mut self, mut buf: BytesMut, shards: usize) -> Option<usize> {
+    fn select_shard(&mut self, mut buf: BytesMut, shards: usize) -> Option<usize> {
         let code = buf.get_u8() as char;
 
         // Only supporting simpe protocol here, so
@@ -385,6 +423,33 @@ impl Client {
                     Some(sharder.pg_bigint_hash(shard))
                 }
                 Err(_) => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    // Pick a primary or a replica from the pool.
+    fn select_role(&mut self, mut buf: BytesMut) -> Option<Role> {
+        let code = buf.get_u8() as char;
+
+        // Same story as select_shard() above.
+        match code {
+            'Q' => (),
+            _ => return None,
+        };
+
+        let len = buf.get_i32();
+        let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase();
+
+        // Copy / paste from above. If we get one more of these use cases,
+        // it'll be time to abstract :).
+        if self.role_regex.is_match(&query) {
+            let role = query.split("'").collect::<Vec<&str>>()[1];
+            match role {
+                "PRIMARY" => Some(Role::Primary),
+                "REPLICA" => Some(Role::Replica),
+                _ => return None,
             }
         } else {
             None

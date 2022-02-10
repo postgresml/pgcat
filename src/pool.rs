@@ -3,29 +3,31 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use chrono::naive::NaiveDateTime;
 
-use crate::config::{Address, Config, User};
+use crate::config::{Address, Config, Role, User};
 use crate::errors::Error;
 use crate::server::Server;
 
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
+    // atomic::{AtomicUsize, Ordering},
+    Arc,
+    Mutex,
 };
 
 // Banlist: bad servers go in here.
 pub type BanList = Arc<Mutex<Vec<HashMap<Address, NaiveDateTime>>>>;
-pub type Counter = Arc<AtomicUsize>;
+// pub type Counter = Arc<AtomicUsize>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
 #[derive(Clone, Debug)]
 pub struct ConnectionPool {
     databases: Vec<Vec<Pool<ServerPool>>>,
     addresses: Vec<Vec<Address>>,
-    round_robin: Counter,
+    round_robin: usize,
     banlist: BanList,
     healthcheck_timeout: u64,
     ban_time: i64,
+    pool_size: u32,
 }
 
 impl ConnectionPool {
@@ -48,9 +50,19 @@ impl ConnectionPool {
             let mut replica_addresses = Vec::new();
 
             for server in &shard.servers {
+                let role = match server.2.as_ref() {
+                    "primary" => Role::Primary,
+                    "replica" => Role::Replica,
+                    _ => {
+                        println!("> Config error: server role can be 'primary' or 'replica', have: '{}'. Defaulting to 'replica'.", server.2);
+                        Role::Replica
+                    }
+                };
+
                 let address = Address {
                     host: server.0.clone(),
                     port: server.1.to_string(),
+                    role: role,
                 };
 
                 let manager = ServerPool::new(
@@ -79,20 +91,25 @@ impl ConnectionPool {
             banlist.push(HashMap::new());
         }
 
+        assert_eq!(shards.len(), addresses.len());
+        let address_len = addresses.len();
+
         ConnectionPool {
             databases: shards,
             addresses: addresses,
-            round_robin: Arc::new(AtomicUsize::new(0)),
+            round_robin: rand::random::<usize>() % address_len, // Start at a random replica
             banlist: Arc::new(Mutex::new(banlist)),
             healthcheck_timeout: config.general.healthcheck_timeout,
             ban_time: config.general.ban_time,
+            pool_size: config.general.pool_size,
         }
     }
 
     /// Get a connection from the pool.
     pub async fn get(
-        &self,
+        &mut self,
         shard: Option<usize>,
+        role: Option<Role>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         // Set this to false to gain ~3-4% speed.
         let with_health_check = true;
@@ -102,28 +119,82 @@ impl ConnectionPool {
             None => 0, // TODO: pick a shard at random
         };
 
-        loop {
-            let index =
-                self.round_robin.fetch_add(1, Ordering::SeqCst) % self.databases[shard].len();
-            let address = self.addresses[shard][index].clone();
+        let addresses = &self.addresses[shard];
 
-            if self.is_banned(&address, shard) {
+        // Make sure if a specific role is requested, it's available in the pool.
+        match role {
+            Some(role) => {
+                let role_count = addresses
+                    .iter()
+                    .filter(|&db| db.role == Role::Primary)
+                    .count();
+
+                if role_count == 0 {
+                    println!(
+                        ">> Error: Role '{:?}' requested, but none are configured.",
+                        role
+                    );
+
+                    return Err(Error::AllServersDown);
+                }
+            }
+
+            // Any role should be present.
+            _ => (),
+        };
+
+        let mut allowed_attempts = match role {
+            // Primary-specific queries get one attempt, if the primary is down,
+            // nothing we should do about it I think. It's dangerous to retry
+            // write queries.
+            Some(Role::Primary) => 1,
+
+            // Replicas get to try as many times as there are replicas
+            // and connections in the pool.
+            _ => self.databases[shard].len() * self.pool_size as usize,
+        };
+
+        while allowed_attempts > 0 {
+            // Round-robin each client's queries.
+            // If a client only sends one query and then disconnects, it doesn't matter
+            // which replica it'll go to.
+            self.round_robin += 1;
+            let index = self.round_robin % addresses.len();
+            let address = &addresses[index];
+
+            // Make sure you're getting a primary or a replica
+            // as per request.
+            match role {
+                Some(role) => {
+                    // If the client wants a specific role,
+                    // we'll do our best to pick it, but if we only
+                    // have one server in the cluster, it's probably only a primary
+                    // (or only a replica), so the client will just get what we have.
+                    if address.role != role && addresses.len() > 1 {
+                        continue;
+                    }
+                }
+                None => (),
+            };
+
+            if self.is_banned(address, shard, role) {
                 continue;
             }
 
+            allowed_attempts -= 1;
+
             // Check if we can connect
-            // TODO: implement query wait timeout, i.e. time to get a conn from the pool
             let mut conn = match self.databases[shard][index].get().await {
                 Ok(conn) => conn,
                 Err(err) => {
                     println!(">> Banning replica {}, error: {:?}", index, err);
-                    self.ban(&address, shard);
+                    self.ban(address, shard);
                     continue;
                 }
             };
 
             if !with_health_check {
-                return Ok((conn, address));
+                return Ok((conn, address.clone()));
             }
 
             // // Check if this server is alive with a health check
@@ -137,13 +208,16 @@ impl ConnectionPool {
             {
                 // Check if health check succeeded
                 Ok(res) => match res {
-                    Ok(_) => return Ok((conn, address)),
+                    Ok(_) => return Ok((conn, address.clone())),
                     Err(_) => {
                         println!(
                             ">> Banning replica {} because of failed health check",
                             index
                         );
-                        self.ban(&address, shard);
+                        // Don't leave a bad connection in the pool.
+                        server.mark_bad();
+
+                        self.ban(address, shard);
                         continue;
                     }
                 },
@@ -153,11 +227,16 @@ impl ConnectionPool {
                         ">> Banning replica {} because of health check timeout",
                         index
                     );
-                    self.ban(&address, shard);
+                    // Don't leave a bad connection in the pool.
+                    server.mark_bad();
+
+                    self.ban(address, shard);
                     continue;
                 }
             }
         }
+
+        return Err(Error::AllServersDown);
     }
 
     /// Ban an address (i.e. replica). It no longer will serve
@@ -179,7 +258,14 @@ impl ConnectionPool {
 
     /// Check if a replica can serve traffic. If all replicas are banned,
     /// we unban all of them. Better to try then not to.
-    pub fn is_banned(&self, address: &Address, shard: usize) -> bool {
+    pub fn is_banned(&self, address: &Address, shard: usize, role: Option<Role>) -> bool {
+        // If primary is requested explicitely, it can never be banned.
+        if Some(Role::Primary) == role {
+            return false;
+        }
+
+        // If you're not asking for the primary,
+        // all databases are treated as replicas.
         let mut guard = self.banlist.lock().unwrap();
 
         // Everything is banned = nothing is banned.
@@ -251,6 +337,7 @@ impl ManageConnection for ServerPool {
             &self.user.password,
             &self.database,
             self.client_server_map.clone(),
+            self.address.role,
         )
         .await
     }

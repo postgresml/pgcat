@@ -73,6 +73,7 @@ async fn main() {
         "> Healthcheck timeout: {}ms",
         config.general.healthcheck_timeout
     );
+    println!("> Connection timeout: {}ms", config.general.connect_timeout);
 
     let pool = ConnectionPool::from_config(config.clone(), client_server_map.clone()).await;
     let transaction_mode = config.general.pool_mode == "transaction";
