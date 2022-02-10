@@ -180,6 +180,7 @@ impl Client {
         // - if in transaction mode, this lives for the duration of one transaction.
         let mut shard: Option<usize> = None;
 
+        // Active database role we want to talk to, e.g. primary or replica.
         let mut role: Option<Role> = None;
 
         loop {
