@@ -127,9 +127,12 @@ All queries will be `SELECT` only (`-S`) just so disks don't get in the way, sin
 [databases]
 shard0 = host=localhost port=5432 user=sharding_user password=sharding_user
 
+[pgbouncer]
 pool_mode = transaction
 max_client_conn = 1000
 ```
+
+Everything else stays default.
 
 #### Runs
 
