@@ -119,6 +119,11 @@ Coincidenly, this uses `COPY` so you can test if that works. Additionally, we'll
 
 All queries will be `SELECT` only (`-S`) just so disks don't get in the way, since the dataset will be effectively all in RAM.
 
+My setup:
+
+- 8 cores, 16 hyperthreaded (AMD Ryzen 5800X)
+- 32GB RAM (doesn't matter for this benchmark, except to prove that Postgres will fit the whole dataset into RAM)
+
 ### PgBouncer
 
 #### Config
