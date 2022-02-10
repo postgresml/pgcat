@@ -10,20 +10,39 @@ jobs:
     # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
       - image: cimg/rust:1.58.1
+      - image: cimg/postgres:14.0
+        auth:
+          username: sharding_user
+          password: sharding_user
+        environment:
+          POSTGRES_USER: root
+          POSTGRES_DB: shard0
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
       - checkout
       - restore_cache:
-          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-3-{{ checksum "Cargo.lock" }}
+      - run:
+          name: "Install dependencies"
+          command: "apt-get update && apt-get install postgresql-contrib-12 postgresql-client-12"
       - run:
           name: "Build" 
-          command: "cargo build"
+          command: "cargo build --release"
       - run:
           name: "Test"
           command: "cargo test"
+      - run:
+          name: "Launch in background"
+          command: "./target/release/pgcat &"
+      - run:
+          name: "PgBench initialize"
+          command: "pgbench -i -h 127.0.0.1 -p 6432"
+      - run:
+          name: "PgBench run"
+          command: "pgbench -h 127.0.0.1 -p 6432 --protocol extended -t 100 -c 2"
       - save_cache:
-          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-3-{{ checksum "Cargo.lock" }}
           paths:
             - target
             - ~/.cargo
