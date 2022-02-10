@@ -10,7 +10,8 @@ use crate::server::Server;
 use std::collections::HashMap;
 use std::sync::{
     // atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
+    Arc,
+    Mutex,
 };
 
 // Banlist: bad servers go in here.
