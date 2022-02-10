@@ -7,7 +7,7 @@ set -o xtrace
 
 sleep 1
 
-psql -h 127.0.0.1 -p 5432 -f tests/sharding/query_routing_setup.sql
+psql -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
 
 # Setup PgBench
 pgbench -i -h 127.0.0.1 -p 6432
