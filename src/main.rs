@@ -40,7 +40,7 @@ mod sharding;
 use pool::{ClientServerMap, ConnectionPool};
 
 /// Main!
-#[tokio::main]
+#[tokio::main(worker_threads = 4)]
 async fn main() {
     println!("> Welcome to PgCat! Meow.");
 
