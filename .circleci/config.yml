@@ -10,6 +10,13 @@ jobs:
     # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
       - image: cimg/rust:1.58.1
+      - image: cimg/postgres:14.0
+        auth:
+          username: mydockerhub-user
+          password: $DOCKERHUB_PASSWORD
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
@@ -17,11 +24,17 @@ jobs:
       - restore_cache:
           key: cargo-lock-2-{{ checksum "Cargo.lock" }}
       - run:
+          name: "Install dependencies"
+          command: "sudo apt-get update && sudo apt-get install -y postgresql-contrib-12 postgresql-client-12"
+      - run:
           name: "Build" 
           command: "cargo build"
       - run:
           name: "Test"
           command: "cargo test"
+      - run:
+          name: "Test end-to-end"
+          command: "bash .circleci/run_tests.sh"
       - save_cache:
           key: cargo-lock-2-{{ checksum "Cargo.lock" }}
           paths:
