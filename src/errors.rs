@@ -8,4 +8,5 @@ pub enum Error {
     // ServerTimeout,
     // DirtyServer,
     BadConfig,
+    AllServersDown,
 }

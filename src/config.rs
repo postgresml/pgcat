@@ -3,7 +3,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::errors::Error;
 
@@ -76,6 +76,21 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
             return Err(Error::BadConfig);
         }
     };
+
+    // We use addresses as unique identifiers,
+    // let's make sure they are unique in the config as well.
+    for shard in &config.shards {
+        let mut dup_check = HashSet::new();
+
+        for server in &shard.1.servers {
+            dup_check.insert(server);
+        }
+
+        if dup_check.len() != shard.1.servers.len() {
+            println!("> Shard {} contains duplicate server configs.", &shard.0);
+            return Err(Error::BadConfig);
+        }
+    }
 
     Ok(config)
 }

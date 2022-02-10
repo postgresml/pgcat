@@ -214,7 +214,14 @@ impl Client {
 
             // Grab a server from the pool.
             // None = any shard
-            let connection = pool.get(shard, role).await.unwrap();
+            let connection = match pool.get(shard, role).await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    println!(">> Could not get connection from pool: {:?}", err);
+                    return Err(err);
+                }
+            };
+
             let mut proxy = connection.0;
             let _address = connection.1;
             let server = &mut *proxy;
@@ -253,10 +260,13 @@ impl Client {
 
                 match code {
                     'Q' => {
+                        // TODO: implement retries here for read-only transactions.
                         server.send(original).await?;
 
                         loop {
+                            // TODO: implement retries here for read-only transactions.
                             let response = server.recv().await?;
+
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),
                                 Err(err) => {
@@ -312,10 +322,13 @@ impl Client {
                     'S' => {
                         // Extended protocol, client requests sync
                         self.buffer.put(&original[..]);
+
+                        // TODO: retries for read-only transactions
                         server.send(self.buffer.clone()).await?;
                         self.buffer.clear();
 
                         loop {
+                            // TODO: retries for read-only transactions
                             let response = server.recv().await?;
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),

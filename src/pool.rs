@@ -113,7 +113,17 @@ impl ConnectionPool {
             None => 0, // TODO: pick a shard at random
         };
 
-        loop {
+        let mut allowed_attempts = match role {
+            // Primary-specific queries get one attempt, if the primary is down,
+            // nothing we can do.
+            Some(Role::Primary) => 1,
+
+            // Replicas get to try as many times as there are replicas.
+            Some(Role::Replica) => self.databases[shard].len(),
+            None => self.databases[shard].len(),
+        };
+
+        while allowed_attempts > 0 {
             // TODO: think about making this local, so multiple clients
             // don't compete for the same round-robin integer.
             // Especially since we're going to be skipping (see role selection below).
@@ -121,20 +131,26 @@ impl ConnectionPool {
                 self.round_robin.fetch_add(1, Ordering::SeqCst) % self.databases[shard].len();
             let address = self.addresses[shard][index].clone();
 
-            if self.is_banned(&address, shard) {
-                continue;
-            }
-
             // Make sure you're getting a primary or a replica
             // as per request.
             match role {
                 Some(role) => {
-                    if address.role != role {
+                    // If the client wants a specific role,
+                    // we'll do our best to pick it, but if we only
+                    // have one server in the cluster, it's probably only a primary
+                    // (or only a replica), so the client will just get what we have.
+                    if address.role != role && self.addresses[shard].len() > 1 {
                         continue;
                     }
                 }
                 None => (),
             };
+
+            if self.is_banned(&address, shard, role) {
+                continue;
+            }
+
+            allowed_attempts -= 1;
 
             // Check if we can connect
             // TODO: implement query wait timeout, i.e. time to get a conn from the pool
@@ -183,6 +199,8 @@ impl ConnectionPool {
                 }
             }
         }
+
+        return Err(Error::AllServersDown);
     }
 
     /// Ban an address (i.e. replica). It no longer will serve
@@ -204,7 +222,14 @@ impl ConnectionPool {
 
     /// Check if a replica can serve traffic. If all replicas are banned,
     /// we unban all of them. Better to try then not to.
-    pub fn is_banned(&self, address: &Address, shard: usize) -> bool {
+    pub fn is_banned(&self, address: &Address, shard: usize, role: Option<Role>) -> bool {
+        // If primary is requested explicitely, it can never be banned.
+        if Some(Role::Primary) == role {
+            return false;
+        }
+
+        // If you're not asking for the primary,
+        // all databases are treated as replicas.
         let mut guard = self.banlist.lock().unwrap();
 
         // Everything is banned = nothing is banned.
