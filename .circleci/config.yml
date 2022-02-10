@@ -25,7 +25,7 @@ jobs:
           key: cargo-lock-3-{{ checksum "Cargo.lock" }}
       - run:
           name: "Install dependencies"
-          command: "apt-get update && apt-get install postgresql-contrib-12 postgresql-client-12"
+          command: "sudo apt-get update && sudo apt-get install postgresql-contrib-12 postgresql-client-12"
       - run:
           name: "Build" 
           command: "cargo build --release"
