@@ -277,7 +277,7 @@ tps = 112796.502381 (excluding connections establishing)
 
 ### Direct Postgres
 
-Always good to have a base line. Note, at 128 clients, having our pooler ends up being faster.
+Always good to have a base line.
 
 #### Runs
 
@@ -327,16 +327,14 @@ tps = 153319.188482 (excluding connections establishing)
 $ pgbench -t 1000 -c 128 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
 Password: 
 starting vacuum...end.
-pgbench: error: connection to database "shard0" failed: FATAL:  sorry, too many clients already
-FATAL:  sorry, too many clients already
 transaction type: <builtin: select only>
 scaling factor: 1
 query mode: extended
 number of clients: 128
 number of threads: 2
 number of transactions per client: 1000
-number of transactions actually processed: 64000/128000
-latency average = 1.324 ms
-tps = 96692.385260 (including connections establishing)
-tps = 96854.431104 (excluding connections establishing)
+number of transactions actually processed: 128000/128000
+latency average = 0.854 ms
+tps = 149818.594087 (including connections establishing)
+tps = 150200.603049 (excluding connections establishing)
 ```
