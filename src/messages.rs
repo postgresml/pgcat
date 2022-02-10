@@ -141,12 +141,16 @@ pub async fn md5_password(
     Ok(write_all(stream, message).await?)
 }
 
-/// Implements a response to our custom `SET SHARDING KEY` command.
+/// Implements a response to our custom `SET SHARDING KEY`
+/// and `SET SERVER ROLE` commands.
 /// This tells the client we're ready for the next query.
-pub async fn set_sharding_key(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+pub async fn custom_protocol_response_ok(
+    stream: &mut OwnedWriteHalf,
+    message: &str,
+) -> Result<(), Error> {
     let mut res = BytesMut::with_capacity(25);
 
-    let set_complete = BytesMut::from(&"SET SHARDING KEY\0"[..]);
+    let set_complete = BytesMut::from(&format!("{}\0", message)[..]);
     let len = (set_complete.len() + 4) as i32;
 
     // CommandComplete

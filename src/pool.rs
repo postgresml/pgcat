@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use chrono::naive::NaiveDateTime;
 
-use crate::config::{Address, Config, User};
+use crate::config::{Address, Config, Role, User};
 use crate::errors::Error;
 use crate::server::Server;
 
@@ -48,9 +48,19 @@ impl ConnectionPool {
             let mut replica_addresses = Vec::new();
 
             for server in &shard.servers {
+                let role = match server.2.as_ref() {
+                    "primary" => Role::Primary,
+                    "replica" => Role::Replica,
+                    _ => {
+                        println!("> Config error: server role can be 'primary' or 'replica', have: '{}'. Defaulting to 'replica'.", server.2);
+                        Role::Replica
+                    }
+                };
+
                 let address = Address {
                     host: server.0.clone(),
                     port: server.1.to_string(),
+                    role: role,
                 };
 
                 let manager = ServerPool::new(
@@ -93,6 +103,7 @@ impl ConnectionPool {
     pub async fn get(
         &self,
         shard: Option<usize>,
+        role: Option<Role>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         // Set this to false to gain ~3-4% speed.
         let with_health_check = true;
@@ -103,6 +114,9 @@ impl ConnectionPool {
         };
 
         loop {
+            // TODO: think about making this local, so multiple clients
+            // don't compete for the same round-robin integer.
+            // Especially since we're going to be skipping (see role selection below).
             let index =
                 self.round_robin.fetch_add(1, Ordering::SeqCst) % self.databases[shard].len();
             let address = self.addresses[shard][index].clone();
@@ -110,6 +124,17 @@ impl ConnectionPool {
             if self.is_banned(&address, shard) {
                 continue;
             }
+
+            // Make sure you're getting a primary or a replica
+            // as per request.
+            match role {
+                Some(role) => {
+                    if address.role != role {
+                        continue;
+                    }
+                }
+                None => (),
+            };
 
             // Check if we can connect
             // TODO: implement query wait timeout, i.e. time to get a conn from the pool
@@ -251,6 +276,7 @@ impl ManageConnection for ServerPool {
             &self.user.password,
             &self.database,
             self.client_server_map.clone(),
+            self.address.role,
         )
         .await
     }

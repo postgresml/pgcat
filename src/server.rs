@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
-use crate::config::Address;
+use crate::config::{Address, Role};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::ClientServerMap;
@@ -48,6 +48,8 @@ pub struct Server {
 
     // Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
+
+    role: Role,
 }
 
 impl Server {
@@ -60,6 +62,7 @@ impl Server {
         password: &str,
         database: &str,
         client_server_map: ClientServerMap,
+        role: Role,
     ) -> Result<Server, Error> {
         let mut stream = match TcpStream::connect(&format!("{}:{}", host, port)).await {
             Ok(stream) => stream,
@@ -189,6 +192,7 @@ impl Server {
                         data_available: false,
                         bad: false,
                         client_server_map: client_server_map,
+                        role: role,
                     });
                 }
 
@@ -409,6 +413,7 @@ impl Server {
         Address {
             host: self.host.to_string(),
             port: self.port.to_string(),
+            role: self.role,
         }
     }
 }

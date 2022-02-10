@@ -7,10 +7,17 @@ use std::collections::HashMap;
 
 use crate::errors::Error;
 
+#[derive(Clone, PartialEq, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
+pub enum Role {
+    Primary,
+    Replica,
+}
+
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
     pub host: String,
     pub port: String,
+    pub role: Role,
 }
 
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Deserialize, Debug)]
@@ -32,7 +39,7 @@ pub struct General {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Shard {
-    pub servers: Vec<(String, u16)>,
+    pub servers: Vec<(String, u16, String)>,
     pub database: String,
 }
 
@@ -83,5 +90,6 @@ mod test {
         assert_eq!(config.general.pool_size, 15);
         assert_eq!(config.shards.len(), 3);
         assert_eq!(config.shards["1"].servers[0].0, "127.0.0.1");
+        assert_eq!(config.shards["0"].servers[0].2, "primary");
     }
 }
