@@ -323,6 +323,8 @@ dependencies = [
  "bytes",
  "chrono",
  "md-5",
+ "num_cpus",
+ "once_cell",
  "rand",
  "regex",
  "serde",

@@ -17,11 +17,14 @@ extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
 extern crate md5;
+extern crate num_cpus;
+extern crate once_cell;
 extern crate serde;
 extern crate serde_derive;
 extern crate tokio;
 extern crate toml;
 
+use regex::Regex;
 use tokio::net::TcpListener;
 
 use std::collections::HashMap;
@@ -43,6 +46,13 @@ use pool::{ClientServerMap, ConnectionPool};
 #[tokio::main(worker_threads = 4)]
 async fn main() {
     println!("> Welcome to PgCat! Meow.");
+
+    client::SHARDING_REGEX_RE
+        .set(Regex::new(client::SHARDING_REGEX).unwrap())
+        .unwrap();
+    client::ROLE_REGEX_RE
+        .set(Regex::new(client::ROLE_REGEX).unwrap())
+        .unwrap();
 
     let config = match config::parse("pgcat.toml").await {
         Ok(config) => config,
