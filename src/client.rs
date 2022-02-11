@@ -2,6 +2,7 @@
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
+use once_cell::sync::OnceCell;
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -14,8 +15,11 @@ use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::server::Server;
 use crate::sharding::Sharder;
 
-const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
-const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
+pub const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
+pub const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
+
+pub static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
+pub static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -44,12 +48,6 @@ pub struct Client {
     // Clients are mapped to servers while they use them. This allows a client
     // to connect and cancel a query.
     client_server_map: ClientServerMap,
-
-    // sharding regex
-    sharding_regex: Regex,
-
-    // role detection regex
-    role_regex: Regex,
 }
 
 impl Client {
@@ -61,9 +59,6 @@ impl Client {
         client_server_map: ClientServerMap,
         transaction_mode: bool,
     ) -> Result<Client, Error> {
-        let sharding_regex = Regex::new(SHARDING_REGEX).unwrap();
-        let role_regex = Regex::new(ROLE_REGEX).unwrap();
-
         loop {
             // Could be StartupMessage or SSLRequest
             // which makes this variable length.
@@ -119,8 +114,6 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
-                        sharding_regex: sharding_regex,
-                        role_regex: role_regex,
                     });
                 }
 
@@ -140,8 +133,6 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
-                        sharding_regex: sharding_regex,
-                        role_regex: role_regex,
                     });
                 }
 
@@ -414,8 +405,12 @@ impl Client {
 
         let len = buf.get_i32();
         let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase(); // Don't read the ternminating null
+        let rgx = match SHARDING_REGEX_RE.get() {
+            Some(r) => r,
+            None => return None,
+        };
 
-        if self.sharding_regex.is_match(&query) {
+        if rgx.is_match(&query) {
             let shard = query.split("'").collect::<Vec<&str>>()[1];
             match shard.parse::<i64>() {
                 Ok(shard) => {
@@ -441,10 +436,14 @@ impl Client {
 
         let len = buf.get_i32();
         let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase();
+        let rgx = match ROLE_REGEX_RE.get() {
+            Some(r) => r,
+            None => return None,
+        };
 
         // Copy / paste from above. If we get one more of these use cases,
         // it'll be time to abstract :).
-        if self.role_regex.is_match(&query) {
+        if rgx.is_match(&query) {
             let role = query.split("'").collect::<Vec<&str>>()[1];
             match role {
                 "PRIMARY" => Some(Role::Primary),
