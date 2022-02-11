@@ -40,6 +40,7 @@ mod sharding;
 
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
+use config::Role;
 use pool::{ClientServerMap, ConnectionPool};
 
 /// Main!
@@ -87,6 +88,15 @@ async fn main() {
 
     let pool = ConnectionPool::from_config(config.clone(), client_server_map.clone()).await;
     let transaction_mode = config.general.pool_mode == "transaction";
+    let default_server_role = match config.query_router.default_role.as_ref() {
+        "any" => None,
+        "primary" => Some(Role::Primary),
+        "replica" => Some(Role::Replica),
+        _ => {
+            println!("> Config error, got unexpected query_router.default_role.");
+            return;
+        }
+    };
 
     println!("> Waiting for clients...");
 
@@ -109,7 +119,14 @@ async fn main() {
                 addr, transaction_mode
             );
 
-            match client::Client::startup(socket, client_server_map, transaction_mode).await {
+            match client::Client::startup(
+                socket,
+                client_server_map,
+                transaction_mode,
+                default_server_role,
+            )
+            .await
+            {
                 Ok(mut client) => {
                     println!(">> Client {:?} authenticated successfully!", addr);
 

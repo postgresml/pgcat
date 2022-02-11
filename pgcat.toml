@@ -69,3 +69,15 @@ servers = [
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 database = "shard2"
+
+
+# Settings for our query routing layer.
+[query_router]
+
+# If the client doesn't specify, route traffic to
+# this role by default.
+#
+# any: round-robin between primary and replicas,
+# replica: round-robin between replicas only without touching the primary,
+# primary: all queries go to the primary unless otherwise specified.
+default_role = "any"

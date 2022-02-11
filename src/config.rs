@@ -44,10 +44,16 @@ pub struct Shard {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct QueryRouter {
+    pub default_role: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub general: General,
     pub user: User,
     pub shards: HashMap<String, Shard>,
+    pub query_router: QueryRouter,
 }
 
 /// Parse the config.
@@ -118,6 +124,19 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
         }
     }
 
+    match config.query_router.default_role.as_ref() {
+        "any" => (),
+        "primary" => (),
+        "replica" => (),
+        other => {
+            println!(
+                "> Query router default_role must be 'primary', 'replica', or 'any', got: '{}'",
+                other
+            );
+            return Err(Error::BadConfig);
+        }
+    };
+
     Ok(config)
 }
 
@@ -132,5 +151,6 @@ mod test {
         assert_eq!(config.shards.len(), 3);
         assert_eq!(config.shards["1"].servers[0].0, "127.0.0.1");
         assert_eq!(config.shards["0"].servers[0].2, "primary");
+        assert_eq!(config.query_router.default_role, "any");
     }
 }

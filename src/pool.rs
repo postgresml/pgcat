@@ -124,10 +124,7 @@ impl ConnectionPool {
         // Make sure if a specific role is requested, it's available in the pool.
         match role {
             Some(role) => {
-                let role_count = addresses
-                    .iter()
-                    .filter(|&db| db.role == Role::Primary)
-                    .count();
+                let role_count = addresses.iter().filter(|&db| db.role == role).count();
 
                 if role_count == 0 {
                     println!(

@@ -48,6 +48,10 @@ pub struct Client {
     // Clients are mapped to servers while they use them. This allows a client
     // to connect and cancel a query.
     client_server_map: ClientServerMap,
+
+    // Unless client specifies, route queries to the servers that have this role,
+    // e.g. primary or replicas or any.
+    default_server_role: Option<Role>,
 }
 
 impl Client {
@@ -58,6 +62,7 @@ impl Client {
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
         transaction_mode: bool,
+        default_server_role: Option<Role>,
     ) -> Result<Client, Error> {
         loop {
             // Could be StartupMessage or SSLRequest
@@ -114,6 +119,7 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
+                        default_server_role: default_server_role,
                     });
                 }
 
@@ -133,6 +139,7 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
+                        default_server_role: default_server_role,
                     });
                 }
 
@@ -172,7 +179,7 @@ impl Client {
         let mut shard: Option<usize> = None;
 
         // Active database role we want to talk to, e.g. primary or replica.
-        let mut role: Option<Role> = None;
+        let mut role: Option<Role> = self.default_server_role;
 
         loop {
             // Read a complete message from the client, which normally would be
@@ -275,7 +282,7 @@ impl Client {
                         // Release server
                         if !server.in_transaction() && self.transaction_mode {
                             shard = None;
-                            role = None;
+                            role = self.default_server_role;
                             break;
                         }
                     }
@@ -338,7 +345,7 @@ impl Client {
                         // Release server
                         if !server.in_transaction() && self.transaction_mode {
                             shard = None;
-                            role = None;
+                            role = self.default_server_role;
                             break;
                         }
                     }
@@ -366,7 +373,7 @@ impl Client {
                         if !server.in_transaction() && self.transaction_mode {
                             println!("Releasing after copy done");
                             shard = None;
-                            role = None;
+                            role = self.default_server_role;
                             break;
                         }
                     }
@@ -382,7 +389,7 @@ impl Client {
     }
 
     /// Release the server from being mine. I can't cancel its queries anymore.
-    pub fn release(&mut self) {
+    pub fn release(&self) {
         let mut guard = self.client_server_map.lock().unwrap();
         guard.remove(&(self.process_id, self.secret_key));
     }
@@ -390,7 +397,7 @@ impl Client {
     /// Determine if the query is part of our special syntax, extract
     /// the shard key, and return the shard to query based on Postgres'
     /// PARTITION BY HASH function.
-    fn select_shard(&mut self, mut buf: BytesMut, shards: usize) -> Option<usize> {
+    fn select_shard(&self, mut buf: BytesMut, shards: usize) -> Option<usize> {
         let code = buf.get_u8() as char;
 
         // Only supporting simpe protocol here, so
@@ -425,7 +432,7 @@ impl Client {
     }
 
     // Pick a primary or a replica from the pool.
-    fn select_role(&mut self, mut buf: BytesMut) -> Option<Role> {
+    fn select_role(&self, mut buf: BytesMut) -> Option<Role> {
         let code = buf.get_u8() as char;
 
         // Same story as select_shard() above.
