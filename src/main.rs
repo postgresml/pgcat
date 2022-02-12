@@ -86,7 +86,7 @@ async fn main() {
     );
     println!("> Connection timeout: {}ms", config.general.connect_timeout);
 
-    let pool = ConnectionPool::from_config(config.clone(), client_server_map.clone()).await;
+    let mut pool = ConnectionPool::from_config(config.clone(), client_server_map.clone()).await;
     let transaction_mode = config.general.pool_mode == "transaction";
     let default_server_role = match config.query_router.default_role.as_ref() {
         "any" => None,
@@ -98,11 +98,20 @@ async fn main() {
         }
     };
 
+    let server_info = match pool.validate().await {
+        Ok(info) => info,
+        Err(err) => {
+            println!("> Could not validate connection pool: {:?}", err);
+            return;
+        }
+    };
+
     println!("> Waiting for clients...");
 
     loop {
         let pool = pool.clone();
         let client_server_map = client_server_map.clone();
+        let server_info = server_info.clone();
 
         let (socket, addr) = match listener.accept().await {
             Ok((socket, addr)) => (socket, addr),
@@ -124,6 +133,7 @@ async fn main() {
                 client_server_map,
                 transaction_mode,
                 default_server_role,
+                server_info,
             )
             .await
             {

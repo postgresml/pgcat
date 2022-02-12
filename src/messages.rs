@@ -8,10 +8,8 @@ use crate::errors::Error;
 
 // This is a funny one. `psql` parses this to figure out which
 // queries to send when using shortcuts, e.g. \d+.
-//
-// TODO: Actually get the version from the server itself.
-//
-const SERVER_VESION: &str = "12.9 (Ubuntu 12.9-0ubuntu0.20.04.1)";
+// No longer used. Keeping it here until I'm sure we don't need it again.
+const _SERVER_VESION: &str = "12.9 (Ubuntu 12.9-0ubuntu0.20.04.1)";
 
 /// Tell the client that authentication handshake completed successfully.
 pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
@@ -27,12 +25,12 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
 /// Send server parameters to the client. This will tell the client
 /// what server version and what's the encoding we're using.
 //
-// TODO: Forward these from the server instead of hardcoding.
+// No longer used. Keeping it here until I'm sure we don't need it again.
 //
-pub async fn server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
+pub async fn _server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
     let client_encoding = BytesMut::from(&b"client_encoding\0UTF8\0"[..]);
     let server_version =
-        BytesMut::from(&format!("server_version\0{}\0", SERVER_VESION).as_bytes()[..]);
+        BytesMut::from(&format!("server_version\0{}\0", _SERVER_VESION).as_bytes()[..]);
 
     // Client encoding
     let len = client_encoding.len() as i32 + 4; // TODO: add more parameters here
