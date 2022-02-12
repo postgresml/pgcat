@@ -417,3 +417,17 @@ impl Server {
         }
     }
 }
+
+impl Drop for Server {
+    // Try to do a clean shut down.
+    fn drop(&mut self) {
+        let mut bytes = BytesMut::with_capacity(4);
+        bytes.put_u8(b'X');
+        bytes.put_i32(4);
+
+        match self.write.try_write(&bytes) {
+            Ok(n) => (),
+            Err(_) => (),
+        };
+    }
+}

@@ -26,6 +26,7 @@ extern crate toml;
 
 use regex::Regex;
 use tokio::net::TcpListener;
+use tokio::signal;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -108,61 +109,72 @@ async fn main() {
 
     println!("> Waiting for clients...");
 
-    loop {
-        let pool = pool.clone();
-        let client_server_map = client_server_map.clone();
-        let server_info = server_info.clone();
+    // Main app runs here.
+    tokio::task::spawn(async move {
+        loop {
+            let pool = pool.clone();
+            let client_server_map = client_server_map.clone();
+            let server_info = server_info.clone();
 
-        let (socket, addr) = match listener.accept().await {
-            Ok((socket, addr)) => (socket, addr),
-            Err(err) => {
-                println!("> Listener: {:?}", err);
-                continue;
-            }
-        };
-
-        // Client goes to another thread, bye.
-        tokio::task::spawn(async move {
-            let start = chrono::offset::Utc::now().naive_utc();
-
-            println!(">> Client {:?} connected", addr);
-
-            match client::Client::startup(
-                socket,
-                client_server_map,
-                transaction_mode,
-                default_server_role,
-                server_info,
-            )
-            .await
-            {
-                Ok(mut client) => {
-                    println!(">> Client {:?} authenticated successfully!", addr);
-
-                    match client.handle(pool).await {
-                        Ok(()) => {
-                            let duration = chrono::offset::Utc::now().naive_utc() - start;
-
-                            println!(
-                                ">> Client {:?} disconnected, session duration: {}",
-                                addr,
-                                format_duration(&duration)
-                            );
-                        }
-
-                        Err(err) => {
-                            println!(">> Client disconnected with error: {:?}", err);
-                            client.release();
-                        }
-                    }
-                }
-
+            let (socket, addr) = match listener.accept().await {
+                Ok((socket, addr)) => (socket, addr),
                 Err(err) => {
-                    println!(">> Error: {:?}", err);
+                    println!("> Listener: {:?}", err);
+                    continue;
                 }
             };
-        });
-    }
+
+            // Client goes to another thread, bye.
+            tokio::task::spawn(async move {
+                let start = chrono::offset::Utc::now().naive_utc();
+
+                println!(">> Client {:?} connected", addr);
+
+                match client::Client::startup(
+                    socket,
+                    client_server_map,
+                    transaction_mode,
+                    default_server_role,
+                    server_info,
+                )
+                .await
+                {
+                    Ok(mut client) => {
+                        println!(">> Client {:?} authenticated successfully!", addr);
+
+                        match client.handle(pool).await {
+                            Ok(()) => {
+                                let duration = chrono::offset::Utc::now().naive_utc() - start;
+
+                                println!(
+                                    ">> Client {:?} disconnected, session duration: {}",
+                                    addr,
+                                    format_duration(&duration)
+                                );
+                            }
+
+                            Err(err) => {
+                                println!(">> Client disconnected with error: {:?}", err);
+                                client.release();
+                            }
+                        }
+                    }
+
+                    Err(err) => {
+                        println!(">> Error: {:?}", err);
+                    }
+                };
+            });
+        }
+    });
+
+    // Setup shut down sequence
+    match signal::ctrl_c().await {
+        Ok(()) => {}
+        Err(err) => {
+            eprintln!("Unable to listen for shutdown signal: {}", err);
+        }
+    };
 }
 
 /// Format chrono::Duration to be more human-friendly.
