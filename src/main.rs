@@ -123,10 +123,9 @@ async fn main() {
 
         // Client goes to another thread, bye.
         tokio::task::spawn(async move {
-            println!(
-                ">> Client {:?} connected, transaction pooling: {}",
-                addr, transaction_mode
-            );
+            let start = chrono::offset::Utc::now().naive_utc();
+
+            println!(">> Client {:?} connected", addr);
 
             match client::Client::startup(
                 socket,
@@ -142,7 +141,13 @@ async fn main() {
 
                     match client.handle(pool).await {
                         Ok(()) => {
-                            println!(">> Client {:?} disconnected.", addr);
+                            let duration = chrono::offset::Utc::now().naive_utc() - start;
+
+                            println!(
+                                ">> Client {:?} disconnected, session duration: {}",
+                                addr,
+                                format_duration(&duration)
+                            );
                         }
 
                         Err(err) => {
@@ -158,4 +163,42 @@ async fn main() {
             };
         });
     }
+}
+
+/// Format chrono::Duration to be more human-friendly.
+///
+/// # Arguments
+///
+/// * `duration` - A duration of time
+fn format_duration(duration: &chrono::Duration) -> String {
+    let seconds = {
+        let seconds = duration.num_seconds() % 60;
+        if seconds < 10 {
+            format!("0{}", seconds)
+        } else {
+            format!("{}", seconds)
+        }
+    };
+
+    let minutes = {
+        let minutes = duration.num_minutes() % 60;
+        if minutes < 10 {
+            format!("0{}", minutes)
+        } else {
+            format!("{}", minutes)
+        }
+    };
+
+    let hours = {
+        let hours = duration.num_hours() % 24;
+        if hours < 10 {
+            format!("0{}", hours)
+        } else {
+            format!("{}", hours)
+        }
+    };
+
+    let days = duration.num_days().to_string();
+
+    format!("{}d {}:{}:{}", days, hours, minutes, seconds)
 }

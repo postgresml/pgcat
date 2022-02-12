@@ -109,24 +109,27 @@ impl ConnectionPool {
     /// Connect to all shards and grab server information.
     /// Return server information we will pass to the clients
     /// when they connect.
+    /// This also warms up the pool for clients that connect when
+    /// the pooler starts up.
     pub async fn validate(&mut self) -> Result<BytesMut, Error> {
         let mut server_infos = Vec::new();
 
         for shard in 0..self.shards() {
-            // TODO: query all primary and replicas in the shard configuration.
-            let connection = match self.get(Some(shard), None).await {
-                Ok(conn) => conn,
-                Err(err) => {
-                    println!("> Shard {} down or misconfigured.", shard);
-                    return Err(err);
-                }
-            };
+            for _ in 0..self.replicas(shard) {
+                let connection = match self.get(Some(shard), None).await {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        println!("> Shard {} down or misconfigured.", shard);
+                        return Err(err);
+                    }
+                };
 
-            let mut proxy = connection.0;
-            let _address = connection.1;
-            let server = &mut *proxy;
+                let mut proxy = connection.0;
+                let _address = connection.1;
+                let server = &mut *proxy;
 
-            server_infos.push(server.server_info());
+                server_infos.push(server.server_info());
+            }
         }
 
         // TODO: compare server information to make sure
@@ -325,6 +328,10 @@ impl ConnectionPool {
 
     pub fn shards(&self) -> usize {
         self.databases.len()
+    }
+
+    pub fn replicas(&self, shard: usize) -> usize {
+        self.addresses[shard].len()
     }
 }
 
