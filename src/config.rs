@@ -90,6 +90,11 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
         let mut dup_check = HashSet::new();
         let mut primary_count = 0;
 
+        if shard.1.servers.len() == 0 {
+            println!("> Shard {} has no servers configured", shard.0);
+            return Err(Error::BadConfig);
+        }
+
         for server in &shard.1.servers {
             dup_check.insert(server);
 

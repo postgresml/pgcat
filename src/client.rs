@@ -63,6 +63,7 @@ impl Client {
         client_server_map: ClientServerMap,
         transaction_mode: bool,
         default_server_role: Option<Role>,
+        server_info: BytesMut,
     ) -> Result<Client, Error> {
         loop {
             // Could be StartupMessage or SSLRequest
@@ -102,7 +103,7 @@ impl Client {
                     let secret_key: i32 = rand::random();
 
                     auth_ok(&mut stream).await?;
-                    server_parameters(&mut stream).await?;
+                    write_all(&mut stream, server_info).await?;
                     backend_key_data(&mut stream, process_id, secret_key).await?;
                     ready_for_query(&mut stream).await?;
 

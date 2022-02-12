@@ -1,6 +1,7 @@
 /// Pooling and failover and banlist.
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
+use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
 
 use crate::config::{Address, Config, Role, User};
@@ -103,6 +104,38 @@ impl ConnectionPool {
             ban_time: config.general.ban_time,
             pool_size: config.general.pool_size,
         }
+    }
+
+    /// Connect to all shards and grab server information.
+    /// Return server information we will pass to the clients
+    /// when they connect.
+    pub async fn validate(&mut self) -> Result<BytesMut, Error> {
+        let mut server_infos = Vec::new();
+
+        for shard in 0..self.shards() {
+            // TODO: query all primary and replicas in the shard configuration.
+            let connection = match self.get(Some(shard), None).await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    println!("> Shard {} down or misconfigured.", shard);
+                    return Err(err);
+                }
+            };
+
+            let mut proxy = connection.0;
+            let _address = connection.1;
+            let server = &mut *proxy;
+
+            server_infos.push(server.server_info());
+        }
+
+        // TODO: compare server information to make sure
+        // all shards are running identical configurations.
+        if server_infos.len() == 0 {
+            return Err(Error::AllServersDown);
+        }
+
+        Ok(server_infos[0].clone())
     }
 
     /// Get a connection from the pool.
