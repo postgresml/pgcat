@@ -49,7 +49,11 @@ pub struct Server {
     // Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
 
+    // Server role, e.g. primary or replica.
     role: Role,
+
+    // Server connected at
+    connected_at: chrono::naive::NaiveDateTime,
 }
 
 impl Server {
@@ -193,6 +197,7 @@ impl Server {
                         bad: false,
                         client_server_map: client_server_map,
                         role: role,
+                        connected_at: chrono::offset::Utc::now().naive_utc(),
                     });
                 }
 
@@ -431,5 +436,13 @@ impl Drop for Server {
         };
 
         self.bad = true;
+
+        let now = chrono::offset::Utc::now().naive_utc();
+        let duration = now - self.connected_at;
+
+        println!(
+            ">> Server connection closed, session duration: {}",
+            crate::format_duration(&duration)
+        );
     }
 }
