@@ -429,5 +429,7 @@ impl Drop for Server {
             Ok(n) => (),
             Err(_) => (),
         };
+
+        self.bad = true;
     }
 }
