@@ -8,6 +8,8 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
+use std::collections::HashMap;
+
 use crate::config::Role;
 use crate::errors::Error;
 use crate::messages::*;
@@ -52,6 +54,9 @@ pub struct Client {
     // Unless client specifies, route queries to the servers that have this role,
     // e.g. primary or replicas or any.
     default_server_role: Option<Role>,
+
+    // Client parameters, e.g. user, client_encoding, etc.
+    parameters: HashMap<String, String>,
 }
 
 impl Client {
@@ -96,7 +101,7 @@ impl Client {
                 // Regular startup message.
                 196608 => {
                     // TODO: perform actual auth.
-                    // TODO: record startup parameters client sends over.
+                    let parameters = parse_startup(bytes.clone())?;
 
                     // Generate random backend ID and secret key
                     let process_id: i32 = rand::random();
@@ -121,6 +126,7 @@ impl Client {
                         secret_key: secret_key,
                         client_server_map: client_server_map,
                         default_server_role: default_server_role,
+                        parameters: parameters,
                     });
                 }
 
@@ -141,6 +147,7 @@ impl Client {
                         secret_key: secret_key,
                         client_server_map: client_server_map,
                         default_server_role: default_server_role,
+                        parameters: HashMap::new(),
                     });
                 }
 

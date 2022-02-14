@@ -1,8 +1,10 @@
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use md5::{Digest, Md5};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
+
+use std::collections::HashMap;
 
 use crate::errors::Error;
 
@@ -103,6 +105,51 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
         Ok(_) => Ok(()),
         Err(_) => return Err(Error::SocketError),
     }
+}
+
+/// Parse StartupMessage parameters.
+/// e.g. user, database, application_name, etc.
+pub fn parse_startup(mut bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
+    let mut result = HashMap::new();
+    let mut buf = Vec::new();
+    let mut tmp = String::new();
+
+    while bytes.has_remaining() {
+        let mut c = bytes.get_u8();
+
+        // Null-terminated C-strings.
+        while c != 0 {
+            tmp.push(c as char);
+            c = bytes.get_u8();
+        }
+
+        if tmp.len() > 0 {
+            buf.push(tmp.clone());
+            tmp.clear();
+        }
+    }
+
+    // Expect pairs of name and value
+    // and at least one pair to be present.
+    if buf.len() % 2 != 0 && buf.len() >= 2 {
+        return Err(Error::ClientBadStartup);
+    }
+
+    let mut i = 0;
+    while i < buf.len() {
+        let name = buf[i].clone();
+        let value = buf[i + 1].clone();
+        let _ = result.insert(name, value);
+        i += 2;
+    }
+
+    // Minimum required parameters
+    // I want to have the user at the very minimum, according to the protocol spec.
+    if !result.contains_key("user") {
+        return Err(Error::ClientBadStartup);
+    }
+
+    Ok(result)
 }
 
 /// Send password challenge response to the server.
