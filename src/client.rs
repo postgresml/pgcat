@@ -56,6 +56,7 @@ pub struct Client {
     default_server_role: Option<Role>,
 
     // Client parameters, e.g. user, client_encoding, etc.
+    #[allow(dead_code)]
     parameters: HashMap<String, String>,
 }
 
