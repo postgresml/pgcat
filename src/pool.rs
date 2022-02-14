@@ -7,6 +7,7 @@ use chrono::naive::NaiveDateTime;
 use crate::config::{Address, Config, Role, User};
 use crate::errors::Error;
 use crate::server::Server;
+use crate::stats::Reporter;
 
 use std::collections::HashMap;
 use std::sync::{
@@ -14,6 +15,7 @@ use std::sync::{
     Arc,
     Mutex,
 };
+use std::time::Instant;
 
 // Banlist: bad servers go in here.
 pub type BanList = Arc<Mutex<Vec<HashMap<Address, NaiveDateTime>>>>;
@@ -29,11 +31,16 @@ pub struct ConnectionPool {
     healthcheck_timeout: u64,
     ban_time: i64,
     pool_size: u32,
+    stats: Reporter,
 }
 
 impl ConnectionPool {
     /// Construct the connection pool from a config file.
-    pub async fn from_config(config: Config, client_server_map: ClientServerMap) -> ConnectionPool {
+    pub async fn from_config(
+        config: Config,
+        client_server_map: ClientServerMap,
+        stats: Reporter,
+    ) -> ConnectionPool {
         let mut shards = Vec::new();
         let mut addresses = Vec::new();
         let mut banlist = Vec::new();
@@ -71,6 +78,7 @@ impl ConnectionPool {
                     config.user.clone(),
                     &shard.database,
                     client_server_map.clone(),
+                    stats.clone(),
                 );
 
                 let pool = Pool::builder()
@@ -103,6 +111,7 @@ impl ConnectionPool {
             healthcheck_timeout: config.general.healthcheck_timeout,
             ban_time: config.general.ban_time,
             pool_size: config.general.pool_size,
+            stats: stats,
         }
     }
 
@@ -149,6 +158,7 @@ impl ConnectionPool {
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         // Set this to false to gain ~3-4% speed.
         let with_health_check = true;
+        let now = Instant::now();
 
         let shard = match shard {
             Some(shard) => shard,
@@ -227,6 +237,7 @@ impl ConnectionPool {
             };
 
             if !with_health_check {
+                self.stats.checkout_time(now.elapsed().as_millis());
                 return Ok((conn, address.clone()));
             }
 
@@ -241,7 +252,10 @@ impl ConnectionPool {
             {
                 // Check if health check succeeded
                 Ok(res) => match res {
-                    Ok(_) => return Ok((conn, address.clone())),
+                    Ok(_) => {
+                        self.stats.checkout_time(now.elapsed().as_millis());
+                        return Ok((conn, address.clone()));
+                    }
                     Err(_) => {
                         println!(
                             ">> Banning replica {} because of failed health check",
@@ -340,6 +354,7 @@ pub struct ServerPool {
     user: User,
     database: String,
     client_server_map: ClientServerMap,
+    stats: Reporter,
 }
 
 impl ServerPool {
@@ -348,12 +363,14 @@ impl ServerPool {
         user: User,
         database: &str,
         client_server_map: ClientServerMap,
+        stats: Reporter,
     ) -> ServerPool {
         ServerPool {
             address: address,
             user: user,
             database: database.to_string(),
             client_server_map: client_server_map,
+            stats: stats,
         }
     }
 }
@@ -375,6 +392,7 @@ impl ManageConnection for ServerPool {
             &self.database,
             self.client_server_map.clone(),
             self.address.role,
+            self.stats.clone(),
         )
         .await
     }

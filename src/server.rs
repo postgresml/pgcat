@@ -11,6 +11,7 @@ use tokio::net::TcpStream;
 use crate::config::{Address, Role};
 use crate::errors::Error;
 use crate::messages::*;
+use crate::stats::Reporter;
 use crate::ClientServerMap;
 
 /// Server state.
@@ -54,6 +55,9 @@ pub struct Server {
 
     // Server connected at
     connected_at: chrono::naive::NaiveDateTime,
+
+    // Stats
+    stats: Reporter,
 }
 
 impl Server {
@@ -67,6 +71,7 @@ impl Server {
         database: &str,
         client_server_map: ClientServerMap,
         role: Role,
+        stats: Reporter,
     ) -> Result<Server, Error> {
         let mut stream = match TcpStream::connect(&format!("{}:{}", host, port)).await {
             Ok(stream) => stream,
@@ -198,6 +203,7 @@ impl Server {
                         client_server_map: client_server_map,
                         role: role,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
+                        stats: stats,
                     });
                 }
 
@@ -236,6 +242,8 @@ impl Server {
 
     /// Send data to the server from the client.
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
+        self.stats.data_sent(messages.len());
+
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => Ok(()),
             Err(err) => {
@@ -280,8 +288,6 @@ impl Server {
                             self.in_transaction = false;
                         }
 
-                        // Error client didn't clean up!
-                        // We shuold drop this server
                         'E' => {
                             self.in_transaction = true;
                         }
@@ -332,6 +338,7 @@ impl Server {
         }
 
         let bytes = self.buffer.clone();
+        self.stats.data_received(bytes.len());
         self.buffer.clear();
 
         Ok(bytes)

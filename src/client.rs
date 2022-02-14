@@ -16,6 +16,7 @@ use crate::messages::*;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::server::Server;
 use crate::sharding::Sharder;
+use crate::stats::Reporter;
 
 pub const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
 pub const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
@@ -57,6 +58,9 @@ pub struct Client {
 
     // Client parameters, e.g. user, client_encoding, etc.
     parameters: HashMap<String, String>,
+
+    // Statistics
+    stats: Reporter,
 }
 
 impl Client {
@@ -69,6 +73,7 @@ impl Client {
         transaction_mode: bool,
         default_server_role: Option<Role>,
         server_info: BytesMut,
+        stats: Reporter,
     ) -> Result<Client, Error> {
         loop {
             // Could be StartupMessage or SSLRequest
@@ -127,6 +132,7 @@ impl Client {
                         client_server_map: client_server_map,
                         default_server_role: default_server_role,
                         parameters: parameters,
+                        stats: stats,
                     });
                 }
 
@@ -148,6 +154,7 @@ impl Client {
                         client_server_map: client_server_map,
                         default_server_role: default_server_role,
                         parameters: HashMap::new(),
+                        stats: stats,
                     });
                 }
 
@@ -220,7 +227,6 @@ impl Client {
             };
 
             // Grab a server from the pool.
-            // None = any shard
             let connection = match pool.get(shard, role).await {
                 Ok(conn) => conn,
                 Err(err) => {
@@ -287,11 +293,19 @@ impl Client {
                             }
                         }
 
-                        // Release server
-                        if !server.in_transaction() && self.transaction_mode {
-                            shard = None;
-                            role = self.default_server_role;
-                            break;
+                        // Send statistic
+                        self.stats.query();
+
+                        // Transaction over
+                        if !server.in_transaction() {
+                            self.stats.transaction();
+
+                            // Release server
+                            if self.transaction_mode {
+                                shard = None;
+                                role = self.default_server_role;
+                                break;
+                            }
                         }
                     }
 
@@ -350,11 +364,17 @@ impl Client {
                             }
                         }
 
+                        self.stats.query();
+
                         // Release server
-                        if !server.in_transaction() && self.transaction_mode {
-                            shard = None;
-                            role = self.default_server_role;
-                            break;
+                        if !server.in_transaction() {
+                            self.stats.transaction();
+
+                            if self.transaction_mode {
+                                shard = None;
+                                role = self.default_server_role;
+                                break;
+                            }
                         }
                     }
 
@@ -378,11 +398,14 @@ impl Client {
                         };
 
                         // Release the server
-                        if !server.in_transaction() && self.transaction_mode {
-                            println!("Releasing after copy done");
-                            shard = None;
-                            role = self.default_server_role;
-                            break;
+                        if !server.in_transaction() {
+                            self.stats.transaction();
+
+                            if self.transaction_mode {
+                                shard = None;
+                                role = self.default_server_role;
+                                break;
+                            }
                         }
                     }
 
