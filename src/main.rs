@@ -21,6 +21,7 @@ extern crate num_cpus;
 extern crate once_cell;
 extern crate serde;
 extern crate serde_derive;
+extern crate statsd;
 extern crate tokio;
 extern crate toml;
 
@@ -30,6 +31,7 @@ use tokio::signal;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
 mod client;
 mod config;
@@ -38,11 +40,13 @@ mod messages;
 mod pool;
 mod server;
 mod sharding;
+mod stats;
 
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
 use config::Role;
 use pool::{ClientServerMap, ConnectionPool};
+use stats::{Collector, Reporter};
 
 /// Main!
 #[tokio::main(worker_threads = 4)]
@@ -87,7 +91,23 @@ async fn main() {
     );
     println!("> Connection timeout: {}ms", config.general.connect_timeout);
 
-    let mut pool = ConnectionPool::from_config(config.clone(), client_server_map.clone()).await;
+    // Collect statistics and send them to StatsD
+    let (tx, rx) = mpsc::channel(100);
+
+    tokio::task::spawn(async move {
+        println!("> Statistics reporter started");
+
+        let mut stats_collector = Collector::new(rx);
+        stats_collector.collect().await;
+    });
+
+    let mut pool = ConnectionPool::from_config(
+        config.clone(),
+        client_server_map.clone(),
+        Reporter::new(tx.clone()),
+    )
+    .await;
+
     let transaction_mode = config.general.pool_mode == "transaction";
     let default_server_role = match config.query_router.default_role.as_ref() {
         "any" => None,
@@ -115,6 +135,7 @@ async fn main() {
             let pool = pool.clone();
             let client_server_map = client_server_map.clone();
             let server_info = server_info.clone();
+            let reporter = Reporter::new(tx.clone());
 
             let (socket, addr) = match listener.accept().await {
                 Ok((socket, addr)) => (socket, addr),
@@ -136,6 +157,7 @@ async fn main() {
                     transaction_mode,
                     default_server_role,
                     server_info,
+                    reporter,
                 )
                 .await
                 {
@@ -170,7 +192,10 @@ async fn main() {
 
     // Setup shut down sequence
     match signal::ctrl_c().await {
-        Ok(()) => {}
+        Ok(()) => {
+            println!("> Shutting down...");
+        }
+
         Err(err) => {
             eprintln!("Unable to listen for shutdown signal: {}", err);
         }
