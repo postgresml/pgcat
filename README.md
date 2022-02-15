@@ -11,9 +11,10 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 ## Local development
 
 1. Install Rust (latest stable will work great).
-2. `cargo run --release` (to get better benchmarks).
+2. `cargo build --release` (to get better benchmarks).
 3. Change the config in `pgcat.toml` to fit your setup (optional given next step).
 4. Install Postgres and run `psql -f tests/sharding/query_routing_setup.sql`
+5. `cargo run --release` You're ready to go!
 
 ### Tests
 
