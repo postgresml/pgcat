@@ -227,11 +227,6 @@ impl Client {
                 None => (),
             };
 
-            shard = match shard {
-                Some(shard) => Some(shard),
-                None => Some(0), // TODO: pick at random
-            };
-
             // Grab a server from the pool.
             let connection = match pool.get(shard, role).await {
                 Ok(conn) => conn,
