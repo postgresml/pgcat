@@ -57,6 +57,7 @@ pub struct Client {
     default_server_role: Option<Role>,
 
     // Client parameters, e.g. user, client_encoding, etc.
+    #[allow(dead_code)]
     parameters: HashMap<String, String>,
 
     // Statistics
@@ -226,6 +227,11 @@ impl Client {
                 None => (),
             };
 
+            shard = match shard {
+                Some(shard) => Some(shard),
+                None => Some(0), // TODO: pick at random
+            };
+
             // Grab a server from the pool.
             let connection = match pool.get(shard, role).await {
                 Ok(conn) => conn,
@@ -302,8 +308,11 @@ impl Client {
 
                             // Release server
                             if self.transaction_mode {
+                                self.stats.client_idle();
+
                                 shard = None;
                                 role = self.default_server_role;
+
                                 break;
                             }
                         }
@@ -371,8 +380,11 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
+                                self.stats.client_idle();
+
                                 shard = None;
                                 role = self.default_server_role;
+
                                 break;
                             }
                         }

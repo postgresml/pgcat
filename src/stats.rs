@@ -14,6 +14,9 @@ pub enum StatisticName {
     Transactions,
     DataSent,
     DataReceived,
+    ClientsWaiting,
+    ClientsActive,
+    ClientsIdle,
 }
 
 #[derive(Debug)]
@@ -76,6 +79,54 @@ impl Reporter {
 
         let _ = self.tx.try_send(statistic);
     }
+
+    pub fn client_waiting(&mut self) {
+        let statistic = Statistic {
+            name: StatisticName::ClientsWaiting,
+            value: 1,
+        };
+
+        let _ = self.tx.try_send(statistic);
+
+        let statistic = Statistic {
+            name: StatisticName::ClientsIdle,
+            value: -1,
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
+
+    pub fn client_active(&mut self) {
+        let statistic = Statistic {
+            name: StatisticName::ClientsWaiting,
+            value: -1,
+        };
+
+        let _ = self.tx.try_send(statistic);
+
+        let statistic = Statistic {
+            name: StatisticName::ClientsActive,
+            value: 1,
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
+
+    pub fn client_idle(&mut self) {
+        let statistic = Statistic {
+            name: StatisticName::ClientsActive,
+            value: -1,
+        };
+
+        let _ = self.tx.try_send(statistic);
+
+        let statistic = Statistic {
+            name: StatisticName::ClientsIdle,
+            value: 1,
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
 }
 
 pub struct Collector {
@@ -93,12 +144,18 @@ impl Collector {
 
     pub async fn collect(&mut self) {
         let mut stats = HashMap::from([
-            ("queries", 0),
-            ("transactions", 0),
-            ("data_sent", 0),
-            ("data_received", 0),
-            ("checkout_time", 0),
+            ("total_query_count", 0),
+            ("total_xact_count", 0),
+            ("total_sent", 0),
+            ("total_received", 0),
+            ("total_wait_time", 0),
+            ("maxwait_us", 0),
+            ("maxwait", 0),
+            ("cl_waiting", 0),
+            ("cl_active", 0),
+            ("cl_idle", 0),
         ]);
+
         let mut now = Instant::now();
 
         loop {
@@ -113,32 +170,61 @@ impl Collector {
             // Some are counters, some are gauges...
             match stat.name {
                 StatisticName::Queries => {
-                    let counter = stats.entry("queries").or_insert(0);
+                    let counter = stats.entry("total_query_count").or_insert(0);
                     *counter += stat.value;
                 }
 
                 StatisticName::Transactions => {
-                    let counter = stats.entry("transactions").or_insert(0);
+                    let counter = stats.entry("total_xact_count").or_insert(0);
                     *counter += stat.value;
                 }
 
                 StatisticName::DataSent => {
-                    let counter = stats.entry("data_sent").or_insert(0);
+                    let counter = stats.entry("total_sent").or_insert(0);
                     *counter += stat.value;
                 }
 
                 StatisticName::DataReceived => {
-                    let counter = stats.entry("data_received").or_insert(0);
+                    let counter = stats.entry("total_received").or_insert(0);
                     *counter += stat.value;
                 }
 
                 StatisticName::CheckoutTime => {
-                    let counter = stats.entry("checkout_time").or_insert(0);
+                    let counter = stats.entry("total_wait_time").or_insert(0);
+                    *counter += stat.value;
+
+                    let counter = stats.entry("maxwait_us").or_insert(0);
 
                     // Report max time here
                     if stat.value > *counter {
                         *counter = stat.value;
                     }
+
+                    let counter = stats.entry("maxwait").or_insert(0);
+                    let seconds = *counter / 1_000_000;
+
+                    if seconds > *counter {
+                        *counter = seconds;
+                    }
+                }
+
+                StatisticName::ClientsActive => {
+                    let counter = stats.entry("cl_active").or_insert(0);
+
+                    *counter += stat.value;
+                    *counter = std::cmp::max(*counter, 0);
+                }
+
+                StatisticName::ClientsWaiting => {
+                    let counter = stats.entry("cl_waiting").or_insert(0);
+                    *counter += stat.value;
+                    *counter = std::cmp::max(*counter, 0);
+                }
+
+                StatisticName::ClientsIdle => {
+                    let counter = stats.entry("cl_idle").or_insert(0);
+                    *counter += stat.value;
+                    *counter = std::cmp::max(*counter, 0);
                 }
             };
 
