@@ -57,6 +57,7 @@ pub struct Client {
     default_server_role: Option<Role>,
 
     // Client parameters, e.g. user, client_encoding, etc.
+    #[allow(dead_code)]
     parameters: HashMap<String, String>,
 
     // Statistics
@@ -302,8 +303,11 @@ impl Client {
 
                             // Release server
                             if self.transaction_mode {
+                                self.stats.client_idle();
+
                                 shard = None;
                                 role = self.default_server_role;
+
                                 break;
                             }
                         }
@@ -371,8 +375,11 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
+                                self.stats.client_idle();
+
                                 shard = None;
                                 role = self.default_server_role;
+
                                 break;
                             }
                         }

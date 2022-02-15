@@ -17,6 +17,7 @@ pub enum Role {
 pub struct Address {
     pub host: String,
     pub port: String,
+    pub shard: usize,
     pub role: Role,
 }
 

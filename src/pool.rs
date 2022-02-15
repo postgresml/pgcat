@@ -57,7 +57,7 @@ impl ConnectionPool {
             let mut pools = Vec::new();
             let mut replica_addresses = Vec::new();
 
-            for server in &shard.servers {
+            for (idx, server) in shard.servers.iter().enumerate() {
                 let role = match server.2.as_ref() {
                     "primary" => Role::Primary,
                     "replica" => Role::Replica,
@@ -71,6 +71,7 @@ impl ConnectionPool {
                     host: server.0.clone(),
                     port: server.1.to_string(),
                     role: role,
+                    shard: idx,
                 };
 
                 let manager = ServerPool::new(
@@ -165,6 +166,9 @@ impl ConnectionPool {
             None => 0, // TODO: pick a shard at random
         };
 
+        // We are waiting for a server now.
+        self.stats.client_waiting();
+
         let addresses = &self.addresses[shard];
 
         // Make sure if a specific role is requested, it's available in the pool.
@@ -237,7 +241,8 @@ impl ConnectionPool {
             };
 
             if !with_health_check {
-                self.stats.checkout_time(now.elapsed().as_millis());
+                self.stats.checkout_time(now.elapsed().as_micros());
+                self.stats.client_active();
                 return Ok((conn, address.clone()));
             }
 
@@ -253,7 +258,8 @@ impl ConnectionPool {
                 // Check if health check succeeded
                 Ok(res) => match res {
                     Ok(_) => {
-                        self.stats.checkout_time(now.elapsed().as_millis());
+                        self.stats.checkout_time(now.elapsed().as_micros());
+                        self.stats.client_active();
                         return Ok((conn, address.clone()));
                     }
                     Err(_) => {
@@ -385,13 +391,10 @@ impl ManageConnection for ServerPool {
         println!(">> Creating a new connection for the pool");
 
         Server::startup(
-            &self.address.host,
-            &self.address.port,
-            &self.user.name,
-            &self.user.password,
+            &self.address,
+            &self.user,
             &self.database,
             self.client_server_map.clone(),
-            self.address.role,
             self.stats.clone(),
         )
         .await

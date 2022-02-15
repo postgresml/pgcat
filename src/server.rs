@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
-use crate::config::{Address, Role};
+use crate::config::{Address, User};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::stats::Reporter;
@@ -16,11 +16,9 @@ use crate::ClientServerMap;
 
 /// Server state.
 pub struct Server {
-    // Server host, e.g. localhost
-    host: String,
-
-    // Server port: e.g. 5432
-    port: String,
+    // Server host, e.g. localhost,
+    // port, e.g. 5432, and role, e.g. primary or replica.
+    address: Address,
 
     // Buffered read socket
     read: BufReader<OwnedReadHalf>,
@@ -50,9 +48,6 @@ pub struct Server {
     // Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
 
-    // Server role, e.g. primary or replica.
-    role: Role,
-
     // Server connected at
     connected_at: chrono::naive::NaiveDateTime,
 
@@ -64,25 +59,23 @@ impl Server {
     /// Pretend to be the Postgres client and connect to the server given host, port and credentials.
     /// Perform the authentication and return the server in a ready-for-query mode.
     pub async fn startup(
-        host: &str,
-        port: &str,
-        user: &str,
-        password: &str,
+        address: &Address,
+        user: &User,
         database: &str,
         client_server_map: ClientServerMap,
-        role: Role,
         stats: Reporter,
     ) -> Result<Server, Error> {
-        let mut stream = match TcpStream::connect(&format!("{}:{}", host, port)).await {
-            Ok(stream) => stream,
-            Err(err) => {
-                println!(">> Could not connect to server: {}", err);
-                return Err(Error::SocketError);
-            }
-        };
+        let mut stream =
+            match TcpStream::connect(&format!("{}:{}", &address.host, &address.port)).await {
+                Ok(stream) => stream,
+                Err(err) => {
+                    println!(">> Could not connect to server: {}", err);
+                    return Err(Error::SocketError);
+                }
+            };
 
         // Send the startup packet.
-        startup(&mut stream, user, database).await?;
+        startup(&mut stream, &user.name, database).await?;
 
         let mut server_info = BytesMut::with_capacity(25);
         let mut backend_id: i32 = 0;
@@ -117,7 +110,8 @@ impl Server {
                                 Err(_) => return Err(Error::SocketError),
                             };
 
-                            md5_password(&mut stream, user, password, &salt[..]).await?;
+                            md5_password(&mut stream, &user.name, &user.password, &salt[..])
+                                .await?;
                         }
 
                         // Authentication handshake complete.
@@ -189,8 +183,7 @@ impl Server {
                     let (read, write) = stream.into_split();
 
                     return Ok(Server {
-                        host: host.to_string(),
-                        port: port.to_string(),
+                        address: address.clone(),
                         read: BufReader::new(read),
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
@@ -201,7 +194,6 @@ impl Server {
                         data_available: false,
                         bad: false,
                         client_server_map: client_server_map,
-                        role: role,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
                     });
@@ -382,8 +374,8 @@ impl Server {
             (
                 self.backend_id,
                 self.secret_key,
-                self.host.clone(),
-                self.port.clone(),
+                self.address.host.clone(),
+                self.address.port.clone(),
             ),
         );
     }
@@ -422,11 +414,7 @@ impl Server {
     }
 
     pub fn address(&self) -> Address {
-        Address {
-            host: self.host.to_string(),
-            port: self.port.to_string(),
-            role: self.role,
-        }
+        self.address.clone()
     }
 }
 
