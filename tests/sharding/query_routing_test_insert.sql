@@ -45,3 +45,9 @@ INSERT INTO data (id, value) VALUES (15, 'value_1');
 
 SET SHARDING KEY TO '16';
 INSERT INTO data (id, value) VALUES (16, 'value_1');
+
+set sharding key to '17';
+INSERT INTO data (id, value) VALUES (16, 'value_1');
+
+SeT SHaRDInG KeY to '18';
+INSERT INTO data (id, value) VALUES (16, 'value_1');
