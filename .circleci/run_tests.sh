@@ -3,11 +3,11 @@
 set -e
 set -o xtrace
 
+psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
+
 ./target/debug/pgcat &
 
 sleep 1
-
-psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
 
 # Setup PgBench
 pgbench -i -h 127.0.0.1 -p 6432
@@ -17,6 +17,13 @@ pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple
 
 # Extended protocol
 pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
+
+# COPY TO STDOUT test
+psql -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
+
+# Query cancellation test
+(psql -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(5)' || true) &
+killall psql -s SIGINT
 
 # Sharding insert
 psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_insert.sql
@@ -29,3 +36,6 @@ psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replic
 
 # Attempt clean shut down
 killall pgcat -s SIGINT
+
+# Allow for graceful shutdown
+sleep 1

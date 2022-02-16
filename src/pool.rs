@@ -10,16 +10,11 @@ use crate::server::Server;
 use crate::stats::Reporter;
 
 use std::collections::HashMap;
-use std::sync::{
-    // atomic::{AtomicUsize, Ordering},
-    Arc,
-    Mutex,
-};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 // Banlist: bad servers go in here.
 pub type BanList = Arc<Mutex<Vec<HashMap<Address, NaiveDateTime>>>>;
-// pub type Counter = Arc<AtomicUsize>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
 #[derive(Clone, Debug)]

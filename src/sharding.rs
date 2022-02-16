@@ -18,7 +18,7 @@ impl Sharder {
         let mut lohalf = key as u32;
         let hihalf = (key >> 32) as u32;
         lohalf ^= if key >= 0 { hihalf } else { !hihalf };
-        Self::combine(0, Self::pg_u32_hash(lohalf)) as usize % self.shards as usize
+        Self::combine(0, Self::pg_u32_hash(lohalf)) as usize % self.shards
     }
 
     #[inline]
