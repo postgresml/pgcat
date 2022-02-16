@@ -35,6 +35,7 @@ use tokio::sync::mpsc;
 
 mod client;
 mod config;
+mod constants;
 mod errors;
 mod messages;
 mod pool;

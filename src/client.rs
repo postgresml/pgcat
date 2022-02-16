@@ -17,6 +17,7 @@ use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::server::Server;
 use crate::sharding::Sharder;
 use crate::stats::Reporter;
+use crate::constants::*;
 
 pub const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
 pub const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
@@ -97,7 +98,7 @@ impl Client {
 
             match code {
                 // Client wants SSL. We don't support it at the moment.
-                80877103 => {
+                SSL_REQUEST_CODE => {
                     let mut no = BytesMut::with_capacity(1);
                     no.put_u8(b'N');
 
@@ -105,7 +106,7 @@ impl Client {
                 }
 
                 // Regular startup message.
-                196608 => {
+                PROTOCOL_VERSION_NUMBER => {
                     // TODO: perform actual auth.
                     let parameters = parse_startup(bytes.clone())?;
 
@@ -138,7 +139,7 @@ impl Client {
                 }
 
                 // Query cancel request.
-                80877102 => {
+                CANCEL_REQUEST_CODE => {
                     let (read, write) = stream.into_split();
 
                     let process_id = bytes.get_i32();
