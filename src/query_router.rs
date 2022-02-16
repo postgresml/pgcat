@@ -141,10 +141,12 @@ impl QueryRouter {
         }
     }
 
+    /// Get the current desired server role we should be talking to.
     pub fn role(&self) -> Option<Role> {
         self.active_role
     }
 
+    /// Get desired shard we should be talking to.
     pub fn shard(&self) -> usize {
         match self.active_shard {
             Some(shard) => shard,
@@ -152,6 +154,8 @@ impl QueryRouter {
         }
     }
 
+    /// Reset the router back to defaults.
+    /// This must be called at the end of every transaction in transaction mode.
     pub fn reset(&mut self) {
         self.active_role = self.default_server_role;
         self.active_shard = None;
@@ -162,7 +166,6 @@ impl QueryRouter {
 mod test {
     use super::*;
     use bytes::BufMut;
-    use regex::RegexBuilder;
 
     #[test]
     fn test_select_shard() {
@@ -192,7 +195,7 @@ mod test {
         QueryRouter::setup();
 
         let default_server_role: Option<Role> = None;
-        let shards = 6;
+        let shards = 5;
         let mut query_router = QueryRouter::new(default_server_role, shards);
 
         // Build the special syntax query.
@@ -216,10 +219,32 @@ mod test {
         QueryRouter::setup();
 
         let default_server_role: Option<Role> = None;
-        let shards = 6;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let shards = 5;
+        let query_router = QueryRouter::new(default_server_role, shards);
 
         assert_eq!(query_router.shard(), 0);
         assert_eq!(query_router.role(), None);
+    }
+
+    #[test]
+    fn test_incorrect_syntax() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+        let mut query_router = QueryRouter::new(default_server_role, shards);
+
+        // Build the special syntax query.
+        let mut message = BytesMut::new();
+
+        // Typo!
+        let query = BytesMut::from(&b"SET SERVER RLE TO 'replica';\0"[..]);
+
+        message.put_u8(b'Q'); // Query
+        message.put_i32(query.len() as i32 + 4);
+        message.put_slice(&query[..]);
+
+        assert_eq!(query_router.select_shard(message.clone()), false);
+        assert_eq!(query_router.select_role(message.clone()), false);
     }
 }

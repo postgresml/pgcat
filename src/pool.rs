@@ -203,11 +203,8 @@ impl ConnectionPool {
             // as per request.
             match role {
                 Some(role) => {
-                    // If the client wants a specific role,
-                    // we'll do our best to pick it, but if we only
-                    // have one server in the cluster, it's probably only a primary
-                    // (or only a replica), so the client will just get what we have.
-                    if address.role != role && addresses.len() > 1 {
+                    // Find the specific role the client wants in the pool.
+                    if address.role != role {
                         continue;
                     }
                 }

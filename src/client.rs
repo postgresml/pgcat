@@ -193,6 +193,9 @@ impl Client {
 
         let mut query_router = QueryRouter::new(self.default_server_role, pool.shards());
 
+        // Our custom protocol loop.
+        // We expect the client to either start a transaction with regular queries
+        // or issue commands for our sharding and server selection protocols.
         loop {
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
@@ -215,7 +218,7 @@ impl Client {
                 continue;
             }
 
-            // Grab a server from the pool.
+            // Grab a server from the pool: the client issued a regular query.
             let connection = match pool.get(query_router.shard(), query_router.role()).await {
                 Ok(conn) => conn,
                 Err(err) => {
