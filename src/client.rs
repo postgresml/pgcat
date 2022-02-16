@@ -218,7 +218,7 @@ impl Client {
             };
 
             // Parse for special server role selection command.
-            //
+            // SET SERVER ROLE TO '(primary|replica)';
             match self.select_role(message.clone()) {
                 Some(r) => {
                     custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
@@ -237,15 +237,17 @@ impl Client {
                 }
             };
 
-            let mut proxy = connection.0;
+            let mut reference = connection.0;
             let _address = connection.1;
-            let server = &mut *proxy;
+            let server = &mut *reference;
 
             // Claim this server as mine for query cancellation.
             server.claim(self.process_id, self.secret_key);
 
+            // Transaction loop. Multiple queries can be issued by the client here.
+            // The connection belongs to the client until the transaction is over,
+            // or until the client disconnects if we are in session mode.
             loop {
-                // No messages in the buffer, read one.
                 let mut message = if message.len() == 0 {
                     match read_message(&mut self.read).await {
                         Ok(message) => message,
@@ -269,19 +271,26 @@ impl Client {
                     msg
                 };
 
-                let original = message.clone(); // To be forwarded to the server
+                // The message will be forwarded to the server intact. We still would like to
+                // parse it below to figure out what to do with it.
+                let original = message.clone();
+
                 let code = message.get_u8() as char;
                 let _len = message.get_i32() as usize;
 
                 match code {
+                    // ReadyForQuery
                     'Q' => {
                         // TODO: implement retries here for read-only transactions.
                         server.send(original).await?;
 
+                        // Read all data the server has to offer, which can be multiple messages
+                        // buffered in 8196 bytes chunks.
                         loop {
                             // TODO: implement retries here for read-only transactions.
                             let response = server.recv().await?;
 
+                            // Send server reply to the client.
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),
                                 Err(err) => {
@@ -295,15 +304,18 @@ impl Client {
                             }
                         }
 
-                        // Send statistic
+                        // Report query executed statistics.
                         self.stats.query();
 
-                        // Transaction over
+                        // The transaction is over, we can release the connection back to the pool.
                         if !server.in_transaction() {
+                            // Report transaction executed statistics.
                             self.stats.transaction();
 
-                            // Release server
+                            // Release server back to the pool if we are in transaction mode.
+                            // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
+                                // Report this client as idle.
                                 self.stats.client_idle();
 
                                 shard = None;
@@ -314,6 +326,7 @@ impl Client {
                         }
                     }
 
+                    // Terminate
                     'X' => {
                         // Client closing. Rollback and clean up
                         // connection before releasing into the pool.
@@ -327,35 +340,46 @@ impl Client {
                         return Ok(());
                     }
 
+                    // Parse
+                    // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        // Extended protocol, let's buffer most of it
                         self.buffer.put(&original[..]);
                     }
 
+                    // Bind
+                    // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
                         self.buffer.put(&original[..]);
                     }
 
                     // Describe
+                    // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
                         self.buffer.put(&original[..]);
                     }
 
+                    // Execute
+                    // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
                         self.buffer.put(&original[..]);
                     }
 
+                    // Sync
+                    // Frontend (client) is asking for the query result now.
                     'S' => {
-                        // Extended protocol, client requests sync
                         self.buffer.put(&original[..]);
 
-                        // TODO: retries for read-only transactions
+                        // TODO: retries for read-only transactions.
                         server.send(self.buffer.clone()).await?;
+
                         self.buffer.clear();
 
+                        // Read all data the server has to offer, which can be multiple messages
+                        // buffered in 8196 bytes chunks.
                         loop {
                             // TODO: retries for read-only transactions
                             let response = server.recv().await?;
+
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),
                                 Err(err) => {
@@ -369,9 +393,11 @@ impl Client {
                             }
                         }
 
+                        // Report query executed statistics.
                         self.stats.query();
 
-                        // Release server
+                        // Release server back to the pool if we are in transaction mode.
+                        // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
                             self.stats.transaction();
 
@@ -393,10 +419,13 @@ impl Client {
                         server.send(original).await?;
                     }
 
+                    // CopyDone or CopyFail
+                    // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        // Copy is done.
                         server.send(original).await?;
+
                         let response = server.recv().await?;
+
                         match write_all_half(&mut self.write, response).await {
                             Ok(_) => (),
                             Err(err) => {
@@ -405,24 +434,29 @@ impl Client {
                             }
                         };
 
-                        // Release the server
+                        // Release server back to the pool if we are in transaction mode.
+                        // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
                             self.stats.transaction();
 
                             if self.transaction_mode {
                                 shard = None;
                                 role = self.default_server_role;
+
                                 break;
                             }
                         }
                     }
 
+                    // Some unexpected message. We either did not implement the protocol correctly
+                    // or this is not a Postgres client we're talking to.
                     _ => {
                         println!(">>> Unexpected code: {}", code);
                     }
                 }
             }
 
+            // The server is no longer bound to us, we can't cancel it's queries anymore.
             self.release();
         }
     }
@@ -451,6 +485,7 @@ impl Client {
 
         let len = buf.get_i32();
         let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase(); // Don't read the ternminating null
+
         let rgx = match SHARDING_REGEX_RE.get() {
             Some(r) => r,
             None => return None,
@@ -458,11 +493,13 @@ impl Client {
 
         if rgx.is_match(&query) {
             let shard = query.split("'").collect::<Vec<&str>>()[1];
+
             match shard.parse::<i64>() {
                 Ok(shard) => {
                     let sharder = Sharder::new(shards);
                     Some(sharder.pg_bigint_hash(shard))
                 }
+
                 Err(_) => None,
             }
         } else {
@@ -482,6 +519,7 @@ impl Client {
 
         let len = buf.get_i32();
         let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase();
+
         let rgx = match ROLE_REGEX_RE.get() {
             Some(r) => r,
             None => return None,
@@ -491,6 +529,7 @@ impl Client {
         // it'll be time to abstract :).
         if rgx.is_match(&query) {
             let role = query.split("'").collect::<Vec<&str>>()[1];
+
             match role {
                 "PRIMARY" => Some(Role::Primary),
                 "REPLICA" => Some(Role::Replica),
