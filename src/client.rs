@@ -171,23 +171,31 @@ impl Client {
 
     /// Client loop. We handle all messages between the client and the database here.
     pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
-        // Special: cancelling existing running query
+        // The client wants to cancel a query it has issued previously.
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
                 let guard = self.client_server_map.lock().unwrap();
+
                 match guard.get(&(self.process_id, self.secret_key)) {
                     // Drop the mutex as soon as possible.
+                    // We found the server the client is using for its query
+                    // that it wants to cancel.
                     Some((process_id, secret_key, address, port)) => (
                         process_id.clone(),
                         secret_key.clone(),
                         address.clone(),
                         port.clone(),
                     ),
+
+                    // The client doesn't know / got the wrong server,
+                    // we're closing the connection for security reasons.
                     None => return Ok(()),
                 }
             };
 
-            // TODO: pass actual server host and port somewhere.
+            // Opens a new separate connection to the server, sends the backend_id
+            // and secret_key and then closes it for security reasons. No other interactions
+            // take place.
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
