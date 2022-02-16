@@ -11,13 +11,13 @@ use tokio::net::TcpStream;
 use std::collections::HashMap;
 
 use crate::config::Role;
+use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::server::Server;
 use crate::sharding::Sharder;
 use crate::stats::Reporter;
-use crate::constants::*;
 
 pub const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
 pub const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";

@@ -8,11 +8,6 @@ use std::collections::HashMap;
 
 use crate::errors::Error;
 
-// This is a funny one. `psql` parses this to figure out which
-// queries to send when using shortcuts, e.g. \d+.
-// No longer used. Keeping it here until I'm sure we don't need it again.
-const _SERVER_VESION: &str = "12.9 (Ubuntu 12.9-0ubuntu0.20.04.1)";
-
 /// Tell the client that authentication handshake completed successfully.
 pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
     let mut auth_ok = BytesMut::with_capacity(9);
@@ -22,32 +17,6 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
     auth_ok.put_i32(0);
 
     Ok(write_all(stream, auth_ok).await?)
-}
-
-/// Send server parameters to the client. This will tell the client
-/// what server version and what's the encoding we're using.
-//
-// No longer used. Keeping it here until I'm sure we don't need it again.
-//
-pub async fn _server_parameters(stream: &mut TcpStream) -> Result<(), Error> {
-    let client_encoding = BytesMut::from(&b"client_encoding\0UTF8\0"[..]);
-    let server_version =
-        BytesMut::from(&format!("server_version\0{}\0", _SERVER_VESION).as_bytes()[..]);
-
-    // Client encoding
-    let len = client_encoding.len() as i32 + 4; // TODO: add more parameters here
-    let mut res = BytesMut::with_capacity(64);
-
-    res.put_u8(b'S');
-    res.put_i32(len);
-    res.put_slice(&client_encoding[..]);
-
-    let len = server_version.len() as i32 + 4;
-    res.put_u8(b'S');
-    res.put_i32(len);
-    res.put_slice(&server_version[..]);
-
-    Ok(write_all(stream, res).await?)
 }
 
 /// Give the client the process_id and secret we generated
@@ -179,6 +148,7 @@ pub async fn md5_password(
     password.push(0);
 
     let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
     message.put_slice(&password[..]);

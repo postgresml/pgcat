@@ -18,6 +18,9 @@ pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple
 # Extended protocol
 pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
 
+# COPY out
+psql -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
+
 # Sharding insert
 psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_insert.sql
 

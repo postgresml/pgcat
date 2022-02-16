@@ -1,14 +1,14 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 ///! Implementation of the PostgreSQL server (database) protocol.
 ///! Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, BufReader};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpStream;
+use tokio::net::{
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+    TcpStream,
+};
 
 use crate::config::{Address, User};
+use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::stats::Reporter;
@@ -20,23 +20,23 @@ pub struct Server {
     // port, e.g. 5432, and role, e.g. primary or replica.
     address: Address,
 
-    // Buffered read socket
+    // Buffered read socket.
     read: BufReader<OwnedReadHalf>,
 
-    // Unbuffered write socket (our client code buffers)
+    // Unbuffered write socket (our client code buffers).
     write: OwnedWriteHalf,
 
-    // Our server response buffer
+    // Our server response buffer. We buffer data before we give it to the client.
     buffer: BytesMut,
 
-    // Server information the server sent us over on startup
+    // Server information the server sent us over on startup.
     server_info: BytesMut,
 
     // Backend id and secret key used for query cancellation.
     backend_id: i32,
     secret_key: i32,
 
-    // Is the server inside a transaction at the moment.
+    // Is the server inside a transaction or idle.
     in_transaction: bool,
 
     // Is there more data for the client to read.
@@ -48,16 +48,16 @@ pub struct Server {
     // Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
 
-    // Server connected at
+    // Server connected at.
     connected_at: chrono::naive::NaiveDateTime,
 
-    // Stats
+    // Reports various metrics, e.g. data sent & received.
     stats: Reporter,
 }
 
 impl Server {
     /// Pretend to be the Postgres client and connect to the server given host, port and credentials.
-    /// Perform the authentication and return the server in a ready-for-query mode.
+    /// Perform the authentication and return the server in a ready for query state.
     pub async fn startup(
         address: &Address,
         user: &User,
@@ -74,13 +74,15 @@ impl Server {
                 }
             };
 
-        // Send the startup packet.
+        // Send the startup packet telling the server we're a normal Postgres client.
         startup(&mut stream, &user.name, database).await?;
 
-        let mut server_info = BytesMut::with_capacity(25);
+        let mut server_info = BytesMut::new();
         let mut backend_id: i32 = 0;
         let mut secret_key: i32 = 0;
 
+        // We'll be handling multiple packets, but they will all be structured the same.
+        // We'll loop here until this exchange is complete.
         loop {
             let code = match stream.read_u8().await {
                 Ok(code) => code as char,
@@ -93,16 +95,18 @@ impl Server {
             };
 
             match code {
+                // Authentication
                 'R' => {
-                    // Auth can proceed
-                    let code = match stream.read_i32().await {
-                        Ok(code) => code,
+                    // Determine which kind of authentication is required, if any.
+                    let auth_code = match stream.read_i32().await {
+                        Ok(auth_code) => auth_code,
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    match code {
-                        // MD5
-                        5 => {
+                    match auth_code {
+                        MD5_ENCRYPTED_PASSWORD => {
+                            // The salt is 4 bytes.
+                            // See: https://www.postgresql.org/docs/12/protocol-message-formats.html
                             let mut salt = vec![0u8; 4];
 
                             match stream.read_exact(&mut salt).await {
@@ -114,16 +118,16 @@ impl Server {
                                 .await?;
                         }
 
-                        // Authentication handshake complete.
-                        0 => (),
+                        AUTHENTICATION_SUCCESSFUL => (),
 
                         _ => {
-                            println!(">> Unsupported authentication mechanism: {}", code);
+                            println!(">> Unsupported authentication mechanism: {}", auth_code);
                             return Err(Error::ServerError);
                         }
                     }
                 }
 
+                // ErrorResponse
                 'E' => {
                     let error_code = match stream.read_u8().await {
                         Ok(error_code) => error_code,
@@ -131,46 +135,62 @@ impl Server {
                     };
 
                     match error_code {
-                        0 => (), // Terminator
+                        // No error message is present in the message.
+                        MESSAGE_TERMINATOR => (),
+
+                        // An error message will be present.
                         _ => {
+                            // Read the error message without the terminating null character.
                             let mut error = vec![0u8; len as usize - 4 - 1];
+
                             match stream.read_exact(&mut error).await {
                                 Ok(_) => (),
                                 Err(_) => return Err(Error::SocketError),
                             };
 
+                            // TODO: the error message contains multiple fields; we can decode them and
+                            // present a prettier message to the user.
+                            // See: https://www.postgresql.org/docs/12/protocol-error-fields.html
                             println!(">> Server error: {}", String::from_utf8_lossy(&error));
                         }
                     };
+
                     return Err(Error::ServerError);
                 }
 
+                // ParameterStatus
                 'S' => {
-                    // Parameter
                     let mut param = vec![0u8; len as usize - 4];
+
                     match stream.read_exact(&mut param).await {
                         Ok(_) => (),
                         Err(_) => return Err(Error::SocketError),
                     };
 
+                    // Save the parameter so we can pass it to the client later.
+                    // These can be server_encoding, client_encoding, server timezone, Postgres version,
+                    // and many more interesting things we should know about the Postgres server we are talking to.
                     server_info.put_u8(b'S');
                     server_info.put_i32(len);
                     server_info.put_slice(&param[..]);
                 }
 
+                // BackendKeyData
                 'K' => {
-                    // Query cancellation data.
+                    // The frontend must save these values if it wishes to be able to issue CancelRequest messages later.
+                    // See: https://www.postgresql.org/docs/12/protocol-message-formats.html
                     backend_id = match stream.read_i32().await {
                         Ok(id) => id,
-                        Err(err) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError),
                     };
 
                     secret_key = match stream.read_i32().await {
                         Ok(id) => id,
-                        Err(err) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError),
                     };
                 }
 
+                // ReadyForQuery
                 'Z' => {
                     let mut idle = vec![0u8; len as usize - 4];
 
@@ -179,7 +199,8 @@ impl Server {
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    // Startup finished
+                    // This is the last step in the client-server connection setup,
+                    // and indicates the server is ready for to query it.
                     let (read, write) = stream.into_split();
 
                     return Ok(Server {
@@ -199,6 +220,8 @@ impl Server {
                     });
                 }
 
+                // We have an unexpected message from the server during this exchange.
+                // Means we implemented the protocol wrong or we're not talking to a Postgres server.
                 _ => {
                     println!(">> Unknown code: {}", code);
                     return Err(Error::ProtocolSyncError);
@@ -207,7 +230,7 @@ impl Server {
         }
     }
 
-    /// Issue a cancellation request to the server.
+    /// Issue a query cancellation request to the server.
     /// Uses a separate connection that's not part of the connection pool.
     pub async fn cancel(
         host: &str,
@@ -225,14 +248,14 @@ impl Server {
 
         let mut bytes = BytesMut::with_capacity(16);
         bytes.put_i32(16);
-        bytes.put_i32(80877102);
+        bytes.put_i32(CANCEL_REQUEST_CODE);
         bytes.put_i32(process_id);
         bytes.put_i32(secret_key);
 
         Ok(write_all(&mut stream, bytes).await?)
     }
 
-    /// Send data to the server from the client.
+    /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
         self.stats.data_sent(messages.len());
 
@@ -246,7 +269,7 @@ impl Server {
         }
     }
 
-    /// Receive data from the server in response to a client request sent previously.
+    /// Receive data from the server in response to a client request.
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
@@ -260,79 +283,90 @@ impl Server {
                 }
             };
 
-            // Buffer the message we'll forward to the client in a bit.
+            // Buffer the message we'll forward to the client later.
             self.buffer.put(&message[..]);
 
             let code = message.get_u8() as char;
             let _len = message.get_i32();
 
             match code {
+                // ReadyForQuery
                 'Z' => {
-                    // Ready for query, time to forward buffer to client.
                     let transaction_state = message.get_u8() as char;
 
                     match transaction_state {
+                        // In transaction.
                         'T' => {
                             self.in_transaction = true;
                         }
 
+                        // Idle, transaction over.
                         'I' => {
                             self.in_transaction = false;
                         }
 
+                        // Some error occured, the transaction was rolled back.
                         'E' => {
                             self.in_transaction = true;
                         }
 
+                        // Something totally unexpected, this is not a Postgres server we know.
                         _ => {
                             self.bad = true;
                             return Err(Error::ProtocolSyncError);
                         }
                     };
 
+                    // There is no more data available from the server.
                     self.data_available = false;
 
                     break;
                 }
 
+                // DataRow
                 'D' => {
+                    // More data is available after this message, this is not the end of the reply.
                     self.data_available = true;
 
-                    // Don't flush yet, the more we buffer, the faster this goes.
-                    // Up to a limit of course.
+                    // Don't flush yet, the more we buffer, the faster this goes...
+                    // up to a limit of course.
                     if self.buffer.len() >= 8196 {
                         break;
                     }
                 }
 
-                // CopyInResponse: copy is starting from client to server
+                // CopyInResponse: copy is starting from client to server.
                 'G' => break,
 
-                // CopyOutResponse: copy is starting from the server to the client
+                // CopyOutResponse: copy is starting from the server to the client.
                 'H' => {
                     self.data_available = true;
                     break;
                 }
 
-                // CopyData
+                // CopyData: we are not buffering this one because there will be many more
+                // and we don't know how big this packet could be, best not to take a risk.
                 'd' => break,
 
                 // CopyDone
-                'c' => {
-                    self.data_available = false;
-                    // Buffer until ReadyForQuery shows up
-                }
+                // Buffer until ReadyForQuery shows up, so don't exit the loop yet.
+                'c' => (),
 
-                _ => {
-                    // Keep buffering,
-                }
+                // Anything else, e.g. errors, notices, etc.
+                // Keep buffering until ReadyForQuery shows up.
+                _ => (),
             };
         }
 
         let bytes = self.buffer.clone();
+
+        // Keep track of how much data we got from the server for stats.
         self.stats.data_received(bytes.len());
+
+        // Clear the buffer for next query.
         self.buffer.clear();
 
+        // Pass the data back to the client.
         Ok(bytes)
     }
 
@@ -381,11 +415,11 @@ impl Server {
     }
 
     /// Execute an arbitrary query against the server.
-    /// It will use the Simple query protocol.
+    /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
         let mut query = BytesMut::from(&query.as_bytes()[..]);
-        query.put_u8(0);
+        query.put_u8(0); // C-string terminator (NULL character).
 
         let len = query.len() as i32 + 4;
 
@@ -396,8 +430,10 @@ impl Server {
         msg.put_slice(&query[..]);
 
         self.send(msg).await?;
+
         loop {
             let _ = self.recv().await?;
+
             if !self.data_available {
                 break;
             }
@@ -407,26 +443,31 @@ impl Server {
     }
 
     /// A shorthand for `SET application_name = $1`.
+    #[allow(dead_code)]
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
         Ok(self
             .query(&format!("SET application_name = '{}'", name))
             .await?)
     }
 
+    /// Get the servers address.
+    #[allow(dead_code)]
     pub fn address(&self) -> Address {
         self.address.clone()
     }
 }
 
 impl Drop for Server {
-    // Try to do a clean shut down.
+    /// Try to do a clean shut down. Best effort because
+    /// the socket is in non-blocking mode, so it may not be ready
+    /// for a write.
     fn drop(&mut self) {
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');
         bytes.put_i32(4);
 
         match self.write.try_write(&bytes) {
-            Ok(n) => (),
+            Ok(_) => (),
             Err(_) => (),
         };
 
