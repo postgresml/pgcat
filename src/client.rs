@@ -5,8 +5,10 @@ use bytes::{Buf, BufMut, BytesMut};
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpStream;
+use tokio::net::{
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+    TcpStream,
+};
 
 use std::collections::HashMap;
 
