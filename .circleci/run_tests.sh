@@ -3,11 +3,11 @@
 set -e
 set -o xtrace
 
+psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
+
 ./target/debug/pgcat &
 
 sleep 1
-
-psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
 
 # Setup PgBench
 pgbench -i -h 127.0.0.1 -p 6432
