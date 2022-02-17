@@ -46,7 +46,7 @@ password = "sharding_user"
 # [ host, port, role ]
 servers = [
     [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5433, "replica" ],
+    [ "localhost", 5432, "replica" ],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 # Database name (e.g. "postgres")
