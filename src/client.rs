@@ -10,7 +10,6 @@ use tokio::net::{
 
 use std::collections::HashMap;
 
-use crate::config::Role;
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
@@ -47,10 +46,6 @@ pub struct Client {
     // to connect and cancel a query.
     client_server_map: ClientServerMap,
 
-    // Unless client specifies, route queries to the servers that have this role,
-    // e.g. primary or replicas or any.
-    default_server_role: Option<Role>,
-
     // Client parameters, e.g. user, client_encoding, etc.
     #[allow(dead_code)]
     parameters: HashMap<String, String>,
@@ -67,7 +62,6 @@ impl Client {
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
         transaction_mode: bool,
-        default_server_role: Option<Role>,
         server_info: BytesMut,
         stats: Reporter,
     ) -> Result<Client, Error> {
@@ -126,7 +120,6 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
-                        default_server_role: default_server_role,
                         parameters: parameters,
                         stats: stats,
                     });
@@ -148,7 +141,6 @@ impl Client {
                         process_id: process_id,
                         secret_key: secret_key,
                         client_server_map: client_server_map,
-                        default_server_role: default_server_role,
                         parameters: HashMap::new(),
                         stats: stats,
                     });
@@ -162,7 +154,11 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
+    pub async fn handle(
+        &mut self,
+        mut pool: ConnectionPool,
+        mut query_router: QueryRouter,
+    ) -> Result<(), Error> {
         // The client wants to cancel a query it has issued previously.
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
@@ -191,8 +187,6 @@ impl Client {
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
-        let mut query_router = QueryRouter::new(self.default_server_role, pool.shards());
-
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocols.
@@ -220,6 +214,10 @@ impl Client {
             if query_router.select_role(message.clone()) {
                 custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
                 continue;
+            }
+
+            if query_router.query_parser_enabled() {
+                query_router.infer_role(message.clone());
             }
 
             // Grab a server from the pool: the client issued a regular query.

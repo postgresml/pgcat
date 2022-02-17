@@ -46,7 +46,7 @@ password = "sharding_user"
 # [ host, port, role ]
 servers = [
     [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    [ "localhost", 5433, "replica" ],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 # Database name (e.g. "postgres")
@@ -81,3 +81,15 @@ database = "shard2"
 # replica: round-robin between replicas only without touching the primary,
 # primary: all queries go to the primary unless otherwise specified.
 default_role = "any"
+
+
+# Query parser. If enabled, we'll attempt to parse
+# every incming query to determine if it's a read or a write query.
+# If it's a read query, we'll direct it to a replica. Otherwise, if it's a write,
+# we'll direct it to the primary.
+query_parser_enabled = true
+
+# If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
+# load balancing of read queries. Otherwise, the primary will only be used for write
+# queries. The primary can always be explicitely selected with our custom protocol.
+primary_reads_enabled = true

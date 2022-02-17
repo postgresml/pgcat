@@ -1,13 +1,11 @@
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
-
 use bytes::{Buf, BytesMut};
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexBuilder};
+use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
-use sqlparser::ast::Statement::{Query, StartTransaction};
-
 
 use crate::config::Role;
 use crate::sharding::Sharder;
@@ -31,6 +29,12 @@ pub struct QueryRouter {
 
     // Should we be talking to a primary or a replica?
     active_role: Option<Role>,
+
+    // Include the primary into the replica pool?
+    primary_reads_enabled: bool,
+
+    // Should we try to parse queries?
+    query_parser_enabled: bool,
 }
 
 impl QueryRouter {
@@ -59,13 +63,20 @@ impl QueryRouter {
         a && b
     }
 
-    pub fn new(default_server_role: Option<Role>, shards: usize) -> QueryRouter {
+    pub fn new(
+        default_server_role: Option<Role>,
+        shards: usize,
+        primary_reads_enabled: bool,
+        query_parser_enabled: bool,
+    ) -> QueryRouter {
         QueryRouter {
             default_server_role: default_server_role,
             shards: shards,
 
             active_role: default_server_role,
             active_shard: None,
+            primary_reads_enabled: primary_reads_enabled,
+            query_parser_enabled: query_parser_enabled,
         }
     }
 
@@ -161,27 +172,31 @@ impl QueryRouter {
         let len = buf.get_i32() as usize;
 
         let query = match code {
-            'Q' => String::from_utf8_lossy(&buf[..len-5]).to_string(),
+            'Q' => String::from_utf8_lossy(&buf[..len - 5]).to_string(),
             'P' => {
                 let mut start = 0;
                 let mut end;
 
                 // Skip the name of the prepared statement.
-                while buf[start] != 0  && start < buf.len() { start += 1; };
+                while buf[start] != 0 && start < buf.len() {
+                    start += 1;
+                }
                 start += 1; // Skip terminating null
 
                 // Find the end of the prepared stmt (\0)
                 end = start;
-                while buf[end] != 0 && end < buf.len() { end += 1; };
+                while buf[end] != 0 && end < buf.len() {
+                    end += 1;
+                }
 
                 let query = String::from_utf8_lossy(&buf[start..end]).to_string();
 
                 query.replace("$", "") // Remove placeholders turning them into "values"
-            },
+            }
             _ => return false,
         };
 
-        let ast = match Parser::parse_sql(&PostgreSqlDialect{}, &query) {
+        let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => ast,
             Err(_) => return false,
         };
@@ -198,7 +213,10 @@ impl QueryRouter {
 
             // All SELECTs go to the replica
             Query { .. } => {
-                self.active_role = Some(Role::Replica);
+                self.active_role = match self.primary_reads_enabled {
+                    false => Some(Role::Replica), // If primary should not be receiving reads, use a replica.
+                    true => None,                 // Any server role is fine in this case.
+                }
             }
 
             // Likely a write
@@ -228,6 +246,11 @@ impl QueryRouter {
     pub fn reset(&mut self) {
         self.active_role = self.default_server_role;
         self.active_shard = None;
+    }
+
+    /// Should we attempt to parse queries?
+    pub fn query_parser_enabled(&self) -> bool {
+        self.query_parser_enabled
     }
 }
 

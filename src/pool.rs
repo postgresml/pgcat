@@ -25,7 +25,6 @@ pub struct ConnectionPool {
     banlist: BanList,
     healthcheck_timeout: u64,
     ban_time: i64,
-    pool_size: u32,
     stats: Reporter,
 }
 
@@ -47,12 +46,12 @@ impl ConnectionPool {
             .collect::<Vec<String>>();
         shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
 
-        for shard in shard_ids {
-            let shard = &config.shards[&shard];
+        for shard_idx in shard_ids {
+            let shard = &config.shards[&shard_idx];
             let mut pools = Vec::new();
             let mut replica_addresses = Vec::new();
 
-            for (idx, server) in shard.servers.iter().enumerate() {
+            for server in shard.servers.iter() {
                 let role = match server.2.as_ref() {
                     "primary" => Role::Primary,
                     "replica" => Role::Replica,
@@ -66,7 +65,7 @@ impl ConnectionPool {
                     host: server.0.clone(),
                     port: server.1.to_string(),
                     role: role,
-                    shard: idx,
+                    shard: shard_idx.parse::<usize>().unwrap(),
                 };
 
                 let manager = ServerPool::new(
@@ -106,7 +105,6 @@ impl ConnectionPool {
             banlist: Arc::new(Mutex::new(banlist)),
             healthcheck_timeout: config.general.healthcheck_timeout,
             ban_time: config.general.ban_time,
-            pool_size: config.general.pool_size,
             stats: stats,
         }
     }
@@ -120,12 +118,12 @@ impl ConnectionPool {
         let mut server_infos = Vec::new();
 
         for shard in 0..self.shards() {
-            for _ in 0..self.replicas(shard) {
+            for _ in 0..self.servers(shard) {
                 let connection = match self.get(shard, None).await {
                     Ok(conn) => conn,
                     Err(err) => {
-                        println!("> Shard {} down or misconfigured.", shard);
-                        return Err(err);
+                        println!("> Shard {} down or misconfigured: {:?}", shard, err);
+                        continue;
                     }
                 };
 
@@ -152,33 +150,12 @@ impl ConnectionPool {
         shard: usize,
         role: Option<Role>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
-        // Set this to false to gain ~3-4% speed.
-        let with_health_check = true;
         let now = Instant::now();
 
         // We are waiting for a server now.
         self.stats.client_waiting();
 
         let addresses = &self.addresses[shard];
-
-        // Make sure if a specific role is requested, it's available in the pool.
-        match role {
-            Some(role) => {
-                let role_count = addresses.iter().filter(|&db| db.role == role).count();
-
-                if role_count == 0 {
-                    println!(
-                        ">> Error: Role '{:?}' requested, but none are configured.",
-                        role
-                    );
-
-                    return Err(Error::AllServersDown);
-                }
-            }
-
-            // Any role should be present.
-            _ => (),
-        };
 
         let mut allowed_attempts = match role {
             // Primary-specific queries get one attempt, if the primary is down,
@@ -188,7 +165,7 @@ impl ConnectionPool {
 
             // Replicas get to try as many times as there are replicas
             // and connections in the pool.
-            _ => self.databases[shard].len() * self.pool_size as usize,
+            _ => addresses.len(),
         };
 
         while allowed_attempts > 0 {
@@ -200,22 +177,17 @@ impl ConnectionPool {
             let address = &addresses[index];
 
             // Make sure you're getting a primary or a replica
-            // as per request.
-            match role {
-                Some(role) => {
-                    // Find the specific role the client wants in the pool.
-                    if address.role != role {
-                        continue;
-                    }
-                }
-                None => (),
-            };
-
-            if self.is_banned(address, shard, role) {
+            // as per request. If no specific role is requested, the first
+            // available will be chosen.
+            if address.role != role {
                 continue;
             }
 
             allowed_attempts -= 1;
+
+            if self.is_banned(address, shard, role) {
+                continue;
+            }
 
             // Check if we can connect
             let mut conn = match self.databases[shard][index].get().await {
@@ -226,12 +198,6 @@ impl ConnectionPool {
                     continue;
                 }
             };
-
-            if !with_health_check {
-                self.stats.checkout_time(now.elapsed().as_micros());
-                self.stats.client_active();
-                return Ok((conn, address.clone()));
-            }
 
             // // Check if this server is alive with a health check
             let server = &mut *conn;
@@ -337,7 +303,7 @@ impl ConnectionPool {
         self.databases.len()
     }
 
-    pub fn replicas(&self, shard: usize) -> usize {
+    pub fn servers(&self, shard: usize) -> usize {
         self.addresses[shard].len()
     }
 }

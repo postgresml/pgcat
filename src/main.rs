@@ -21,10 +21,10 @@ extern crate num_cpus;
 extern crate once_cell;
 extern crate serde;
 extern crate serde_derive;
+extern crate sqlparser;
 extern crate statsd;
 extern crate tokio;
 extern crate toml;
-extern crate sqlparser;
 
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -48,6 +48,7 @@ mod stats;
 // secret keys to the backend's.
 use config::Role;
 use pool::{ClientServerMap, ConnectionPool};
+use query_router::QueryRouter;
 use stats::{Collector, Reporter};
 
 /// Main!
@@ -119,6 +120,8 @@ async fn main() {
             return;
         }
     };
+    let primary_reads_enabled = config.query_router.primary_reads_enabled;
+    let query_parser_enabled = config.query_router.query_parser_enabled;
 
     let server_info = match pool.validate().await {
         Ok(info) => info,
@@ -156,7 +159,6 @@ async fn main() {
                     socket,
                     client_server_map,
                     transaction_mode,
-                    default_server_role,
                     server_info,
                     reporter,
                 )
@@ -165,7 +167,14 @@ async fn main() {
                     Ok(mut client) => {
                         println!(">> Client {:?} authenticated successfully!", addr);
 
-                        match client.handle(pool).await {
+                        let query_router = QueryRouter::new(
+                            default_server_role,
+                            pool.shards(),
+                            primary_reads_enabled,
+                            query_parser_enabled,
+                        );
+
+                        match client.handle(pool, query_router).await {
                             Ok(()) => {
                                 let duration = chrono::offset::Utc::now().naive_utc() - start;
 
