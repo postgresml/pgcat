@@ -149,4 +149,3 @@ SELECT 1;
 set server role to 'replica';
 SeT SeRver Role TO 'PrImARY';
 select 1;
-
