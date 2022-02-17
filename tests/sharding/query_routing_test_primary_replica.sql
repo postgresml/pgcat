@@ -1,3 +1,5 @@
+\set ON_ERROR_STOP on
+
 SET SERVER ROLE TO 'primary';
 SET SHARDING KEY TO '1';
 INSERT INTO data (id, value) VALUES (1, 'value_1');
