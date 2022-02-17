@@ -1,3 +1,5 @@
+\set ON_ERROR_STOP on
+
 SET SERVER ROLE TO 'primary';
 SET SHARDING KEY TO '1';
 INSERT INTO data (id, value) VALUES (1, 'value_1');
@@ -88,6 +90,8 @@ SELECT * FROM data WHERE id = 9;
 
 ---
 
+\set ON_ERROR_STOP on
+
 SET SERVER ROLE TO 'primary';
 SET SHARDING KEY TO '10';
 INSERT INTO data (id, value) VALUES (10, 'value_1');
@@ -143,3 +147,7 @@ SELECT 1;
 
 SET SERVER ROLE TO 'replica';
 SELECT 1;
+
+set server role to 'replica';
+SeT SeRver Role TO 'PrImARY';
+select 1;

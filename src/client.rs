@@ -2,8 +2,6 @@
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
-use once_cell::sync::OnceCell;
-use regex::Regex;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -17,15 +15,9 @@ use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{ClientServerMap, ConnectionPool};
+use crate::query_router::QueryRouter;
 use crate::server::Server;
-use crate::sharding::Sharder;
 use crate::stats::Reporter;
-
-pub const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
-pub const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
-
-pub static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
-pub static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -199,15 +191,11 @@ impl Client {
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
-        // Active shard we're talking to.
-        // The lifetime of this depends on the pool mode:
-        // - if in session mode, this lives until the client disconnects,
-        // - if in transaction mode, this lives for the duration of one transaction.
-        let mut shard: Option<usize> = None;
+        let mut query_router = QueryRouter::new(self.default_server_role, pool.shards());
 
-        // Active database role we want to talk to, e.g. primary or replica.
-        let mut role: Option<Role> = self.default_server_role;
-
+        // Our custom protocol loop.
+        // We expect the client to either start a transaction with regular queries
+        // or issue commands for our sharding and server selection protocols.
         loop {
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
@@ -218,32 +206,31 @@ impl Client {
 
             // Parse for special select shard command.
             // SET SHARDING KEY TO 'bigint';
-            match self.select_shard(message.clone(), pool.shards()) {
-                Some(s) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
-                    shard = Some(s);
-                    continue;
-                }
-                None => (),
-            };
+            if query_router.select_shard(message.clone()) {
+                custom_protocol_response_ok(
+                    &mut self.write,
+                    &format!("SET SHARD TO {}", query_router.shard()),
+                )
+                .await?;
+                continue;
+            }
 
             // Parse for special server role selection command.
             // SET SERVER ROLE TO '(primary|replica)';
-            match self.select_role(message.clone()) {
-                Some(r) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
-                    role = Some(r);
-                    continue;
-                }
-                None => (),
-            };
+            if query_router.select_role(message.clone()) {
+                custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
+                continue;
+            }
 
-            // Grab a server from the pool.
-            let connection = match pool.get(shard, role).await {
+            // Grab a server from the pool: the client issued a regular query.
+            let connection = match pool.get(query_router.shard(), query_router.role()).await {
                 Ok(conn) => conn,
                 Err(err) => {
                     println!(">> Could not get connection from pool: {:?}", err);
-                    return Err(err);
+                    error_response(&mut self.write, "could not get connection from the pool")
+                        .await?;
+                    query_router.reset();
+                    continue;
                 }
             };
 
@@ -264,11 +251,8 @@ impl Client {
                         Err(err) => {
                             // Client disconnected without warning.
                             if server.in_transaction() {
-                                // TODO: this is what PgBouncer does
-                                // which leads to connection thrashing.
-                                //
-                                // I think we could issue a ROLLBACK here instead.
-                                // server.mark_bad();
+                                // Client left dirty server. Clean up and proceed
+                                // without thrashing this connection.
                                 server.query("ROLLBACK; DISCARD ALL;").await?;
                             }
 
@@ -328,8 +312,7 @@ impl Client {
                                 // Report this client as idle.
                                 self.stats.client_idle();
 
-                                shard = None;
-                                role = self.default_server_role;
+                                query_router.reset();
 
                                 break;
                             }
@@ -414,8 +397,7 @@ impl Client {
                             if self.transaction_mode {
                                 self.stats.client_idle();
 
-                                shard = None;
-                                role = self.default_server_role;
+                                query_router.reset();
 
                                 break;
                             }
@@ -450,8 +432,7 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
-                                shard = None;
-                                role = self.default_server_role;
+                                query_router.reset();
 
                                 break;
                             }
@@ -475,78 +456,5 @@ impl Client {
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock().unwrap();
         guard.remove(&(self.process_id, self.secret_key));
-    }
-
-    /// Determine if the query is part of our special syntax, extract
-    /// the shard key, and return the shard to query based on Postgres'
-    /// PARTITION BY HASH function.
-    fn select_shard(&self, mut buf: BytesMut, shards: usize) -> Option<usize> {
-        let code = buf.get_u8() as char;
-
-        // Only supporting simpe protocol here, so
-        // one would have to execute something like this:
-        // psql -c "SET SHARDING KEY TO '1234'"
-        // after sanitizing the value manually, which can be just done with an
-        // int parser, e.g. `let key = "1234".parse::<i64>().unwrap()`.
-        match code {
-            'Q' => (),
-            _ => return None,
-        };
-
-        let len = buf.get_i32();
-        let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase(); // Don't read the ternminating null
-
-        let rgx = match SHARDING_REGEX_RE.get() {
-            Some(r) => r,
-            None => return None,
-        };
-
-        if rgx.is_match(&query) {
-            let shard = query.split("'").collect::<Vec<&str>>()[1];
-
-            match shard.parse::<i64>() {
-                Ok(shard) => {
-                    let sharder = Sharder::new(shards);
-                    Some(sharder.pg_bigint_hash(shard))
-                }
-
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    // Pick a primary or a replica from the pool.
-    fn select_role(&self, mut buf: BytesMut) -> Option<Role> {
-        let code = buf.get_u8() as char;
-
-        // Same story as select_shard() above.
-        match code {
-            'Q' => (),
-            _ => return None,
-        };
-
-        let len = buf.get_i32();
-        let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase();
-
-        let rgx = match ROLE_REGEX_RE.get() {
-            Some(r) => r,
-            None => return None,
-        };
-
-        // Copy / paste from above. If we get one more of these use cases,
-        // it'll be time to abstract :).
-        if rgx.is_match(&query) {
-            let role = query.split("'").collect::<Vec<&str>>()[1];
-
-            match role {
-                "PRIMARY" => Some(Role::Primary),
-                "REPLICA" => Some(Role::Replica),
-                _ => return None,
-            }
-        } else {
-            None
-        }
     }
 }

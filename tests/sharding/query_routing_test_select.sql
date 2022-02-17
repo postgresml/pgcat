@@ -1,3 +1,5 @@
+\set ON_ERROR_STOP on
+
 SET SHARDING KEY TO '1';
 SELECT * FROM data WHERE id = 1;
 

@@ -121,7 +121,7 @@ impl ConnectionPool {
 
         for shard in 0..self.shards() {
             for _ in 0..self.replicas(shard) {
-                let connection = match self.get(Some(shard), None).await {
+                let connection = match self.get(shard, None).await {
                     Ok(conn) => conn,
                     Err(err) => {
                         println!("> Shard {} down or misconfigured.", shard);
@@ -149,17 +149,12 @@ impl ConnectionPool {
     /// Get a connection from the pool.
     pub async fn get(
         &mut self,
-        shard: Option<usize>,
+        shard: usize,
         role: Option<Role>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         // Set this to false to gain ~3-4% speed.
         let with_health_check = true;
         let now = Instant::now();
-
-        let shard = match shard {
-            Some(shard) => shard,
-            None => 0, // TODO: pick a shard at random
-        };
 
         // We are waiting for a server now.
         self.stats.client_waiting();
@@ -208,11 +203,8 @@ impl ConnectionPool {
             // as per request.
             match role {
                 Some(role) => {
-                    // If the client wants a specific role,
-                    // we'll do our best to pick it, but if we only
-                    // have one server in the cluster, it's probably only a primary
-                    // (or only a replica), so the client will just get what we have.
-                    if address.role != role && addresses.len() > 1 {
+                    // Find the specific role the client wants in the pool.
+                    if address.role != role {
                         continue;
                     }
                 }

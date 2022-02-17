@@ -25,7 +25,6 @@ extern crate statsd;
 extern crate tokio;
 extern crate toml;
 
-use regex::Regex;
 use tokio::net::TcpListener;
 use tokio::signal;
 
@@ -39,6 +38,7 @@ mod constants;
 mod errors;
 mod messages;
 mod pool;
+mod query_router;
 mod server;
 mod sharding;
 mod stats;
@@ -54,12 +54,11 @@ use stats::{Collector, Reporter};
 async fn main() {
     println!("> Welcome to PgCat! Meow.");
 
-    client::SHARDING_REGEX_RE
-        .set(Regex::new(client::SHARDING_REGEX).unwrap())
-        .unwrap();
-    client::ROLE_REGEX_RE
-        .set(Regex::new(client::ROLE_REGEX).unwrap())
-        .unwrap();
+    // Prepare regexes
+    if !query_router::QueryRouter::setup() {
+        println!("> Could not setup query router.");
+        return;
+    }
 
     let config = match config::parse("pgcat.toml").await {
         Ok(config) => config,
