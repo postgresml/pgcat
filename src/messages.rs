@@ -185,6 +185,50 @@ pub async fn custom_protocol_response_ok(
     write_all_half(stream, res).await
 }
 
+/// Send a custom error message to the client.
+/// Tell the client we are ready for the next query and no rollback is necessary.
+/// Docs on error codes: https://www.postgresql.org/docs/12/errcodes-appendix.html
+pub async fn error_response(stream: &mut OwnedWriteHalf, message: &str) -> Result<(), Error> {
+    let mut error = BytesMut::new();
+
+    // Error level
+    error.put_u8(b'S');
+    error.put_slice(&b"FATAL\0"[..]);
+
+    // Error level (non-translatable)
+    error.put_u8(b'V');
+    error.put_slice(&b"FATAL\0"[..]);
+
+    // Error code: not sure how much this matters.
+    error.put_u8(b'C');
+    error.put_slice(&b"58000\0"[..]); // system_error, see Appendix A.
+
+    // The short error message.
+    error.put_u8(b'M');
+    error.put_slice(&format!("{}\0", message).as_bytes());
+
+    // No more fields follow.
+    error.put_u8(0);
+
+    // Ready for query, no rollback needed (I = idle).
+    let mut ready_for_query = BytesMut::new();
+
+    ready_for_query.put_u8(b'Z');
+    ready_for_query.put_i32(5);
+    ready_for_query.put_u8(b'I');
+
+    // Compose the two message reply.
+    let mut res = BytesMut::with_capacity(error.len() + ready_for_query.len() + 5);
+
+    res.put_u8(b'E');
+    res.put_i32(error.len() as i32 + 4);
+
+    res.put(error);
+    res.put(ready_for_query);
+
+    Ok(write_all_half(stream, res).await?)
+}
+
 /// Write all data in the buffer to the TcpStream.
 pub async fn write_all(stream: &mut TcpStream, buf: BytesMut) -> Result<(), Error> {
     match stream.write_all(&buf).await {

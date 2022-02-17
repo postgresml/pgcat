@@ -207,7 +207,11 @@ impl Client {
             // Parse for special select shard command.
             // SET SHARDING KEY TO 'bigint';
             if query_router.select_shard(message.clone()) {
-                custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
+                custom_protocol_response_ok(
+                    &mut self.write,
+                    &format!("SET SHARD TO {}", query_router.shard()),
+                )
+                .await?;
                 continue;
             }
 
@@ -223,7 +227,10 @@ impl Client {
                 Ok(conn) => conn,
                 Err(err) => {
                     println!(">> Could not get connection from pool: {:?}", err);
-                    return Err(err);
+                    error_response(&mut self.write, "could not get connection from the pool")
+                        .await?;
+                    query_router.reset();
+                    continue;
                 }
             };
 
