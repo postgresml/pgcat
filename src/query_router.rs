@@ -31,27 +31,27 @@ pub struct QueryRouter {
 impl QueryRouter {
     pub fn setup() -> bool {
         // Compile our query routing regexes early, so we only do it once.
-        match SHARDING_REGEX_RE.set(
+        let a = match SHARDING_REGEX_RE.set(
             RegexBuilder::new(SHARDING_REGEX)
                 .case_insensitive(true)
                 .build()
                 .unwrap(),
         ) {
-            Ok(_) => (),
-            Err(_) => return false,
+            Ok(_) => true,
+            Err(_) => false,
         };
 
-        match ROLE_REGEX_RE.set(
+        let b = match ROLE_REGEX_RE.set(
             RegexBuilder::new(ROLE_REGEX)
                 .case_insensitive(true)
                 .build()
                 .unwrap(),
         ) {
-            Ok(_) => (),
-            Err(_) => return false,
+            Ok(_) => true,
+            Err(_) => false,
         };
 
-        true
+        a && b
     }
 
     pub fn new(default_server_role: Option<Role>, shards: usize) -> QueryRouter {
