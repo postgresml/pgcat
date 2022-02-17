@@ -29,20 +29,29 @@ pub struct QueryRouter {
 }
 
 impl QueryRouter {
-    pub fn setup() {
+    pub fn setup() -> bool {
         // Compile our query routing regexes early, so we only do it once.
-        let _ = SHARDING_REGEX_RE.set(
+        match SHARDING_REGEX_RE.set(
             RegexBuilder::new(SHARDING_REGEX)
                 .case_insensitive(true)
                 .build()
                 .unwrap(),
-        );
-        let _ = ROLE_REGEX_RE.set(
+        ) {
+            Ok(_) => (),
+            Err(_) => return false,
+        };
+
+        match ROLE_REGEX_RE.set(
             RegexBuilder::new(ROLE_REGEX)
                 .case_insensitive(true)
                 .build()
                 .unwrap(),
-        );
+        ) {
+            Ok(_) => (),
+            Err(_) => return false,
+        };
+
+        true
     }
 
     pub fn new(default_server_role: Option<Role>, shards: usize) -> QueryRouter {

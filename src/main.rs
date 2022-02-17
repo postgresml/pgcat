@@ -55,7 +55,10 @@ async fn main() {
     println!("> Welcome to PgCat! Meow.");
 
     // Prepare regexes
-    query_router::QueryRouter::setup();
+    if !query_router::QueryRouter::setup() {
+        println!("> Could not setup query router.");
+        return;
+    }
 
     let config = match config::parse("pgcat.toml").await {
         Ok(config) => config,
