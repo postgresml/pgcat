@@ -7,11 +7,11 @@ use regex::{Regex, RegexBuilder};
 use crate::config::Role;
 use crate::sharding::Sharder;
 
-pub const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
-pub const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
+const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
+const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
 
-pub static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
-pub static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
+static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
+static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
 
 pub struct QueryRouter {
     // By default, queries go here, unless we have better information
