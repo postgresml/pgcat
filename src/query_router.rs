@@ -265,7 +265,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         // Build the special syntax query.
         let mut message = BytesMut::new();
@@ -288,7 +288,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         // Build the special syntax query.
         let mut message = BytesMut::new();
@@ -312,7 +312,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let query_router = QueryRouter::new(default_server_role, shards);
+        let query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         assert_eq!(query_router.shard(), 0);
         assert_eq!(query_router.role(), None);
@@ -324,7 +324,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         // Build the special syntax query.
         let mut message = BytesMut::new();
