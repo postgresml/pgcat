@@ -1,8 +1,13 @@
-use bytes::{Buf, BytesMut};
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
+
+use bytes::{Buf, BytesMut};
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexBuilder};
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
+use sqlparser::ast::Statement::{Query, StartTransaction};
+
 
 use crate::config::Role;
 use crate::sharding::Sharder;
@@ -109,7 +114,7 @@ impl QueryRouter {
         }
     }
 
-    // Pick a primary or a replica from the pool.
+    /// Pick a primary or a replica from the pool.
     pub fn select_role(&mut self, mut buf: BytesMut) -> bool {
         let code = buf.get_u8() as char;
 
@@ -148,6 +153,61 @@ impl QueryRouter {
         } else {
             false
         }
+    }
+
+    /// Try to infer which server to connect to based on the contents of the query.
+    pub fn infer_role(&mut self, mut buf: BytesMut) -> bool {
+        let code = buf.get_u8() as char;
+        let len = buf.get_i32() as usize;
+
+        let query = match code {
+            'Q' => String::from_utf8_lossy(&buf[..len-5]).to_string(),
+            'P' => {
+                let mut start = 0;
+                let mut end;
+
+                // Skip the name of the prepared statement.
+                while buf[start] != 0  && start < buf.len() { start += 1; };
+                start += 1; // Skip terminating null
+
+                // Find the end of the prepared stmt (\0)
+                end = start;
+                while buf[end] != 0 && end < buf.len() { end += 1; };
+
+                let query = String::from_utf8_lossy(&buf[start..end]).to_string();
+
+                query.replace("$", "") // Remove placeholders turning them into "values"
+            },
+            _ => return false,
+        };
+
+        let ast = match Parser::parse_sql(&PostgreSqlDialect{}, &query) {
+            Ok(ast) => ast,
+            Err(_) => return false,
+        };
+
+        if ast.len() == 0 {
+            return false;
+        }
+
+        match ast[0] {
+            // All transactions go to the primary, probably a write.
+            StartTransaction { .. } => {
+                self.active_role = Some(Role::Primary);
+            }
+
+            // All SELECTs go to the replica
+            Query { .. } => {
+                self.active_role = Some(Role::Replica);
+            }
+
+            // Likely a write
+            _ => {
+                self.active_role = Some(Role::Primary);
+            }
+        };
+
+        true
     }
 
     /// Get the current desired server role we should be talking to.

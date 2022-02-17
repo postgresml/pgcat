@@ -24,6 +24,7 @@ extern crate serde_derive;
 extern crate statsd;
 extern crate tokio;
 extern crate toml;
+extern crate sqlparser;
 
 use tokio::net::TcpListener;
 use tokio::signal;
