@@ -13,6 +13,24 @@ pub enum Role {
     Replica,
 }
 
+impl PartialEq<Option<Role>> for Role {
+    fn eq(&self, other: &Option<Role>) -> bool {
+        match other {
+            None => true,
+            Some(role) => *self == *role,
+        }
+    }
+}
+
+impl PartialEq<Role> for Option<Role> {
+    fn eq(&self, other: &Role) -> bool {
+        match *self {
+            None => true,
+            Some(role) => role == *other,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
     pub host: String,
@@ -47,6 +65,8 @@ pub struct Shard {
 #[derive(Deserialize, Debug, Clone)]
 pub struct QueryRouter {
     pub default_role: String,
+    pub query_parser_enabled: bool,
+    pub primary_reads_enabled: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]

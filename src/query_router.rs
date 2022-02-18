@@ -1,8 +1,11 @@
-use bytes::{Buf, BytesMut};
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
+use bytes::{Buf, BytesMut};
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexBuilder};
+use sqlparser::ast::Statement::{Query, StartTransaction};
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
 
 use crate::config::Role;
 use crate::sharding::Sharder;
@@ -26,6 +29,12 @@ pub struct QueryRouter {
 
     // Should we be talking to a primary or a replica?
     active_role: Option<Role>,
+
+    // Include the primary into the replica pool?
+    primary_reads_enabled: bool,
+
+    // Should we try to parse queries?
+    query_parser_enabled: bool,
 }
 
 impl QueryRouter {
@@ -54,13 +63,20 @@ impl QueryRouter {
         a && b
     }
 
-    pub fn new(default_server_role: Option<Role>, shards: usize) -> QueryRouter {
+    pub fn new(
+        default_server_role: Option<Role>,
+        shards: usize,
+        primary_reads_enabled: bool,
+        query_parser_enabled: bool,
+    ) -> QueryRouter {
         QueryRouter {
             default_server_role: default_server_role,
             shards: shards,
 
             active_role: default_server_role,
             active_shard: None,
+            primary_reads_enabled: primary_reads_enabled,
+            query_parser_enabled: query_parser_enabled,
         }
     }
 
@@ -109,7 +125,7 @@ impl QueryRouter {
         }
     }
 
-    // Pick a primary or a replica from the pool.
+    /// Pick a primary or a replica from the pool.
     pub fn select_role(&mut self, mut buf: BytesMut) -> bool {
         let code = buf.get_u8() as char;
 
@@ -150,6 +166,75 @@ impl QueryRouter {
         }
     }
 
+    /// Try to infer which server to connect to based on the contents of the query.
+    pub fn infer_role(&mut self, mut buf: BytesMut) -> bool {
+        let code = buf.get_u8() as char;
+        let len = buf.get_i32() as usize;
+
+        let query = match code {
+            'Q' => String::from_utf8_lossy(&buf[..len - 5]).to_string(),
+            'P' => {
+                let mut start = 0;
+                let mut end;
+
+                // Skip the name of the prepared statement.
+                while buf[start] != 0 && start < buf.len() {
+                    start += 1;
+                }
+                start += 1; // Skip terminating null
+
+                // Find the end of the prepared stmt (\0)
+                end = start;
+                while buf[end] != 0 && end < buf.len() {
+                    end += 1;
+                }
+
+                let query = String::from_utf8_lossy(&buf[start..end]).to_string();
+
+                query.replace("$", "") // Remove placeholders turning them into "values"
+            }
+            _ => return false,
+        };
+
+        let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
+            Ok(ast) => ast,
+            Err(err) => {
+                log::debug!(
+                    "QueryParser::infer_role could not parse query, error: {:?}, query: {}",
+                    err,
+                    query
+                );
+                return false;
+            }
+        };
+
+        if ast.len() == 0 {
+            return false;
+        }
+
+        match ast[0] {
+            // All transactions go to the primary, probably a write.
+            StartTransaction { .. } => {
+                self.active_role = Some(Role::Primary);
+            }
+
+            // Likely a read-only query
+            Query { .. } => {
+                self.active_role = match self.primary_reads_enabled {
+                    false => Some(Role::Replica), // If primary should not be receiving reads, use a replica.
+                    true => None,                 // Any server role is fine in this case.
+                }
+            }
+
+            // Likely a write
+            _ => {
+                self.active_role = Some(Role::Primary);
+            }
+        };
+
+        true
+    }
+
     /// Get the current desired server role we should be talking to.
     pub fn role(&self) -> Option<Role> {
         self.active_role
@@ -169,6 +254,11 @@ impl QueryRouter {
         self.active_role = self.default_server_role;
         self.active_shard = None;
     }
+
+    /// Should we attempt to parse queries?
+    pub fn query_parser_enabled(&self) -> bool {
+        self.query_parser_enabled
+    }
 }
 
 #[cfg(test)]
@@ -182,7 +272,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         // Build the special syntax query.
         let mut message = BytesMut::new();
@@ -205,7 +295,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         // Build the special syntax query.
         let mut message = BytesMut::new();
@@ -229,7 +319,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let query_router = QueryRouter::new(default_server_role, shards);
+        let query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         assert_eq!(query_router.shard(), 0);
         assert_eq!(query_router.role(), None);
@@ -241,7 +331,7 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards);
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
 
         // Build the special syntax query.
         let mut message = BytesMut::new();
@@ -255,5 +345,98 @@ mod test {
 
         assert_eq!(query_router.select_shard(message.clone()), false);
         assert_eq!(query_router.select_role(message.clone()), false);
+    }
+
+    #[test]
+    fn test_infer_role_replica() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        let queries = vec![
+            BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]),
+            BytesMut::from(&b"SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id\0"[..]),
+            BytesMut::from(&b"WITH t AS (SELECT * FROM items) SELECT * FROM t\0"[..]),
+        ];
+
+        for query in &queries {
+            let mut res = BytesMut::from(&b"Q"[..]);
+            res.put_i32(query.len() as i32 + 4);
+            res.put(query.clone());
+
+            // It's a recognized query
+            assert!(query_router.infer_role(res));
+            assert_eq!(query_router.role(), Some(Role::Replica));
+        }
+    }
+
+    #[test]
+    fn test_infer_role_primary() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        let queries = vec![
+            BytesMut::from(&b"UPDATE items SET name = 'pumpkin' WHERE id = 5\0"[..]),
+            BytesMut::from(&b"INSERT INTO items (id, name) VALUES (5, 'pumpkin')\0"[..]),
+            BytesMut::from(&b"DELETE FROM items WHERE id = 5\0"[..]),
+            BytesMut::from(&b"BEGIN\0"[..]), // Transaction start
+        ];
+
+        for query in &queries {
+            let mut res = BytesMut::from(&b"Q"[..]);
+            res.put_i32(query.len() as i32 + 4);
+            res.put(query.clone());
+
+            // It's a recognized query
+            assert!(query_router.infer_role(res));
+            assert_eq!(query_router.role(), Some(Role::Primary));
+        }
+    }
+
+    #[test]
+    fn test_infer_role_primary_reads_enabled() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, true, false);
+
+        let query = BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]);
+        let mut res = BytesMut::from(&b"Q"[..]);
+        res.put_i32(query.len() as i32 + 4);
+        res.put(query.clone());
+
+        assert!(query_router.infer_role(res));
+        assert_eq!(query_router.role(), None);
+    }
+
+    #[test]
+    fn test_infer_role_parse_prepared() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        let prepared_stmt = BytesMut::from(
+            &b"WITH t AS (SELECT * FROM items WHERE name = $1) SELECT * FROM t WHERE id = $2\0"[..],
+        );
+        let mut res = BytesMut::from(&b"P"[..]);
+        res.put_i32(prepared_stmt.len() as i32 + 4 + 1 + 2);
+        res.put_u8(0);
+        res.put(prepared_stmt);
+        res.put_i16(0);
+
+        assert!(query_router.infer_role(res));
+        assert_eq!(query_router.role(), Some(Role::Replica));
     }
 }
