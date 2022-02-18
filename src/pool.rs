@@ -168,6 +168,19 @@ impl ConnectionPool {
             _ => addresses.len(),
         };
 
+        let exists = match role {
+            Some(role) => addresses.iter().filter(|addr| addr.role == role).count() > 0,
+            None => true,
+        };
+
+        if !exists {
+            log::error!(
+                "ConnectionPool::get Requested role {:?}, but none is configured.",
+                role
+            );
+            return Err(Error::BadConfig);
+        }
+
         while allowed_attempts > 0 {
             // Round-robin each client's queries.
             // If a client only sends one query and then disconnects, it doesn't matter
@@ -265,17 +278,21 @@ impl ConnectionPool {
     /// Check if a replica can serve traffic. If all replicas are banned,
     /// we unban all of them. Better to try then not to.
     pub fn is_banned(&self, address: &Address, shard: usize, role: Option<Role>) -> bool {
-        // If primary is requested explicitely, it can never be banned.
-        if Some(Role::Primary) == role {
-            return false;
-        }
+        let replicas_available = match role {
+            Some(Role::Replica) => self.addresses[shard]
+                .iter()
+                .filter(|addr| addr.role == Role::Replica)
+                .count(),
+            None => self.addresses[shard].len(),
+            Some(Role::Primary) => return false, // Primary cannot be banned.
+        };
 
         // If you're not asking for the primary,
         // all databases are treated as replicas.
         let mut guard = self.banlist.lock().unwrap();
 
         // Everything is banned = nothing is banned.
-        if guard[shard].len() == self.databases[shard].len() {
+        if guard[shard].len() == replicas_available {
             guard[shard].clear();
             drop(guard);
             println!(">> Unbanning all replicas.");

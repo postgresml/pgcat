@@ -217,7 +217,7 @@ impl Client {
             }
 
             // Attempt to parse the query to determine where it should go
-            if query_router.query_parser_enabled() {
+            if query_router.query_parser_enabled() && query_router.role() == None {
                 query_router.infer_role(message.clone());
             }
 
