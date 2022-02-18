@@ -34,6 +34,14 @@ psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /
 # Replica/primary selection & more sharding tests
 psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
 
+#
+# ActiveRecord tests!
+#
+cd tests/ruby
+sudo gem install bundler
+bundle install
+ruby tests.rb
+
 # Attempt clean shut down
 killall pgcat -s SIGINT
 

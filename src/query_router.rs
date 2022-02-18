@@ -10,11 +10,13 @@ use sqlparser::parser::Parser;
 use crate::config::Role;
 use crate::sharding::Sharder;
 
-const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+';";
-const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)';";
+const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+'";
+const SET_SHARD_REGEX: &str = r"SET SHARD TO '[0-9]+'";
+const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)'";
 
 static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
 static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
+static SET_SHARD_REGEX_RE: OnceCell<Regex> = OnceCell::new();
 
 pub struct QueryRouter {
     // By default, queries go here, unless we have better information
@@ -60,7 +62,17 @@ impl QueryRouter {
             Err(_) => false,
         };
 
-        a && b
+        let c = match SET_SHARD_REGEX_RE.set(
+            RegexBuilder::new(SET_SHARD_REGEX)
+                .case_insensitive(true)
+                .build()
+                .unwrap(),
+        ) {
+            Ok(_) => true,
+            Err(_) => false,
+        };
+
+        a && b && c
     }
 
     pub fn new(
@@ -99,12 +111,17 @@ impl QueryRouter {
         let len = buf.get_i32();
         let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]); // Don't read the ternminating null
 
-        let rgx = match SHARDING_REGEX_RE.get() {
+        let sharding_key_rgx = match SHARDING_REGEX_RE.get() {
             Some(r) => r,
             None => return false,
         };
 
-        if rgx.is_match(&query) {
+        let set_shard_rgx = match SET_SHARD_REGEX_RE.get() {
+            Some(r) => r,
+            None => return false,
+        };
+
+        if sharding_key_rgx.is_match(&query) {
             let shard = query.split("'").collect::<Vec<&str>>()[1];
 
             match shard.parse::<i64>() {
@@ -118,6 +135,15 @@ impl QueryRouter {
                 // The shard must be a valid integer. Our regex won't let anything else pass,
                 // so this code will never run, but Rust can't know that, so we have to handle this
                 // case anyway.
+                Err(_) => false,
+            }
+        } else if set_shard_rgx.is_match(&query) {
+            let shard = query.split("'").collect::<Vec<&str>>()[1];
+            match shard.parse::<usize>() {
+                Ok(shard) => {
+                    self.active_shard = Some(shard);
+                    true
+                }
                 Err(_) => false,
             }
         } else {
@@ -438,5 +464,29 @@ mod test {
 
         assert!(query_router.infer_role(res));
         assert_eq!(query_router.role(), Some(Role::Replica));
+    }
+
+    #[test]
+    fn test_set_shard_explicitely() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        // Build the special syntax query.
+        let mut message = BytesMut::new();
+        let query = BytesMut::from(&b"SET SHARD TO '1'\0"[..]);
+
+        message.put_u8(b'Q'); // Query
+        message.put_i32(query.len() as i32 + 4);
+        message.put_slice(&query[..]);
+
+        assert!(query_router.select_shard(message));
+        assert_eq!(query_router.shard(), 1); // See sharding.rs (we are using 5 shards on purpose in this test)
+
+        query_router.reset();
+        assert_eq!(query_router.shard(), 0);
     }
 }
