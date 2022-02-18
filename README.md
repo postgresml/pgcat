@@ -22,6 +22,11 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 | Statistics reporting           | :heavy_check_mark: | Statistics similar to PgBouncers are reported via StatsD.                                                                                             |
 | Live configuration reloading   | :x: :wrench:       | On the roadmap; currently config changes require restart.                                                                                             |
 
+## Deployment
+
+See [`Dockerfile`]('./Dockerfile') for example deployment using Docker. The pooler is configured to spawn 4 workers, so 4 CPUs are recommended for optimal performance.
+That setting can be adjusted to spawn as many (or as little) workers as needed.
+
 ## Local development
 
 1. Install Rust (latest stable will work great).
@@ -32,7 +37,7 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 
 ### Tests
 
-You can just PgBench to test your changes:
+Quickest way to test your changes is to use pgbench:
 
 ```
 pgbench -i -h 127.0.0.1 -p 6432 && \
@@ -42,50 +47,65 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 
 See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
-## Features
+| **Feature**          | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
+|----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
+| Transaction pooling  | :heavy_check_mark: | :heavy_check_mark:  | Used by default for all tests.                                                                                           |
+| Session pooling      | :x:                | :heavy_check_mark:  | Easiest way to test is to enable it and run pgbench - results will be better than transaction pooling as expected.       |
+| `COPY`               | :heavy_check_mark: | :heavy_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
+| Query cancellation   | :heavy_check_mark: | :heavy_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
+| Load balancing       | :x:                | :heavy_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
+| Failover             | :x:                | :heavy_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
+| Sharding             | :heavy_check_mark: | :heavy_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
+| Statistics reporting | :x:                | :heavy_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
 
-1. Session mode.
-2. Transaction mode.
-3. `COPY` protocol support.
-4. Query cancellation.
-5. Round-robin load balancing of replicas.
-6. Banlist & failover.
-7. Sharding!
-8. Explicit query routing to primary or replicas.
+
+## Feature descriptions
 
 ### Session mode
-Each client owns its own server for the duration of the session. Commands like `SET` are allowed.
-This is identical to PgBouncer session mode.
+In session mode, a client talks to one server for the duration of the connection. That server is not shared between other clients, so session mode is best used for low traffic deployments. However session mode does provide higher throughput (queries per second) than tranasactionn mode. Prepared statements are supported and commands like `SET` and advisory locks are supported as well.
 
 ### Transaction mode
-The connection is attached to the server for the duration of the transaction. `SET` will pollute the connection,
-but `SET LOCAL` works great. Identical to PgBouncer transaction mode.
+In transaction mode, a client talks to one server only for the duration of a single transaction. The server is then returned to the pool to be used by other clients. This is recommended for high traffic deployments. Transaction mode would have slightly lower per-client throughput (queries per second) because of pool contention, but this is expected. Overall system throughput is much higher in transaction mode than in session mode. Prepared statements are not supported because they are set on the Postgres server connection, but that connection is re-used between multiple clients! The same applies to advisory locks and `SET` (not supported). Alternatives are to use `SET LOCAL` and `pg_advisory_xact_lock` which are scoped to the transaction.
 
-### COPY protocol
-That one isn't particularly special, but good to mention that you can `COPY` data in and from the server
-using this pooler.
+This mode is enabled by default.
 
-### Query cancellation
-Okay, this is just basic stuff, but we support cancelling queries. If you know the Postgres protocol,
-this might be relevant given than this is a transactional pooler but if you're new to Pg, don't worry about it, it works.
+### Load balancing of read queries
+All queries are load balanced against the configured servers using the round-robin algorithm. The most straight forward configuration example would be to put this pooler in front of several replicas and let it load balance all queries. If however the configuration includes a primary and replicas, the queries can be separated with the built-in query parser. The query parser will parse the SQL and figure out if it's a `SELECT` query (which is presumed to be a read) or something else (which is presumed to be a write) and will forward the query to the replicas or the primary respectively. This is disabled by default since inferring client intent based on the query alone is tricky. Some `SELECT` queries can write, for example; however for 99% of the workloads, this should work just fine. You can enable the query parser by changing the `query_parser_enabled` setting.
 
-### Round-robin load balancing
-This is the novel part. PgBouncer doesn't support it and suggests we use DNS or a TCP proxy instead.
-We prefer to have everything as part of one package; arguably, it's easier to understand and optimize.
-This pooler will round-robin between multiple replicas keeping load reasonably even. If the primary is in
-the pool as well, it'll be treated as a replica for read-only queries.
+#### Query parser
+The query parser will do its best to determine where the query should go, but sometimes that's not possible. In that case, the client can select which server it wants using this custom SQL syntax:
 
-### Banlist & failover
-This is where it gets even more interesting. If we fail to connect to one of the replicas or it fails a health check,
-we add it to a ban list. No more new transactions will be served by that replica for, in our case, 60 seconds. This
-gives it the opportunity to recover while clients are happily served by the remaining replicas.
+```sql
+-- To talk to the primary for the duration of the next transaction:
+SET SERVER ROLE TO 'primary';
 
-This decreases error rates substantially! Worth noting here that on busy systems, if the replicas are running too hot,
-failing over could bring even more load and tip over the remaining healthy-ish replicas. In this case, a decision should be made:
-either lose 1/x of your traffic or risk losing it all eventually. Ideally you overprovision your system, so you don't necessarily need
-to make this choice :-).
+-- To talk to the replica for the duration of the next transaction:
+SET SERVER ROLE TO 'replica';
+```
+
+This will override whatever decision the query parser was going to make, for the duration of the next transaction.
+
+If the query parser is disabled, the client should indicate which server it wants to talk to. By default, it will be any server that's available, but that can be changed with the `default_role` setting. If it's set to `primary`, all queries will go to the primary by default; if it's set to `replica`, they will go to the replica.
+
+### Failover
+All servers are checked with a health check before being given to a client. If a server is not reachable, it will be placed in a ban list. No more transactions will be attempted against that server for the duration of the ban, which is 60 seconds by default. Next server in the configuration will be attempted until either the number of attempts is exceeded or a healthy server is found. The ban time is configurable with the `ban_time` setting. The ban time allows the server to recover from whatever error condition it's experiencing - most often it's an overload or a dead host. This feature will decrease error rates substantially, but it will swing traffic that's normally served by the broken server to the other replicas. They should be overprovisioned sufficiently to absorb the new query load.
+
 
 ### Sharding
+
+The sharding algorithm of choice is the `PARTITION BY HASH` function used by Postgres. This allows us to place partitions of a table in different databases (and physical servers) and route read and write queries using this pooler. Presently, the client needs to indicate which shard it wants to talk to using this custom SQL syntax:
+
+```sql
+-- To talk to a shard explicitely
+SET SHARD TO '1';
+
+-- To let the pooler choose based on a value
+SET SHARDING KEY TO '1234';
+```
+
+The first query will tell the pooler to route the next transaction to shard 1, as set in the configuration. The second query will let the pooler hash the value and determine which shard the query should go to based on the hashing function modulo the number of shards. This is the same algorithm as Postgres uses to figure out which partition to use. This is workable because the latency to the pooler in normal deployments should be very low, so the cost of issuing an extra query is also very low.
+
+
 We're implemeting Postgres' `PARTITION BY HASH` sharding function for `BIGINT` fields. This works well for tables that use `BIGSERIAL` primary key which I think is common enough these days. We can also add many more functions here, but this is a good start. See `src/sharding.rs` and `tests/sharding/partition_hash_test_setup.sql` for more details on the implementation.
 
 The biggest advantage of using this sharding function is that anyone can shard the dataset using Postgres partitions
