@@ -322,6 +322,7 @@ dependencies = [
  "bb8",
  "bytes",
  "chrono",
+ "log",
  "md-5",
  "num_cpus",
  "once_cell",

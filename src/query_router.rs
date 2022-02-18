@@ -198,7 +198,14 @@ impl QueryRouter {
 
         let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => ast,
-            Err(_) => return false,
+            Err(err) => {
+                log::debug!(
+                    "QueryParser::infer_role could not parse query, error: {:?}, query: {}",
+                    err,
+                    query
+                );
+                return false;
+            }
         };
 
         if ast.len() == 0 {
@@ -211,7 +218,7 @@ impl QueryRouter {
                 self.active_role = Some(Role::Primary);
             }
 
-            // All SELECTs go to the replica
+            // Likely a read-only query
             Query { .. } => {
                 self.active_role = match self.primary_reads_enabled {
                     false => Some(Role::Replica), // If primary should not be receiving reads, use a replica.
@@ -338,5 +345,76 @@ mod test {
 
         assert_eq!(query_router.select_shard(message.clone()), false);
         assert_eq!(query_router.select_role(message.clone()), false);
+    }
+
+    #[test]
+    fn test_infer_role_replica() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        let queries = vec![
+            BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]),
+            BytesMut::from(&b"SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id\0"[..]),
+            BytesMut::from(&b"WITH t AS (SELECT * FROM items) SELECT * FROM t\0"[..]),
+        ];
+
+        for query in &queries {
+            let mut res = BytesMut::from(&b"Q"[..]);
+            res.put_i32(query.len() as i32 + 4);
+            res.put(query.clone());
+
+            // It's a recognized query
+            assert!(query_router.infer_role(res));
+            assert_eq!(query_router.role(), Some(Role::Replica));
+        }
+    }
+
+    #[test]
+    fn test_infer_role_primary() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        let queries = vec![
+            BytesMut::from(&b"UPDATE items SET name = 'pumpkin' WHERE id = 5\0"[..]),
+            BytesMut::from(&b"INSERT INTO items (id, name) VALUES (5, 'pumpkin')\0"[..]),
+            BytesMut::from(&b"DELETE FROM items WHERE id = 5\0"[..]),
+            BytesMut::from(&b"BEGIN\0"[..]), // Transaction start
+        ];
+
+        for query in &queries {
+            let mut res = BytesMut::from(&b"Q"[..]);
+            res.put_i32(query.len() as i32 + 4);
+            res.put(query.clone());
+
+            // It's a recognized query
+            assert!(query_router.infer_role(res));
+            assert_eq!(query_router.role(), Some(Role::Primary));
+        }
+    }
+
+    #[test]
+    fn test_infer_role_primary_reads_enabled() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, true, false);
+
+        let query = BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]);
+        let mut res = BytesMut::from(&b"Q"[..]);
+        res.put_i32(query.len() as i32 + 4);
+        res.put(query.clone());
+
+        assert!(query_router.infer_role(res));
+        assert_eq!(query_router.role(), None);
     }
 }

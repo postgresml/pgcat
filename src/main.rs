@@ -16,6 +16,7 @@
 extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
+extern crate log;
 extern crate md5;
 extern crate num_cpus;
 extern crate once_cell;
