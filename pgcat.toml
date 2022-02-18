@@ -84,7 +84,7 @@ default_role = "any"
 
 
 # Query parser. If enabled, we'll attempt to parse
-# every incming query to determine if it's a read or a write query.
+# every incoming query to determine if it's a read or a write.
 # If it's a read query, we'll direct it to a replica. Otherwise, if it's a write,
 # we'll direct it to the primary.
 query_parser_enabled = false
