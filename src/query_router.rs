@@ -417,4 +417,26 @@ mod test {
         assert!(query_router.infer_role(res));
         assert_eq!(query_router.role(), None);
     }
+
+    #[test]
+    fn test_infer_role_parse_prepared() {
+        QueryRouter::setup();
+
+        let default_server_role: Option<Role> = None;
+        let shards = 5;
+
+        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+
+        let prepared_stmt = BytesMut::from(
+            &b"WITH t AS (SELECT * FROM items WHERE name = $1) SELECT * FROM t WHERE id = $2\0"[..],
+        );
+        let mut res = BytesMut::from(&b"P"[..]);
+        res.put_i32(prepared_stmt.len() as i32 + 4 + 1 + 2);
+        res.put_u8(0);
+        res.put(prepared_stmt);
+        res.put_i16(0);
+
+        assert!(query_router.infer_role(res));
+        assert_eq!(query_router.role(), Some(Role::Replica));
+    }
 }
