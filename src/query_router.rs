@@ -1,22 +1,32 @@
+use crate::config::Role;
+use crate::sharding::Sharder;
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
 use once_cell::sync::OnceCell;
-use regex::{Regex, RegexBuilder};
+use regex::RegexSet;
 use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-use crate::config::Role;
-use crate::sharding::Sharder;
+const CUSTOM_SQL_REGEXES: [&str; 5] = [
+    r"(?i)SET SHARDING KEY TO '[0-9]+'",
+    r"(?i)SET SHARD TO '[0-9]+'",
+    r"(?i)SHOW SHARD",
+    r"(?i)SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)'",
+    r"(?i)SHOW SERVER ROLE",
+];
 
-const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+'";
-const SET_SHARD_REGEX: &str = r"SET SHARD TO '[0-9]+'";
-const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)'";
+#[derive(PartialEq, Debug)]
+pub enum Command {
+    SetShardingKey,
+    SetShard,
+    ShowShard,
+    SetServerRole,
+    ShowServerRole,
+}
 
-static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
-static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
-static SET_SHARD_REGEX_RE: OnceCell<Regex> = OnceCell::new();
+static CUSTOM_SQL_REGEX_SET: OnceCell<RegexSet> = OnceCell::new();
 
 pub struct QueryRouter {
     // By default, queries go here, unless we have better information
@@ -41,38 +51,18 @@ pub struct QueryRouter {
 
 impl QueryRouter {
     pub fn setup() -> bool {
-        // Compile our query routing regexes early, so we only do it once.
-        let a = match SHARDING_REGEX_RE.set(
-            RegexBuilder::new(SHARDING_REGEX)
-                .case_insensitive(true)
-                .build()
-                .unwrap(),
-        ) {
-            Ok(_) => true,
-            Err(_) => false,
+        let set = match RegexSet::new(&CUSTOM_SQL_REGEXES) {
+            Ok(rgx) => rgx,
+            Err(err) => {
+                log::error!("QueryRouter::setup Could not compile regex set: {:?}", err);
+                return false;
+            }
         };
 
-        let b = match ROLE_REGEX_RE.set(
-            RegexBuilder::new(ROLE_REGEX)
-                .case_insensitive(true)
-                .build()
-                .unwrap(),
-        ) {
+        match CUSTOM_SQL_REGEX_SET.set(set) {
             Ok(_) => true,
             Err(_) => false,
-        };
-
-        let c = match SET_SHARD_REGEX_RE.set(
-            RegexBuilder::new(SET_SHARD_REGEX)
-                .case_insensitive(true)
-                .build()
-                .unwrap(),
-        ) {
-            Ok(_) => true,
-            Err(_) => false,
-        };
-
-        a && b && c
+        }
     }
 
     pub fn new(
@@ -92,104 +82,104 @@ impl QueryRouter {
         }
     }
 
-    /// Determine if the query is part of our special syntax, extract
-    /// the shard key, and return the shard to query based on Postgres'
-    /// PARTITION BY HASH function.
-    pub fn select_shard(&mut self, mut buf: BytesMut) -> bool {
+    /// Try to parse a command and execute it.
+    pub fn try_execute_command(&mut self, mut buf: BytesMut) -> Option<(Command, String)> {
         let code = buf.get_u8() as char;
 
-        // Only supporting simpe protocol here, so
-        // one would have to execute something like this:
-        // psql -c "SET SHARDING KEY TO '1234'"
-        // after sanitizing the value manually, which can be just done with an
-        // int parser, e.g. `let key = "1234".parse::<i64>().unwrap()`.
-        match code {
-            'Q' => (),
-            _ => return false,
-        };
-
-        let len = buf.get_i32();
-        let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]); // Don't read the ternminating null
-
-        let sharding_key_rgx = match SHARDING_REGEX_RE.get() {
-            Some(r) => r,
-            None => return false,
-        };
-
-        let set_shard_rgx = match SET_SHARD_REGEX_RE.get() {
-            Some(r) => r,
-            None => return false,
-        };
-
-        if sharding_key_rgx.is_match(&query) {
-            let shard = query.split("'").collect::<Vec<&str>>()[1];
-
-            match shard.parse::<i64>() {
-                Ok(shard) => {
-                    let sharder = Sharder::new(self.shards);
-                    self.active_shard = Some(sharder.pg_bigint_hash(shard));
-
-                    true
-                }
-
-                // The shard must be a valid integer. Our regex won't let anything else pass,
-                // so this code will never run, but Rust can't know that, so we have to handle this
-                // case anyway.
-                Err(_) => false,
-            }
-        } else if set_shard_rgx.is_match(&query) {
-            let shard = query.split("'").collect::<Vec<&str>>()[1];
-            match shard.parse::<usize>() {
-                Ok(shard) => {
-                    self.active_shard = Some(shard);
-                    true
-                }
-                Err(_) => false,
-            }
-        } else {
-            false
+        if code != 'Q' {
+            return None;
         }
-    }
 
-    /// Pick a primary or a replica from the pool.
-    pub fn select_role(&mut self, mut buf: BytesMut) -> bool {
-        let code = buf.get_u8() as char;
+        let len = buf.get_i32() as usize;
+        let query = String::from_utf8_lossy(&buf[..len - 5]).to_string(); // Ignore the terminating NULL.
 
-        // Same story as select_shard() above.
-        match code {
-            'Q' => (),
-            _ => return false,
+        let regex_set = match CUSTOM_SQL_REGEX_SET.get() {
+            Some(regex_set) => regex_set,
+            None => return None,
         };
 
-        let len = buf.get_i32();
-        let query = String::from_utf8_lossy(&buf[..len as usize - 4 - 1]).to_ascii_uppercase();
+        let matches: Vec<_> = regex_set.matches(&query).into_iter().collect();
 
-        let rgx = match ROLE_REGEX_RE.get() {
-            Some(r) => r,
-            None => return false,
-        };
-
-        // Copy / paste from above. If we get one more of these use cases,
-        // it'll be time to abstract :).
-        if rgx.is_match(&query) {
-            let role = query.split("'").collect::<Vec<&str>>()[1];
-
-            match role {
-                "PRIMARY" => {
-                    self.active_role = Some(Role::Primary);
-                    true
-                }
-                "REPLICA" => {
-                    self.active_role = Some(Role::Replica);
-                    true
-                }
-
-                // Our regex won't let this case happen, but Rust can't know that.
-                _ => false,
-            }
-        } else {
-            false
+        if matches.len() != 1 {
+            return None;
         }
+
+        let command = match matches[0] {
+            0 => Command::SetShardingKey,
+            1 => Command::SetShard,
+            2 => Command::ShowShard,
+            3 => Command::SetServerRole,
+            4 => Command::ShowServerRole,
+            _ => unreachable!(),
+        };
+
+        let mut value = match command {
+            Command::SetShardingKey | Command::SetShard | Command::SetServerRole => {
+                query.split("'").collect::<Vec<&str>>()[1].to_string()
+            }
+
+            Command::ShowShard => self.shard().to_string(),
+            Command::ShowServerRole => match self.active_role {
+                Some(Role::Primary) => String::from("primary"),
+                Some(Role::Replica) => String::from("replica"),
+                None => {
+                    if self.query_parser_enabled {
+                        String::from("auto")
+                    } else {
+                        String::from("any")
+                    }
+                }
+            },
+        };
+
+        match command {
+            Command::SetShardingKey => {
+                let sharder = Sharder::new(self.shards);
+                let shard = sharder.pg_bigint_hash(value.parse::<i64>().unwrap());
+                self.active_shard = Some(shard);
+                value = shard.to_string();
+            }
+
+            Command::SetShard => {
+                self.active_shard = Some(value.parse::<usize>().unwrap());
+            }
+
+            Command::SetServerRole => {
+                self.active_role = match value.to_ascii_lowercase().as_ref() {
+                    "primary" => {
+                        self.query_parser_enabled = false;
+                        Some(Role::Primary)
+                    }
+
+                    "replica" => {
+                        self.query_parser_enabled = false;
+                        Some(Role::Replica)
+                    }
+
+                    "any" => {
+                        self.query_parser_enabled = false;
+                        None
+                    }
+
+                    "auto" => {
+                        self.query_parser_enabled = true;
+                        None
+                    }
+
+                    "default" => {
+                        // TODO: reset query parser to default here.
+                        self.active_role = self.default_server_role;
+                        self.active_role
+                    }
+
+                    _ => unreachable!(),
+                };
+            }
+
+            _ => (),
+        }
+
+        Some((command, value))
     }
 
     /// Try to infer which server to connect to based on the contents of the query.
@@ -270,13 +260,13 @@ impl QueryRouter {
     pub fn shard(&self) -> usize {
         match self.active_shard {
             Some(shard) => shard,
-            None => 0, // TODO: pick random shard
+            None => 0,
         }
     }
 
     /// Reset the router back to defaults.
     /// This must be called at the end of every transaction in transaction mode.
-    pub fn reset(&mut self) {
+    pub fn _reset(&mut self) {
         self.active_role = self.default_server_role;
         self.active_shard = None;
     }
@@ -290,54 +280,8 @@ impl QueryRouter {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::messages::simple_query;
     use bytes::BufMut;
-
-    #[test]
-    fn test_select_shard() {
-        QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
-
-        // Build the special syntax query.
-        let mut message = BytesMut::new();
-        let query = BytesMut::from(&b"SET SHARDING KEY TO '13';\0"[..]);
-
-        message.put_u8(b'Q'); // Query
-        message.put_i32(query.len() as i32 + 4);
-        message.put_slice(&query[..]);
-
-        assert!(query_router.select_shard(message));
-        assert_eq!(query_router.shard(), 3); // See sharding.rs (we are using 5 shards on purpose in this test)
-
-        query_router.reset();
-        assert_eq!(query_router.shard(), 0);
-    }
-
-    #[test]
-    fn test_select_replica() {
-        QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
-
-        // Build the special syntax query.
-        let mut message = BytesMut::new();
-        let query = BytesMut::from(&b"SET SERVER ROLE TO 'replica';\0"[..]);
-
-        message.put_u8(b'Q'); // Query
-        message.put_i32(query.len() as i32 + 4);
-        message.put_slice(&query[..]);
-
-        assert!(query_router.select_role(message));
-        assert_eq!(query_router.role(), Some(Role::Replica));
-
-        query_router.reset();
-
-        assert_eq!(query_router.role(), default_server_role);
-    }
 
     #[test]
     fn test_defaults() {
@@ -345,32 +289,9 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let qr = QueryRouter::new(default_server_role, shards, false, false);
 
-        assert_eq!(query_router.shard(), 0);
-        assert_eq!(query_router.role(), None);
-    }
-
-    #[test]
-    fn test_incorrect_syntax() {
-        QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
-
-        // Build the special syntax query.
-        let mut message = BytesMut::new();
-
-        // Typo!
-        let query = BytesMut::from(&b"SET SERVER RLE TO 'replica';\0"[..]);
-
-        message.put_u8(b'Q'); // Query
-        message.put_i32(query.len() as i32 + 4);
-        message.put_slice(&query[..]);
-
-        assert_eq!(query_router.select_shard(message.clone()), false);
-        assert_eq!(query_router.select_role(message.clone()), false);
+        assert_eq!(qr.role(), None);
     }
 
     #[test]
@@ -379,23 +300,20 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new(default_server_role, shards, false, false);
 
         let queries = vec![
-            BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]),
-            BytesMut::from(&b"SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id\0"[..]),
-            BytesMut::from(&b"WITH t AS (SELECT * FROM items) SELECT * FROM t\0"[..]),
+            simple_query("SELECT * FROM items WHERE id = 5"),
+            simple_query(
+                "SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id",
+            ),
+            simple_query("WITH t AS (SELECT * FROM items) SELECT * FROM t"),
         ];
 
-        for query in &queries {
-            let mut res = BytesMut::from(&b"Q"[..]);
-            res.put_i32(query.len() as i32 + 4);
-            res.put(query.clone());
-
+        for query in queries {
             // It's a recognized query
-            assert!(query_router.infer_role(res));
-            assert_eq!(query_router.role(), Some(Role::Replica));
+            assert!(qr.infer_role(query));
+            assert_eq!(qr.role(), Some(Role::Replica));
         }
     }
 
@@ -405,24 +323,19 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new(default_server_role, shards, false, false);
 
         let queries = vec![
-            BytesMut::from(&b"UPDATE items SET name = 'pumpkin' WHERE id = 5\0"[..]),
-            BytesMut::from(&b"INSERT INTO items (id, name) VALUES (5, 'pumpkin')\0"[..]),
-            BytesMut::from(&b"DELETE FROM items WHERE id = 5\0"[..]),
-            BytesMut::from(&b"BEGIN\0"[..]), // Transaction start
+            simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
+            simple_query("INSERT INTO items (id, name) VALUES (5, 'pumpkin')"),
+            simple_query("DELETE FROM items WHERE id = 5"),
+            simple_query("BEGIN"), // Transaction start
         ];
 
-        for query in &queries {
-            let mut res = BytesMut::from(&b"Q"[..]);
-            res.put_i32(query.len() as i32 + 4);
-            res.put(query.clone());
-
+        for query in queries {
             // It's a recognized query
-            assert!(query_router.infer_role(res));
-            assert_eq!(query_router.role(), Some(Role::Primary));
+            assert!(qr.infer_role(query));
+            assert_eq!(qr.role(), Some(Role::Primary));
         }
     }
 
@@ -432,16 +345,11 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
+        let mut qr = QueryRouter::new(default_server_role, shards, true, false);
+        let query = simple_query("SELECT * FROM items WHERE id = 5");
 
-        let mut query_router = QueryRouter::new(default_server_role, shards, true, false);
-
-        let query = BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]);
-        let mut res = BytesMut::from(&b"Q"[..]);
-        res.put_i32(query.len() as i32 + 4);
-        res.put(query.clone());
-
-        assert!(query_router.infer_role(res));
-        assert_eq!(query_router.role(), None);
+        assert!(qr.infer_role(query));
+        assert_eq!(qr.role(), None);
     }
 
     #[test]
@@ -467,26 +375,112 @@ mod test {
     }
 
     #[test]
-    fn test_set_shard_explicitely() {
+    fn test_regex_set() {
         QueryRouter::setup();
 
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
+        let tests = [
+            // Upper case
+            "SET SHARDING KEY TO '1'",
+            "SET SHARD TO '1'",
+            "SHOW SHARD",
+            "SET SERVER ROLE TO 'replica'",
+            "SET SERVER ROLE TO 'primary'",
+            "SET SERVER ROLE TO 'any'",
+            "SET SERVER ROLE TO 'auto'",
+            "SHOW SERVER ROLE",
+            // Lower case
+            "set sharding key to '1'",
+            "set shard to '1'",
+            "show shard",
+            "set server role to 'replica'",
+            "set server role to 'primary'",
+            "set server role to 'any'",
+            "set server role to 'auto'",
+            "show server role",
+        ];
 
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let set = CUSTOM_SQL_REGEX_SET.get().unwrap();
 
-        // Build the special syntax query.
-        let mut message = BytesMut::new();
-        let query = BytesMut::from(&b"SET SHARD TO '1'\0"[..]);
+        for test in &tests {
+            let matches: Vec<_> = set.matches(test).into_iter().collect();
 
-        message.put_u8(b'Q'); // Query
-        message.put_i32(query.len() as i32 + 4);
-        message.put_slice(&query[..]);
+            assert_eq!(matches.len(), 1);
+        }
+    }
 
-        assert!(query_router.select_shard(message));
-        assert_eq!(query_router.shard(), 1); // See sharding.rs (we are using 5 shards on purpose in this test)
+    #[test]
+    fn test_try_execute_command() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new(Some(Role::Primary), 5, false, false);
 
-        query_router.reset();
-        assert_eq!(query_router.shard(), 0);
+        // SetShardingKey
+        let query = simple_query("SET SHARDING KEY TO '13'");
+        assert_eq!(
+            qr.try_execute_command(query),
+            Some((Command::SetShardingKey, String::from("3")))
+        );
+        assert_eq!(qr.shard(), 3);
+
+        // SetShard
+        let query = simple_query("SET SHARD TO '1'");
+        assert_eq!(
+            qr.try_execute_command(query),
+            Some((Command::SetShard, String::from("1")))
+        );
+        assert_eq!(qr.shard(), 1);
+
+        // ShowShard
+        let query = simple_query("SHOW SHARD");
+        assert_eq!(
+            qr.try_execute_command(query),
+            Some((Command::ShowShard, String::from("1")))
+        );
+
+        // SetServerRole
+        let roles = ["primary", "replica", "any", "auto", "primary"];
+        let verify_roles = [
+            Some(Role::Primary),
+            Some(Role::Replica),
+            None,
+            None,
+            Some(Role::Primary),
+        ];
+        let query_parser_enabled = [false, false, false, true, false];
+
+        for (idx, role) in roles.iter().enumerate() {
+            let query = simple_query(&format!("SET SERVER ROLE TO '{}'", role));
+            assert_eq!(
+                qr.try_execute_command(query),
+                Some((Command::SetServerRole, String::from(*role)))
+            );
+            assert_eq!(qr.role(), verify_roles[idx],);
+            assert_eq!(qr.query_parser_enabled(), query_parser_enabled[idx],);
+
+            // ShowServerRole
+            let query = simple_query("SHOW SERVER ROLE");
+            assert_eq!(
+                qr.try_execute_command(query),
+                Some((Command::ShowServerRole, String::from(*role)))
+            );
+        }
+    }
+
+    #[test]
+    fn test_enable_query_parser() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new(None, 5, false, false);
+        let query = simple_query("SET SERVER ROLE TO 'auto'");
+
+        assert!(qr.try_execute_command(query) != None);
+        assert!(qr.query_parser_enabled());
+        assert_eq!(qr.role(), None);
+
+        let query = simple_query("INSERT INTO test_table VALUES (1)");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Primary));
+
+        let query = simple_query("SELECT * FROM test_table");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Replica));
     }
 }

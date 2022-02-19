@@ -14,7 +14,7 @@ use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{ClientServerMap, ConnectionPool};
-use crate::query_router::QueryRouter;
+use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::Reporter;
 
@@ -198,27 +198,48 @@ impl Client {
             // SET SHARDING KEY TO 'bigint';
             let mut message = read_message(&mut self.read).await?;
 
-            // Parse for special select shard command.
-            // SET SHARDING KEY TO 'bigint';
-            if query_router.select_shard(message.clone()) {
-                custom_protocol_response_ok(
+            // Handle all custom protocol commands here.
+            match query_router.try_execute_command(message.clone()) {
+                // Normal query
+                None => {
+                    if query_router.query_parser_enabled() && query_router.role() == None {
+                        query_router.infer_role(message.clone());
+                    }
+                }
+
+                Some((Command::SetShard, _)) | Some((Command::SetShardingKey, _)) => {
+                    custom_protocol_response_ok(&mut self.write, &format!("SET SHARD")).await?;
+                    continue;
+                }
+
+                Some((Command::SetServerRole, _)) => {
+                    custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
+                    continue;
+                }
+
+                Some((Command::ShowServerRole, value)) => {
+                    show_response(&mut self.write, "server role", &value).await?;
+                    continue;
+                }
+
+                Some((Command::ShowShard, value)) => {
+                    show_response(&mut self.write, "shard", &value).await?;
+                    continue;
+                }
+            };
+
+            // Make sure we selected a valid shard.
+            if query_router.shard() >= pool.shards() {
+                error_response(
                     &mut self.write,
-                    &format!("SET SHARD TO {}", query_router.shard()),
+                    &format!(
+                        "shard '{}' is more than configured '{}'",
+                        query_router.shard(),
+                        pool.shards()
+                    ),
                 )
                 .await?;
                 continue;
-            }
-
-            // Parse for special server role selection command.
-            // SET SERVER ROLE TO '(primary|replica)';
-            if query_router.select_role(message.clone()) {
-                custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
-                continue;
-            }
-
-            // Attempt to parse the query to determine where it should go
-            if query_router.query_parser_enabled() && query_router.role() == None {
-                query_router.infer_role(message.clone());
             }
 
             // Grab a server from the pool: the client issued a regular query.
@@ -228,7 +249,6 @@ impl Client {
                     println!(">> Could not get connection from pool: {:?}", err);
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
-                    query_router.reset();
                     continue;
                 }
             };
@@ -310,9 +330,6 @@ impl Client {
                             if self.transaction_mode {
                                 // Report this client as idle.
                                 self.stats.client_idle();
-
-                                query_router.reset();
-
                                 break;
                             }
                         }
@@ -395,9 +412,6 @@ impl Client {
 
                             if self.transaction_mode {
                                 self.stats.client_idle();
-
-                                query_router.reset();
-
                                 break;
                             }
                         }
@@ -431,8 +445,7 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
-                                query_router.reset();
-
+                                self.stats.client_idle();
                                 break;
                             }
                         }
