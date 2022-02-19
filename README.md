@@ -9,19 +9,18 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 **Alpha**: don't use in production just yet.
 
 ## Features
-
-| **Feature**                    | **Status**         | **Comments**                                                                                                                                          |
-|--------------------------------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Transaction pooling            | :heavy_check_mark: | Identical to PgBouncer.                                                                                                                               |
-| Session pooling                | :heavy_check_mark: | Identical to PgBouncer.                                                                                                                               |
-| `COPY` support                 | :heavy_check_mark: | Both `COPY TO` and `COPY FROM` are supported.                                                                                                         |
-| Query cancellation             | :heavy_check_mark: | Supported both in transaction and session pooling modes.                                                                                              |
-| Load balancing of read queries | :heavy_check_mark: | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
-| Sharding                       | :heavy_check_mark: | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
-| Failover                       | :heavy_check_mark: | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
-| Statistics reporting           | :heavy_check_mark: | Statistics similar to PgBouncers are reported via StatsD.                                                                                             |
-| Live configuration reloading   | :x: :wrench:       | On the roadmap; currently config changes require restart.                                                                                             |
-| Client authentication          | :x: :wrench:       | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
+| **Feature**                    | **Status**            | **Comments**                                                                                                                                          |
+|--------------------------------|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Transaction pooling            | :heavy_check_mark:    | Identical to PgBouncer.                                                                                                                               |
+| Session pooling                | :heavy_check_mark:    | Identical to PgBouncer.                                                                                                                               |
+| `COPY` support                 | :heavy_check_mark:    | Both `COPY TO` and `COPY FROM` are supported.                                                                                                         |
+| Query cancellation             | :heavy_check_mark:    | Supported both in transaction and session pooling modes.                                                                                              |
+| Load balancing of read queries | :heavy_check_mark:    | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
+| Sharding                       | :heavy_check_mark:    | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
+| Failover                       | :heavy_check_mark:    | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
+| Statistics reporting           | :heavy_check_mark:    | Statistics similar to PgBouncers are reported via StatsD.                                                                                             |
+| Live configuration reloading   | :construction_worker: | Reload config with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)`. Not all settings can be reloaded without a restart.               |
+| Client authentication          | :x: :wrench:          | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
 
 ## Deployment
 
