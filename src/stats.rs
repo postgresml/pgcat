@@ -5,6 +5,8 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::config::get_config;
+
 #[derive(Debug)]
 pub enum StatisticName {
     CheckoutTime,
@@ -138,7 +140,7 @@ impl Collector {
     pub fn new(rx: Receiver<Statistic>) -> Collector {
         Collector {
             rx: rx,
-            client: Client::new("127.0.0.1:8125", "pgcat").unwrap(),
+            client: Client::new(&get_config().general.statsd_address, "pgcat").unwrap(),
         }
     }
 

@@ -9,19 +9,18 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 **Alpha**: don't use in production just yet.
 
 ## Features
-
-| **Feature**                    | **Status**         | **Comments**                                                                                                                                          |
-|--------------------------------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Transaction pooling            | :heavy_check_mark: | Identical to PgBouncer.                                                                                                                               |
-| Session pooling                | :heavy_check_mark: | Identical to PgBouncer.                                                                                                                               |
-| `COPY` support                 | :heavy_check_mark: | Both `COPY TO` and `COPY FROM` are supported.                                                                                                         |
-| Query cancellation             | :heavy_check_mark: | Supported both in transaction and session pooling modes.                                                                                              |
-| Load balancing of read queries | :heavy_check_mark: | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
-| Sharding                       | :heavy_check_mark: | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
-| Failover                       | :heavy_check_mark: | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
-| Statistics reporting           | :heavy_check_mark: | Statistics similar to PgBouncers are reported via StatsD.                                                                                             |
-| Live configuration reloading   | :x: :wrench:       | On the roadmap; currently config changes require restart.                                                                                             |
-| Client authentication          | :x: :wrench:       | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
+| **Feature**                    | **Status**            | **Comments**                                                                                                                                          |
+|--------------------------------|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Transaction pooling            | :heavy_check_mark:    | Identical to PgBouncer.                                                                                                                               |
+| Session pooling                | :heavy_check_mark:    | Identical to PgBouncer.                                                                                                                               |
+| `COPY` support                 | :heavy_check_mark:    | Both `COPY TO` and `COPY FROM` are supported.                                                                                                         |
+| Query cancellation             | :heavy_check_mark:    | Supported both in transaction and session pooling modes.                                                                                              |
+| Load balancing of read queries | :heavy_check_mark:    | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
+| Sharding                       | :heavy_check_mark:    | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
+| Failover                       | :heavy_check_mark:    | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
+| Statistics reporting           | :heavy_check_mark:    | Statistics similar to PgBouncers are reported via StatsD.                                                                                             |
+| Live configuration reloading   | :construction_worker: | Reload config with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)`. Not all settings can be reloaded without a restart.               |
+| Client authentication          | :x: :wrench:          | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
 
 ## Deployment
 
@@ -48,17 +47,17 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 
 See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
-| **Feature**          | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
-|----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
-| Transaction pooling  | :heavy_check_mark: | :heavy_check_mark:  | Used by default for all tests.                                                                                           |
-| Session pooling      | :x:                | :heavy_check_mark:  | Easiest way to test is to enable it and run pgbench - results will be better than transaction pooling as expected.       |
-| `COPY`               | :heavy_check_mark: | :heavy_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
-| Query cancellation   | :heavy_check_mark: | :heavy_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
-| Load balancing       | :x:                | :heavy_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
-| Failover             | :x:                | :heavy_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
-| Sharding             | :heavy_check_mark: | :heavy_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
-| Statistics reporting | :x:                | :heavy_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
-
+| **Feature**           | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
+|-----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
+| Transaction pooling   | :heavy_check_mark: | :heavy_check_mark:  | Used by default for all tests.                                                                                           |
+| Session pooling       | :x:                | :heavy_check_mark:  | Easiest way to test is to enable it and run pgbench - results will be better than transaction pooling as expected.       |
+| `COPY`                | :heavy_check_mark: | :heavy_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
+| Query cancellation    | :heavy_check_mark: | :heavy_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
+| Load balancing        | :x:                | :heavy_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
+| Failover              | :x:                | :heavy_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
+| Sharding              | :heavy_check_mark: | :heavy_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
+| Statistics reporting  | :x:                | :heavy_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
+| Live config reloading | :heavy_check_mark: | :heavy_check_mark:  | Run `kill -s SIGHUP $(pgrep pgcat)` and watch the config reload.                                                         |
 
 ## Usage
 
@@ -172,6 +171,30 @@ INSERT INTO users (name, email, zome_id) VALUES ('test user', 'test@example.com'
 SET SERVER ROLE TO 'auto'; -- let the query router figure out where the query should go
 SELECT * FROM users WHERE email = 'test@example.com'; -- shard setting lasts until set again; we are reading from the primary
 ```
+
+### Statistics reporting
+
+Stats are reported using StatsD every 15 seconds. The address is configurable with `statsd_address`, the default is `127.0.0.1:8125`. The stats are very similar to what Pgbouncer reports and the names are kept to be comparable.
+
+### Live configuration reloading
+
+The config can be reloaded by sending a `kill -s SIGHUP` to the process. Not all settings are currently supported by live reload:
+
+| **Config**              | **Requires restart** |
+|-------------------------|----------------------|
+| `host`                  | yes                  |
+| `port`                  | yes                  |
+| `pool_mode`             | no                   |
+| `connect_timeout`       | yes                  |
+| `healthcheck_timeout`   | no                   |
+| `ban_time`              | no                   |
+| `statsd_address`        | yes                  |
+| `user`                  | yes                  |
+| `shards`                | yes                  |
+| `default_role`          | no                   |
+| `primary_reads_enabled` | no                   |
+| `query_parser_enabled`  | no                   |
+
 
 ## Benchmarks
 

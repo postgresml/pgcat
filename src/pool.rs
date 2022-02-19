@@ -4,7 +4,7 @@ use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
 
-use crate::config::{Address, Config, Role, User};
+use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
 use crate::server::Server;
 use crate::stats::Reporter;
@@ -23,18 +23,16 @@ pub struct ConnectionPool {
     addresses: Vec<Vec<Address>>,
     round_robin: usize,
     banlist: BanList,
-    healthcheck_timeout: u64,
-    ban_time: i64,
     stats: Reporter,
 }
 
 impl ConnectionPool {
     /// Construct the connection pool from a config file.
     pub async fn from_config(
-        config: Config,
         client_server_map: ClientServerMap,
         stats: Reporter,
     ) -> ConnectionPool {
+        let config = get_config();
         let mut shards = Vec::new();
         let mut addresses = Vec::new();
         let mut banlist = Vec::new();
@@ -103,8 +101,6 @@ impl ConnectionPool {
             addresses: addresses,
             round_robin: rand::random::<usize>() % address_len, // Start at a random replica
             banlist: Arc::new(Mutex::new(banlist)),
-            healthcheck_timeout: config.general.healthcheck_timeout,
-            ban_time: config.general.ban_time,
             stats: stats,
         }
     }
@@ -214,9 +210,10 @@ impl ConnectionPool {
 
             // // Check if this server is alive with a health check
             let server = &mut *conn;
+            let healthcheck_timeout = get_config().general.healthcheck_timeout;
 
             match tokio::time::timeout(
-                tokio::time::Duration::from_millis(self.healthcheck_timeout),
+                tokio::time::Duration::from_millis(healthcheck_timeout),
                 server.query("SELECT 1"),
             )
             .await
@@ -303,8 +300,9 @@ impl ConnectionPool {
         match guard[shard].get(address) {
             Some(timestamp) => {
                 let now = chrono::offset::Utc::now().naive_utc();
+                let config = get_config();
                 // Ban expired.
-                if now.timestamp() - timestamp.timestamp() > self.ban_time {
+                if now.timestamp() - timestamp.timestamp() > config.general.ban_time {
                     guard[shard].remove(address);
                     false
                 } else {

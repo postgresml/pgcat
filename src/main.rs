@@ -13,6 +13,7 @@
 
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+extern crate arc_swap;
 extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
@@ -28,7 +29,10 @@ extern crate tokio;
 extern crate toml;
 
 use tokio::net::TcpListener;
-use tokio::signal;
+use tokio::{
+    signal,
+    signal::unix::{signal as unix_signal, SignalKind},
+};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -47,9 +51,8 @@ mod stats;
 
 // Support for query cancellation: this maps our process_ids and
 // secret keys to the backend's.
-use config::Role;
+use config::get_config;
 use pool::{ClientServerMap, ConnectionPool};
-use query_router::QueryRouter;
 use stats::{Collector, Reporter};
 
 /// Main!
@@ -63,13 +66,16 @@ async fn main() {
         return;
     }
 
-    let config = match config::parse("pgcat.toml").await {
-        Ok(config) => config,
+    // Prepare the config
+    match config::parse("pgcat.toml").await {
+        Ok(_) => (),
         Err(err) => {
             println!("> Config parse error: {:?}", err);
             return;
         }
     };
+
+    let config = get_config();
 
     let addr = format!("{}:{}", config.general.host, config.general.port);
     let listener = match TcpListener::bind(&addr).await {
@@ -81,18 +87,10 @@ async fn main() {
     };
 
     println!("> Running on {}", addr);
+    config.show();
 
     // Tracks which client is connected to which server for query cancellation.
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
-
-    println!("> Pool size: {}", config.general.pool_size);
-    println!("> Pool mode: {}", config.general.pool_mode);
-    println!("> Ban time: {}s", config.general.ban_time);
-    println!(
-        "> Healthcheck timeout: {}ms",
-        config.general.healthcheck_timeout
-    );
-    println!("> Connection timeout: {}ms", config.general.connect_timeout);
 
     // Collect statistics and send them to StatsD
     let (tx, rx) = mpsc::channel(100);
@@ -104,25 +102,8 @@ async fn main() {
         stats_collector.collect().await;
     });
 
-    let mut pool = ConnectionPool::from_config(
-        config.clone(),
-        client_server_map.clone(),
-        Reporter::new(tx.clone()),
-    )
-    .await;
-
-    let transaction_mode = config.general.pool_mode == "transaction";
-    let default_server_role = match config.query_router.default_role.as_ref() {
-        "any" => None,
-        "primary" => Some(Role::Primary),
-        "replica" => Some(Role::Replica),
-        _ => {
-            println!("> Config error, got unexpected query_router.default_role.");
-            return;
-        }
-    };
-    let primary_reads_enabled = config.query_router.primary_reads_enabled;
-    let query_parser_enabled = config.query_router.query_parser_enabled;
+    let mut pool =
+        ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await;
 
     let server_info = match pool.validate().await {
         Ok(info) => info,
@@ -156,26 +137,13 @@ async fn main() {
 
                 println!(">> Client {:?} connected", addr);
 
-                match client::Client::startup(
-                    socket,
-                    client_server_map,
-                    transaction_mode,
-                    server_info,
-                    reporter,
-                )
-                .await
+                match client::Client::startup(socket, client_server_map, server_info, reporter)
+                    .await
                 {
                     Ok(mut client) => {
                         println!(">> Client {:?} authenticated successfully!", addr);
 
-                        let query_router = QueryRouter::new(
-                            default_server_role,
-                            pool.shards(),
-                            primary_reads_enabled,
-                            query_parser_enabled,
-                        );
-
-                        match client.handle(pool, query_router).await {
+                        match client.handle(pool).await {
                             Ok(()) => {
                                 let duration = chrono::offset::Utc::now().naive_utc() - start;
 
@@ -198,6 +166,26 @@ async fn main() {
                     }
                 };
             });
+        }
+    });
+
+    // Reload config
+    // kill -SIGHUP $(pgrep pgcat)
+    tokio::task::spawn(async move {
+        let mut stream = unix_signal(SignalKind::hangup()).unwrap();
+
+        loop {
+            stream.recv().await;
+            println!("> Reloading config");
+            match config::parse("pgcat.toml").await {
+                Ok(_) => {
+                    get_config().show();
+                }
+                Err(err) => {
+                    println!("> Config parse error: {:?}", err);
+                    return;
+                }
+            };
         }
     });
 
