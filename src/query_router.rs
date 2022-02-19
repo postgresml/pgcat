@@ -1,19 +1,13 @@
+use crate::config::Role;
+use crate::sharding::Sharder;
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
 use once_cell::sync::OnceCell;
-use regex::{Regex, RegexBuilder, RegexSet};
+use regex::RegexSet;
 use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
-
-use tokio::net::{
-    tcp::{OwnedReadHalf, OwnedWriteHalf},
-    TcpStream,
-};
-
-use crate::config::Role;
-use crate::sharding::Sharder;
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
     r"(?i)SET SHARDING KEY TO '[0-9]+'",
@@ -271,7 +265,7 @@ impl QueryRouter {
 
     /// Reset the router back to defaults.
     /// This must be called at the end of every transaction in transaction mode.
-    pub fn reset(&mut self) {
+    pub fn _reset(&mut self) {
         self.active_role = self.default_server_role;
         self.active_shard = None;
     }
@@ -294,9 +288,9 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-        let query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let qr = QueryRouter::new(default_server_role, shards, false, false);
 
-        assert_eq!(query_router.role(), None);
+        assert_eq!(qr.role(), None);
     }
 
     #[test]
@@ -305,23 +299,20 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new(default_server_role, shards, false, false);
 
         let queries = vec![
-            BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]),
-            BytesMut::from(&b"SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id\0"[..]),
-            BytesMut::from(&b"WITH t AS (SELECT * FROM items) SELECT * FROM t\0"[..]),
+            simple_query("SELECT * FROM items WHERE id = 5"),
+            simple_query(
+                "SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id",
+            ),
+            simple_query("WITH t AS (SELECT * FROM items) SELECT * FROM t"),
         ];
 
-        for query in &queries {
-            let mut res = BytesMut::from(&b"Q"[..]);
-            res.put_i32(query.len() as i32 + 4);
-            res.put(query.clone());
-
+        for query in queries {
             // It's a recognized query
-            assert!(query_router.infer_role(res));
-            assert_eq!(query_router.role(), Some(Role::Replica));
+            assert!(qr.infer_role(query));
+            assert_eq!(qr.role(), Some(Role::Replica));
         }
     }
 
@@ -331,24 +322,19 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
-
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new(default_server_role, shards, false, false);
 
         let queries = vec![
-            BytesMut::from(&b"UPDATE items SET name = 'pumpkin' WHERE id = 5\0"[..]),
-            BytesMut::from(&b"INSERT INTO items (id, name) VALUES (5, 'pumpkin')\0"[..]),
-            BytesMut::from(&b"DELETE FROM items WHERE id = 5\0"[..]),
-            BytesMut::from(&b"BEGIN\0"[..]), // Transaction start
+            simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
+            simple_query("INSERT INTO items (id, name) VALUES (5, 'pumpkin')"),
+            simple_query("DELETE FROM items WHERE id = 5"),
+            simple_query("BEGIN"), // Transaction start
         ];
 
-        for query in &queries {
-            let mut res = BytesMut::from(&b"Q"[..]);
-            res.put_i32(query.len() as i32 + 4);
-            res.put(query.clone());
-
+        for query in queries {
             // It's a recognized query
-            assert!(query_router.infer_role(res));
-            assert_eq!(query_router.role(), Some(Role::Primary));
+            assert!(qr.infer_role(query));
+            assert_eq!(qr.role(), Some(Role::Primary));
         }
     }
 
@@ -358,16 +344,11 @@ mod test {
 
         let default_server_role: Option<Role> = None;
         let shards = 5;
+        let mut qr = QueryRouter::new(default_server_role, shards, true, false);
+        let query = simple_query("SELECT * FROM items WHERE id = 5");
 
-        let mut query_router = QueryRouter::new(default_server_role, shards, true, false);
-
-        let query = BytesMut::from(&b"SELECT * FROM items WHERE id = 5\0"[..]);
-        let mut res = BytesMut::from(&b"Q"[..]);
-        res.put_i32(query.len() as i32 + 4);
-        res.put(query.clone());
-
-        assert!(query_router.infer_role(res));
-        assert_eq!(query_router.role(), None);
+        assert!(qr.infer_role(query));
+        assert_eq!(qr.role(), None);
     }
 
     #[test]
@@ -481,5 +462,24 @@ mod test {
                 Some((Command::ShowServerRole, String::from(*role)))
             );
         }
+    }
+
+    #[test]
+    fn test_enable_query_parser() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new(None, 5, false, false);
+        let query = simple_query("SET SERVER ROLE TO 'auto'");
+
+        assert!(qr.try_parse_command(query) != None);
+        assert!(qr.query_parser_enabled());
+        assert_eq!(qr.role(), None);
+
+        let query = simple_query("INSERT INTO test_table VALUES (1)");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Primary));
+
+        let query = simple_query("SELECT * FROM test_table");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Replica));
     }
 }
