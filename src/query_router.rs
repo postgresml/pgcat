@@ -409,14 +409,14 @@ mod test {
     }
 
     #[test]
-    fn test_try_parse_command() {
+    fn test_try_execute_command() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new(Some(Role::Primary), 5, false, false);
 
         // SetShardingKey
         let query = simple_query("SET SHARDING KEY TO '13'");
         assert_eq!(
-            qr.try_parse_command(query),
+            qr.try_execute_command(query),
             Some((Command::SetShardingKey, String::from("3")))
         );
         assert_eq!(qr.shard(), 3);
@@ -424,7 +424,7 @@ mod test {
         // SetShard
         let query = simple_query("SET SHARD TO '1'");
         assert_eq!(
-            qr.try_parse_command(query),
+            qr.try_execute_command(query),
             Some((Command::SetShard, String::from("1")))
         );
         assert_eq!(qr.shard(), 1);
@@ -432,7 +432,7 @@ mod test {
         // ShowShard
         let query = simple_query("SHOW SHARD");
         assert_eq!(
-            qr.try_parse_command(query),
+            qr.try_execute_command(query),
             Some((Command::ShowShard, String::from("1")))
         );
 
@@ -450,7 +450,7 @@ mod test {
         for (idx, role) in roles.iter().enumerate() {
             let query = simple_query(&format!("SET SERVER ROLE TO '{}'", role));
             assert_eq!(
-                qr.try_parse_command(query),
+                qr.try_execute_command(query),
                 Some((Command::SetServerRole, String::from(*role)))
             );
             assert_eq!(qr.role(), verify_roles[idx],);
@@ -459,7 +459,7 @@ mod test {
             // ShowServerRole
             let query = simple_query("SHOW SERVER ROLE");
             assert_eq!(
-                qr.try_parse_command(query),
+                qr.try_execute_command(query),
                 Some((Command::ShowServerRole, String::from(*role)))
             );
         }
@@ -471,7 +471,7 @@ mod test {
         let mut qr = QueryRouter::new(None, 5, false, false);
         let query = simple_query("SET SERVER ROLE TO 'auto'");
 
-        assert!(qr.try_parse_command(query) != None);
+        assert!(qr.try_execute_command(query) != None);
         assert!(qr.query_parser_enabled());
         assert_eq!(qr.role(), None);
 
