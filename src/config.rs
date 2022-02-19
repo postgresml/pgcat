@@ -1,11 +1,16 @@
+use arc_swap::{ArcSwap, Guard};
+use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::errors::Error;
+
+static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
 
 #[derive(Clone, PartialEq, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
 pub enum Role {
@@ -39,10 +44,30 @@ pub struct Address {
     pub role: Role,
 }
 
+impl Default for Address {
+    fn default() -> Address {
+        Address {
+            host: String::from("127.0.0.1"),
+            port: String::from("5432"),
+            shard: 0,
+            role: Role::Replica,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Deserialize, Debug)]
 pub struct User {
     pub name: String,
     pub password: String,
+}
+
+impl Default for User {
+    fn default() -> User {
+        User {
+            name: String::from("postgres"),
+            password: String::new(),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -56,10 +81,33 @@ pub struct General {
     pub ban_time: i64,
 }
 
+impl Default for General {
+    fn default() -> General {
+        General {
+            host: String::from("localhost"),
+            port: 5432,
+            pool_size: 15,
+            pool_mode: String::from("transaction"),
+            connect_timeout: 5000,
+            healthcheck_timeout: 1000,
+            ban_time: 60,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct Shard {
     pub servers: Vec<(String, u16, String)>,
     pub database: String,
+}
+
+impl Default for Shard {
+    fn default() -> Shard {
+        Shard {
+            servers: vec![(String::from("localhost"), 5432, String::from("primary"))],
+            database: String::from("postgres"),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -67,6 +115,16 @@ pub struct QueryRouter {
     pub default_role: String,
     pub query_parser_enabled: bool,
     pub primary_reads_enabled: bool,
+}
+
+impl Default for QueryRouter {
+    fn default() -> QueryRouter {
+        QueryRouter {
+            default_role: String::from("any"),
+            query_parser_enabled: false,
+            primary_reads_enabled: true,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -77,8 +135,36 @@ pub struct Config {
     pub query_router: QueryRouter,
 }
 
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            general: General::default(),
+            user: User::default(),
+            shards: HashMap::from([(String::from("1"), Shard::default())]),
+            query_router: QueryRouter::default(),
+        }
+    }
+}
+
+impl Config {
+    pub fn show(&self) {
+        println!("> Pool size: {}", self.general.pool_size);
+        println!("> Pool mode: {}", self.general.pool_mode);
+        println!("> Ban time: {}s", self.general.ban_time);
+        println!(
+            "> Healthcheck timeout: {}ms",
+            self.general.healthcheck_timeout
+        );
+        println!("> Connection timeout: {}ms", self.general.connect_timeout);
+    }
+}
+
+pub fn get_config() -> Guard<Arc<Config>> {
+    CONFIG.load()
+}
+
 /// Parse the config.
-pub async fn parse(path: &str) -> Result<Config, Error> {
+pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();
     let mut file = match File::open(path).await {
         Ok(file) => file,
@@ -163,7 +249,9 @@ pub async fn parse(path: &str) -> Result<Config, Error> {
         }
     };
 
-    Ok(config)
+    CONFIG.store(Arc::new(config.clone()));
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -172,11 +260,11 @@ mod test {
 
     #[tokio::test]
     async fn test_config() {
-        let config = parse("pgcat.toml").await.unwrap();
-        assert_eq!(config.general.pool_size, 15);
-        assert_eq!(config.shards.len(), 3);
-        assert_eq!(config.shards["1"].servers[0].0, "127.0.0.1");
-        assert_eq!(config.shards["0"].servers[0].2, "primary");
-        assert_eq!(config.query_router.default_role, "any");
+        parse("pgcat.toml").await.unwrap();
+        assert_eq!(get_config().general.pool_size, 15);
+        assert_eq!(get_config().shards.len(), 3);
+        assert_eq!(get_config().shards["1"].servers[0].0, "127.0.0.1");
+        assert_eq!(get_config().shards["0"].servers[0].2, "primary");
+        assert_eq!(get_config().query_router.default_role, "any");
     }
 }

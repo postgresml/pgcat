@@ -10,6 +10,7 @@ use tokio::net::{
 
 use std::collections::HashMap;
 
+use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
@@ -61,10 +62,12 @@ impl Client {
     pub async fn startup(
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
-        transaction_mode: bool,
         server_info: BytesMut,
         stats: Reporter,
     ) -> Result<Client, Error> {
+        let config = get_config();
+        let transaction_mode = config.general.pool_mode.starts_with("t");
+        drop(config);
         loop {
             // Could be StartupMessage or SSLRequest
             // which makes this variable length.
@@ -154,11 +157,7 @@ impl Client {
     }
 
     /// Client loop. We handle all messages between the client and the database here.
-    pub async fn handle(
-        &mut self,
-        mut pool: ConnectionPool,
-        mut query_router: QueryRouter,
-    ) -> Result<(), Error> {
+    pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
         // The client wants to cancel a query it has issued previously.
         if self.cancel_mode {
             let (process_id, secret_key, address, port) = {
@@ -186,6 +185,8 @@ impl Client {
             // take place.
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
+
+        let mut query_router = QueryRouter::new();
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries

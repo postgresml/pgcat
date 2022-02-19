@@ -1,4 +1,4 @@
-use crate::config::Role;
+use crate::config::{get_config, Role};
 use crate::sharding::Sharder;
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
@@ -65,20 +65,24 @@ impl QueryRouter {
         }
     }
 
-    pub fn new(
-        default_server_role: Option<Role>,
-        shards: usize,
-        primary_reads_enabled: bool,
-        query_parser_enabled: bool,
-    ) -> QueryRouter {
+    pub fn new() -> QueryRouter {
+        let config = get_config();
+
+        let default_server_role = match config.query_router.default_role.as_ref() {
+            "any" => None,
+            "primary" => Some(Role::Primary),
+            "replica" => Some(Role::Replica),
+            _ => unreachable!(),
+        };
+
         QueryRouter {
             default_server_role: default_server_role,
-            shards: shards,
+            shards: config.shards.len(),
 
             active_role: default_server_role,
             active_shard: None,
-            primary_reads_enabled: primary_reads_enabled,
-            query_parser_enabled: query_parser_enabled,
+            primary_reads_enabled: config.query_router.primary_reads_enabled,
+            query_parser_enabled: config.query_router.query_parser_enabled,
         }
     }
 
@@ -275,6 +279,10 @@ impl QueryRouter {
     pub fn query_parser_enabled(&self) -> bool {
         self.query_parser_enabled
     }
+
+    pub fn toggle_primary_reads(&mut self, value: bool) {
+        self.primary_reads_enabled = value;
+    }
 }
 
 #[cfg(test)]
@@ -286,10 +294,7 @@ mod test {
     #[test]
     fn test_defaults() {
         QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let qr = QueryRouter::new(default_server_role, shards, false, false);
+        let qr = QueryRouter::new();
 
         assert_eq!(qr.role(), None);
     }
@@ -297,10 +302,10 @@ mod test {
     #[test]
     fn test_infer_role_replica() {
         QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let mut qr = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new();
+        assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
+        assert_eq!(qr.query_parser_enabled(), true);
+        qr.toggle_primary_reads(false);
 
         let queries = vec![
             simple_query("SELECT * FROM items WHERE id = 5"),
@@ -320,10 +325,7 @@ mod test {
     #[test]
     fn test_infer_role_primary() {
         QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let mut qr = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new();
 
         let queries = vec![
             simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
@@ -342,11 +344,9 @@ mod test {
     #[test]
     fn test_infer_role_primary_reads_enabled() {
         QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-        let mut qr = QueryRouter::new(default_server_role, shards, true, false);
+        let mut qr = QueryRouter::new();
         let query = simple_query("SELECT * FROM items WHERE id = 5");
+        qr.toggle_primary_reads(true);
 
         assert!(qr.infer_role(query));
         assert_eq!(qr.role(), None);
@@ -355,11 +355,9 @@ mod test {
     #[test]
     fn test_infer_role_parse_prepared() {
         QueryRouter::setup();
-
-        let default_server_role: Option<Role> = None;
-        let shards = 5;
-
-        let mut query_router = QueryRouter::new(default_server_role, shards, false, false);
+        let mut qr = QueryRouter::new();
+        qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'"));
+        qr.toggle_primary_reads(false);
 
         let prepared_stmt = BytesMut::from(
             &b"WITH t AS (SELECT * FROM items WHERE name = $1) SELECT * FROM t WHERE id = $2\0"[..],
@@ -370,8 +368,8 @@ mod test {
         res.put(prepared_stmt);
         res.put_i16(0);
 
-        assert!(query_router.infer_role(res));
-        assert_eq!(query_router.role(), Some(Role::Replica));
+        assert!(qr.infer_role(res));
+        assert_eq!(qr.role(), Some(Role::Replica));
     }
 
     #[test]
@@ -411,15 +409,15 @@ mod test {
     #[test]
     fn test_try_execute_command() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(Some(Role::Primary), 5, false, false);
+        let mut qr = QueryRouter::new();
 
         // SetShardingKey
         let query = simple_query("SET SHARDING KEY TO '13'");
         assert_eq!(
             qr.try_execute_command(query),
-            Some((Command::SetShardingKey, String::from("3")))
+            Some((Command::SetShardingKey, String::from("1")))
         );
-        assert_eq!(qr.shard(), 3);
+        assert_eq!(qr.shard(), 1);
 
         // SetShard
         let query = simple_query("SET SHARD TO '1'");
@@ -468,8 +466,9 @@ mod test {
     #[test]
     fn test_enable_query_parser() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(None, 5, false, false);
+        let mut qr = QueryRouter::new();
         let query = simple_query("SET SERVER ROLE TO 'auto'");
+        qr.toggle_primary_reads(false);
 
         assert!(qr.try_execute_command(query) != None);
         assert!(qr.query_parser_enabled());
