@@ -1,7 +1,8 @@
 require "active_record"
 
-ActiveRecord.verbose_query_logs = true
-ActiveRecord::Base.logger = Logger.new(STDOUT)
+# Uncomment these two to see all queries.
+# ActiveRecord.verbose_query_logs = true
+# ActiveRecord::Base.logger = Logger.new(STDOUT)
 
 ActiveRecord::Base.establish_connection(
   adapter: "postgresql",
