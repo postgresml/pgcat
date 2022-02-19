@@ -47,17 +47,17 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 
 See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
-| **Feature**          | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
-|----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
-| Transaction pooling  | :heavy_check_mark: | :heavy_check_mark:  | Used by default for all tests.                                                                                           |
-| Session pooling      | :x:                | :heavy_check_mark:  | Easiest way to test is to enable it and run pgbench - results will be better than transaction pooling as expected.       |
-| `COPY`               | :heavy_check_mark: | :heavy_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
-| Query cancellation   | :heavy_check_mark: | :heavy_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
-| Load balancing       | :x:                | :heavy_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
-| Failover             | :x:                | :heavy_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
-| Sharding             | :heavy_check_mark: | :heavy_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
-| Statistics reporting | :x:                | :heavy_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
-
+| **Feature**           | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
+|-----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
+| Transaction pooling   | :heavy_check_mark: | :heavy_check_mark:  | Used by default for all tests.                                                                                           |
+| Session pooling       | :x:                | :heavy_check_mark:  | Easiest way to test is to enable it and run pgbench - results will be better than transaction pooling as expected.       |
+| `COPY`                | :heavy_check_mark: | :heavy_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
+| Query cancellation    | :heavy_check_mark: | :heavy_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
+| Load balancing        | :x:                | :heavy_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
+| Failover              | :x:                | :heavy_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
+| Sharding              | :heavy_check_mark: | :heavy_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
+| Statistics reporting  | :x:                | :heavy_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
+| Live config reloading | :heavy_check_mark: | :heavy_check_mark:  | Run `kill -s SIGHUP $(pgrep pgcat)` and watch the config reload.                                                         |
 
 ## Usage
 
