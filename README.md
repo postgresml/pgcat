@@ -25,7 +25,7 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 
 ## Deployment
 
-See [`Dockerfile`]('./Dockerfile') for example deployment using Docker. The pooler is configured to spawn 4 workers so 4 CPUs are recommended for optimal performance.
+See `Dockerfile` for example deployment using Docker. The pooler is configured to spawn 4 workers so 4 CPUs are recommended for optimal performance.
 That setting can be adjusted to spawn as many (or as little) workers as needed.
 
 ## Local development
