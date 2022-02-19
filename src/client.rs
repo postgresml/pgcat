@@ -199,7 +199,7 @@ impl Client {
             let mut message = read_message(&mut self.read).await?;
 
             // Handle all custom protocol commands here.
-            match query_router.try_parse_command(message.clone()) {
+            match query_router.try_execute_command(message.clone()) {
                 // Normal query
                 None => {
                     if query_router.query_parser_enabled() && query_router.role() == None {

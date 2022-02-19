@@ -21,10 +21,11 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 | Failover                       | :heavy_check_mark: | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
 | Statistics reporting           | :heavy_check_mark: | Statistics similar to PgBouncers are reported via StatsD.                                                                                             |
 | Live configuration reloading   | :x: :wrench:       | On the roadmap; currently config changes require restart.                                                                                             |
+| Client authentication          | :x: :wrench:       | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
 
 ## Deployment
 
-See [`Dockerfile`]('./Dockerfile') for example deployment using Docker. The pooler is configured to spawn 4 workers, so 4 CPUs are recommended for optimal performance.
+See [`Dockerfile`]('./Dockerfile') for example deployment using Docker. The pooler is configured to spawn 4 workers so 4 CPUs are recommended for optimal performance.
 That setting can be adjusted to spawn as many (or as little) workers as needed.
 
 ## Local development
@@ -59,18 +60,24 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 | Statistics reporting | :x:                | :heavy_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
 
 
-## Feature descriptions
+## Usage
 
 ### Session mode
-In session mode, a client talks to one server for the duration of the connection. That server is not shared between other clients, so session mode is best used for low traffic deployments. However session mode does provide higher throughput (queries per second) than tranasactionn mode. Prepared statements are supported and commands like `SET` and advisory locks are supported as well.
+In session mode, a client talks to one server for the duration of the connection. Prepared statements, `SET`, and advisory locks are supported. In terms of supported features, there is very little if any difference between session mode and talking directly to the server.
+
+To use session mode, change `pool_mode = "session"`.
 
 ### Transaction mode
-In transaction mode, a client talks to one server only for the duration of a single transaction. The server is then returned to the pool to be used by other clients. This is recommended for high traffic deployments. Transaction mode would have slightly lower per-client throughput (queries per second) because of pool contention, but this is expected. Overall system throughput is much higher in transaction mode than in session mode. Prepared statements are not supported because they are set on the Postgres server connection, but that connection is re-used between multiple clients! The same applies to advisory locks and `SET` (not supported). Alternatives are to use `SET LOCAL` and `pg_advisory_xact_lock` which are scoped to the transaction.
+In transaction mode, a client talks to one server for the duration of a single transaction; once it's over, the server is returned to the pool. Prepared statements, `SET`, and advisory locks are not supported; alternatives are to use `SET LOCAL` and `pg_advisory_xact_lock` which are scoped to the transaction.
 
 This mode is enabled by default.
 
 ### Load balancing of read queries
-All queries are load balanced against the configured servers using the round-robin algorithm. The most straight forward configuration example would be to put this pooler in front of several replicas and let it load balance all queries. If however the configuration includes a primary and replicas, the queries can be separated with the built-in query parser. The query parser will parse the SQL and figure out if it's a `SELECT` query (which is presumed to be a read) or something else (which is presumed to be a write) and will forward the query to the replicas or the primary respectively. This is disabled by default since inferring client intent based on the query alone is tricky. Some `SELECT` queries can write, for example; however for 99% of the workloads, this should work just fine. You can enable the query parser by changing the `query_parser_enabled` setting.
+All queries are load balanced against the configured servers using the round-robin algorithm. The most straight forward configuration example would be to put this pooler in front of several replicas and let it load balance all queries.
+
+If the configuration includes a primary and replicas, the queries can be separated with the built-in query parser. The query parser will interpret the query and route all `SELECT` queries to a replica, while all other queries including explicit transactions will be routed to the primary.
+
+The query parser is disabled by default.
 
 #### Query parser
 The query parser will do its best to determine where the query should go, but sometimes that's not possible. In that case, the client can select which server it wants using this custom SQL syntax:
@@ -81,19 +88,30 @@ SET SERVER ROLE TO 'primary';
 
 -- To talk to the replica for the duration of the next transaction:
 SET SERVER ROLE TO 'replica';
+
+-- Let the query parser decide
+SET SERVER ROLE TO 'auto';
+
+-- Pick any server at random
+SET SERVER ROLE TO 'any';
+
+-- Reset to default configured settings
+SET SERVER ROLE TO 'default';
 ```
 
-This will override whatever decision the query parser was going to make, for the duration of the next transaction.
+The setting will persist until it's changed again or the client disconnects.
 
-If the query parser is disabled, the client should indicate which server it wants to talk to. By default, it will be any server that's available, but that can be changed with the `default_role` setting. If it's set to `primary`, all queries will go to the primary by default; if it's set to `replica`, they will go to the replica.
+By default, all queries are routed to all servers; `default_role` setting controls this behavior.
 
 ### Failover
-All servers are checked with a health check before being given to a client. If a server is not reachable, it will be placed in a ban list. No more transactions will be attempted against that server for the duration of the ban, which is 60 seconds by default. Next server in the configuration will be attempted until either the number of attempts is exceeded or a healthy server is found. The ban time is configurable with the `ban_time` setting. The ban time allows the server to recover from whatever error condition it's experiencing - most often it's an overload or a dead host. This feature will decrease error rates substantially, but it will swing traffic that's normally served by the broken server to the other replicas. They should be overprovisioned sufficiently to absorb the new query load.
+All servers are checked with a `SELECT 1` query before being given to a client. If the server is not reachable, it will be banned and cannot serve any more transactions for the duration of the ban. The queries are routed to the remaining servers. If all servers become banned, the ban list is cleared: this is a safety precaution against false positives. The primary can never be banned.
 
+The ban time can be changed with `ban_time`. The default is 60 seconds.
 
 ### Sharding
+We use the `PARTITION BY HASH` hashing function, the same as used by Postgres for declarative partitioning. This allows to shard the database using Postgres partitions and place the partitions on different servers (shards). Both read and write queries can be routed to the shards using this pooler.
 
-The sharding algorithm of choice is the `PARTITION BY HASH` function used by Postgres. This allows us to place partitions of a table in different databases (and physical servers) and route read and write queries using this pooler. Presently, the client needs to indicate which shard it wants to talk to using this custom SQL syntax:
+To route queries to a particular shard, we use this custom SQL syntax:
 
 ```sql
 -- To talk to a shard explicitely
@@ -103,39 +121,57 @@ SET SHARD TO '1';
 SET SHARDING KEY TO '1234';
 ```
 
-The first query will tell the pooler to route the next transaction to shard 1, as set in the configuration. The second query will let the pooler hash the value and determine which shard the query should go to based on the hashing function modulo the number of shards. This is the same algorithm as Postgres uses to figure out which partition to use. This is workable because the latency to the pooler in normal deployments should be very low, so the cost of issuing an extra query is also very low.
+The active shard will last until it's changed again or the client disconnects. By default, the queries are routed to shard 0.
 
+For hash function implementation, see `src/sharding.rs` and `tests/sharding/partition_hash_test_setup.sql`.
 
-We're implemeting Postgres' `PARTITION BY HASH` sharding function for `BIGINT` fields. This works well for tables that use `BIGSERIAL` primary key which I think is common enough these days. We can also add many more functions here, but this is a good start. See `src/sharding.rs` and `tests/sharding/partition_hash_test_setup.sql` for more details on the implementation.
+#### ActiveRecord/Rails
 
-The biggest advantage of using this sharding function is that anyone can shard the dataset using Postgres partitions
-while also access it for both reads and writes using this pooler. No custom obscure sharding function is needed and database sharding can be done entirely in Postgres.
+```ruby
+class User < ActiveRecord::Base
+end
 
-To select the shard we want to talk to, we introduced special syntax:
+# Metadata will be fetched from shard 0
+ActiveRecord::Base.establish_connection
+
+# Grab a bunch of users from shard 1
+User.connection.execute "SET SHARD TO '1'"
+User.take(10)
+
+# Using id as the sharding key
+User.connection.execute "SET SHARDING KEY TO '1234'"
+User.find_by_id(1234)
+
+# Using geographical sharding
+User.connection.execute "SET SERVER ROLE TO 'primary'"
+User.connection.execute "SET SHARDING KEY TO '85'"
+User.create(name: "test user", email: "test@example.com", zone_id: 85)
+
+# Let the query parser figure out where the query should go.
+# We are still on shard = hash(85) % shards.
+User.connection.execute "SET SERVER ROLE TO 'auto'"
+User.find_by_email("test@example.com")
+```
+
+#### Raw SQL
 
 ```sql
+-- Grab a bunch of users from shard 1
+SET SHARD TO '1';
+SELECT * FROM users LIMT 10;
+
+-- Find by id
 SET SHARDING KEY TO '1234';
+SELECT * FROM USERS WHERE id = 1234;
+
+-- Writing in a primary/replicas configuration.
+SET SHARDING ROLE TO 'primary';
+SET SHARDING KEY TO '85';
+INSERT INTO users (name, email, zome_id) VALUES ('test user', 'test@example.com', 85);
+
+SET SERVER ROLE TO 'auto'; -- let the query router figure out where the query should go
+SELECT * FROM users WHERE email = 'test@example.com'; -- shard setting lasts until set again; we are reading from the primary
 ```
-
-This sharding key will be hashed and the pooler will select a shard to use until the key or shard is set again. If the pooler is in session mode, this sharding key has to be set as the first query on startup & cannot be changed until the client re-connects.
-
-### Explicit read/write query routing
-
-If you want to have the primary and replicas in the same pooler, you'd probably want to
-route queries explicitely to the primary or replicas, depending if they are reads or writes (e.g `SELECT`s or `INSERT`/`UPDATE`, etc). To help with this, we introduce some more custom syntax:
-
-```sql
-SET SERVER ROLE TO 'primary';
-SET SERVER ROLE TO 'replica';
-```
-
-After executing this, the next transaction will be routed to the primary or replica respectively. By default, all queries will be load-balanced between all servers, so if the client wants to write or talk to the primary, they have to explicitely select it using the syntax above.
-
-
-
-## Missing
-
-1. Authentication, ehem, this proxy is letting anyone in at the moment.
 
 ## Benchmarks
 

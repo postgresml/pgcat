@@ -82,7 +82,8 @@ impl QueryRouter {
         }
     }
 
-    pub fn try_parse_command(&mut self, mut buf: BytesMut) -> Option<(Command, String)> {
+    /// Try to parse a command and execute it.
+    pub fn try_execute_command(&mut self, mut buf: BytesMut) -> Option<(Command, String)> {
         let code = buf.get_u8() as char;
 
         if code != 'Q' {
