@@ -172,6 +172,30 @@ SET SERVER ROLE TO 'auto'; -- let the query router figure out where the query sh
 SELECT * FROM users WHERE email = 'test@example.com'; -- shard setting lasts until set again; we are reading from the primary
 ```
 
+### Statistics reporting
+
+Stats are reported using StatsD every 15 seconds. The address is configurable with `statsd_address`, the default is `127.0.0.1:8125`. The stats are very similar to what Pgbouncer reports and the names are kept to be comparable.
+
+### Live configuration reloading
+
+The config can be reloaded by sending a `kill -s SIGHUP` to the process. Not all settings are currently supported by live reload:
+
+| **Config**              | **Requires restart** |
+|-------------------------|----------------------|
+| `host`                  | yes                  |
+| `port`                  | yes                  |
+| `pool_mode`             | no                   |
+| `connect_timeout`       | yes                  |
+| `healthcheck_timeout`   | no                   |
+| `ban_time`              | no                   |
+| `statsd_address`        | yes                  |
+| `user`                  | yes                  |
+| `shards`                | yes                  |
+| `default_role`          | no                   |
+| `primary_reads_enabled` | no                   |
+| `query_parser_enabled`  | no                   |
+
+
 ## Benchmarks
 
 You can setup PgBench locally through PgCat:

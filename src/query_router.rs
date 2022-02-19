@@ -280,6 +280,7 @@ impl QueryRouter {
         self.query_parser_enabled
     }
 
+    #[allow(dead_code)]
     pub fn toggle_primary_reads(&mut self, value: bool) {
         self.primary_reads_enabled = value;
     }
