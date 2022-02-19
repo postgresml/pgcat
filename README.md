@@ -101,7 +101,7 @@ SET SERVER ROLE TO 'default';
 
 The setting will persist until it's changed again or the client disconnects.
 
-By default, all queries are routed to all servers; `default_role` setting controls this behavior.
+By default, all queries are routed to the first available server; `default_role` setting controls this behavior.
 
 ### Failover
 All servers are checked with a `SELECT 1` query before being given to a client. If the server is not reachable, it will be banned and cannot serve any more transactions for the duration of the ban. The queries are routed to the remaining servers. If all servers become banned, the ban list is cleared: this is a safety precaution against false positives. The primary can never be banned.
