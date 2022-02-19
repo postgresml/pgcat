@@ -12,7 +12,7 @@ use crate::sharding::Sharder;
 
 const SHARDING_REGEX: &str = r"SET SHARDING KEY TO '[0-9]+'";
 const SET_SHARD_REGEX: &str = r"SET SHARD TO '[0-9]+'";
-const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA)'";
+const ROLE_REGEX: &str = r"SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO)'";
 
 static SHARDING_REGEX_RE: OnceCell<Regex> = OnceCell::new();
 static ROLE_REGEX_RE: OnceCell<Regex> = OnceCell::new();
@@ -183,6 +183,14 @@ impl QueryRouter {
                     self.active_role = Some(Role::Replica);
                     true
                 }
+                "ANY" => {
+                    self.active_role = None;
+                    true
+                }
+                "AUTO" => {
+                    self.active_role = None;
+                    true
+                }
 
                 // Our regex won't let this case happen, but Rust can't know that.
                 _ => false,
@@ -270,7 +278,7 @@ impl QueryRouter {
     pub fn shard(&self) -> usize {
         match self.active_shard {
             Some(shard) => shard,
-            None => 0, // TODO: pick random shard
+            None => rand::random::<usize>() % self.shards,
         }
     }
 
@@ -310,9 +318,6 @@ mod test {
 
         assert!(query_router.select_shard(message));
         assert_eq!(query_router.shard(), 3); // See sharding.rs (we are using 5 shards on purpose in this test)
-
-        query_router.reset();
-        assert_eq!(query_router.shard(), 0);
     }
 
     #[test]
@@ -347,7 +352,6 @@ mod test {
         let shards = 5;
         let query_router = QueryRouter::new(default_server_role, shards, false, false);
 
-        assert_eq!(query_router.shard(), 0);
         assert_eq!(query_router.role(), None);
     }
 
@@ -485,8 +489,5 @@ mod test {
 
         assert!(query_router.select_shard(message));
         assert_eq!(query_router.shard(), 1); // See sharding.rs (we are using 5 shards on purpose in this test)
-
-        query_router.reset();
-        assert_eq!(query_router.shard(), 0);
     }
 }

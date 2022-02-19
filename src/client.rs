@@ -228,7 +228,6 @@ impl Client {
                     println!(">> Could not get connection from pool: {:?}", err);
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
-                    query_router.reset();
                     continue;
                 }
             };
@@ -310,9 +309,6 @@ impl Client {
                             if self.transaction_mode {
                                 // Report this client as idle.
                                 self.stats.client_idle();
-
-                                query_router.reset();
-
                                 break;
                             }
                         }
@@ -395,9 +391,6 @@ impl Client {
 
                             if self.transaction_mode {
                                 self.stats.client_idle();
-
-                                query_router.reset();
-
                                 break;
                             }
                         }
@@ -431,8 +424,7 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
-                                query_router.reset();
-
+                                self.stats.client_idle();
                                 break;
                             }
                         }
