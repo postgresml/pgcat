@@ -38,6 +38,16 @@ pub async fn backend_key_data(
     Ok(write_all(stream, key_data).await?)
 }
 
+pub fn simple_query(query: &str) -> BytesMut {
+    let mut res = BytesMut::from(&b"Q"[..]);
+    let query = format!("{}\0", query);
+
+    res.put_i32(query.len() as i32 + 4);
+    res.put_slice(&query.as_bytes());
+
+    res
+}
+
 /// Tell the client we're ready for another query.
 pub async fn ready_for_query(stream: &mut TcpStream) -> Result<(), Error> {
     let mut bytes = BytesMut::with_capacity(5);
@@ -227,6 +237,89 @@ pub async fn error_response(stream: &mut OwnedWriteHalf, message: &str) -> Resul
     res.put(ready_for_query);
 
     Ok(write_all_half(stream, res).await?)
+}
+
+/// Respond to a SHOW SHARD command.
+pub async fn show_response(
+    stream: &mut OwnedWriteHalf,
+    name: &str,
+    value: &str,
+) -> Result<(), Error> {
+    // A SELECT response consists of:
+    // 1. RowDescription
+    // 2. One or more DataRow
+    // 3. CommandComplete
+    // 4. ReadyForQuery
+
+    // RowDescription
+    let mut row_desc = BytesMut::new();
+
+    // Number of columns: 1
+    row_desc.put_i16(1);
+
+    // Column name
+    row_desc.put_slice(&format!("{}\0", name).as_bytes());
+
+    // Doesn't belong to any table
+    row_desc.put_i32(0);
+
+    // Doesn't belong to any table
+    row_desc.put_i16(0);
+
+    // Text
+    row_desc.put_i32(25);
+
+    // Text size = variable (-1)
+    row_desc.put_i16(-1);
+
+    // Type modifier: none that I know
+    row_desc.put_i32(0);
+
+    // Format being used: text (0), binary (1)
+    row_desc.put_i16(0);
+
+    // DataRow
+    let mut data_row = BytesMut::new();
+
+    // Number of columns
+    data_row.put_i16(1);
+
+    // Size of the column content (length of the string really)
+    data_row.put_i32(value.len() as i32);
+
+    // The content
+    data_row.put_slice(value.as_bytes());
+
+    // CommandComplete
+    let mut command_complete = BytesMut::new();
+
+    // Number of rows returned (just one)
+    command_complete.put_slice(&b"SELECT 1\0"[..]);
+
+    // The final messages sent to the client
+    let mut res = BytesMut::new();
+
+    // RowDescription
+    res.put_u8(b'T');
+    res.put_i32(row_desc.len() as i32 + 4);
+    res.put(row_desc);
+
+    // DataRow
+    res.put_u8(b'D');
+    res.put_i32(data_row.len() as i32 + 4);
+    res.put(data_row);
+
+    // CommandComplete
+    res.put_u8(b'C');
+    res.put_i32(command_complete.len() as i32 + 4);
+    res.put(command_complete);
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
 }
 
 /// Write all data in the buffer to the TcpStream.
