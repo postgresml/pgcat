@@ -116,9 +116,7 @@ impl ConnectionPool {
         for shard in 0..self.shards() {
             for _ in 0..self.servers(shard) {
                 let connection = match self.get(shard, None).await {
-                    Ok(conn) => {
-                        conn
-                    }
+                    Ok(conn) => conn,
                     Err(err) => {
                         println!("> Shard {} down or misconfigured: {:?}", shard, err);
                         continue;
