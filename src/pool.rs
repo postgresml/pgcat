@@ -116,7 +116,9 @@ impl ConnectionPool {
         for shard in 0..self.shards() {
             for _ in 0..self.servers(shard) {
                 let connection = match self.get(shard, None).await {
-                    Ok(conn) => conn,
+                    Ok(conn) => {
+                        conn
+                    }
                     Err(err) => {
                         println!("> Shard {} down or misconfigured: {:?}", shard, err);
                         continue;
@@ -147,10 +149,6 @@ impl ConnectionPool {
         role: Option<Role>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
-
-        // We are waiting for a server now.
-        self.stats.client_waiting();
-
         let addresses = &self.addresses[shard];
 
         let mut allowed_attempts = match role {
@@ -222,7 +220,6 @@ impl ConnectionPool {
                 Ok(res) => match res {
                     Ok(_) => {
                         self.stats.checkout_time(now.elapsed().as_micros());
-                        self.stats.client_active();
                         return Ok((conn, address.clone()));
                     }
                     Err(_) => {

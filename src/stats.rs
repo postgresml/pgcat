@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::config::get_config;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum StatisticName {
     CheckoutTime,
     //QueryRuntime,
@@ -16,15 +16,17 @@ pub enum StatisticName {
     Transactions,
     DataSent,
     DataReceived,
-    ClientsWaiting,
-    ClientsActive,
-    ClientsIdle,
+    ClientWaiting,
+    ClientActive,
+    ClientIdle,
+    ClientDisconnecting,
 }
 
 #[derive(Debug)]
 pub struct Statistic {
     pub name: StatisticName,
     pub value: i64,
+    pub process_id: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +43,7 @@ impl Reporter {
         let statistic = Statistic {
             name: StatisticName::Queries,
             value: 1,
+            process_id: None,
         };
 
         let _ = self.tx.try_send(statistic);
@@ -50,6 +53,7 @@ impl Reporter {
         let statistic = Statistic {
             name: StatisticName::Transactions,
             value: 1,
+            process_id: None,
         };
 
         let _ = self.tx.try_send(statistic);
@@ -59,6 +63,7 @@ impl Reporter {
         let statistic = Statistic {
             name: StatisticName::DataSent,
             value: amount as i64,
+            process_id: None,
         };
 
         let _ = self.tx.try_send(statistic);
@@ -68,6 +73,7 @@ impl Reporter {
         let statistic = Statistic {
             name: StatisticName::DataReceived,
             value: amount as i64,
+            process_id: None,
         };
 
         let _ = self.tx.try_send(statistic);
@@ -77,54 +83,48 @@ impl Reporter {
         let statistic = Statistic {
             name: StatisticName::CheckoutTime,
             value: ms as i64,
+            process_id: None,
         };
 
         let _ = self.tx.try_send(statistic);
     }
 
-    pub fn client_waiting(&mut self) {
+    pub fn client_waiting(&mut self, process_id: i32) {
         let statistic = Statistic {
-            name: StatisticName::ClientsWaiting,
+            name: StatisticName::ClientWaiting,
             value: 1,
-        };
-
-        let _ = self.tx.try_send(statistic);
-
-        let statistic = Statistic {
-            name: StatisticName::ClientsIdle,
-            value: -1,
+            process_id: Some(process_id),
         };
 
         let _ = self.tx.try_send(statistic);
     }
 
-    pub fn client_active(&mut self) {
-        let statistic = Statistic {
-            name: StatisticName::ClientsWaiting,
-            value: -1,
-        };
-
-        let _ = self.tx.try_send(statistic);
+    pub fn client_active(&mut self, process_id: i32) {
 
         let statistic = Statistic {
-            name: StatisticName::ClientsActive,
+            name: StatisticName::ClientActive,
             value: 1,
+            process_id: Some(process_id),
         };
 
         let _ = self.tx.try_send(statistic);
     }
 
-    pub fn client_idle(&mut self) {
+    pub fn client_idle(&mut self, process_id: i32) {
         let statistic = Statistic {
-            name: StatisticName::ClientsActive,
-            value: -1,
+            name: StatisticName::ClientIdle,
+            value: 1,
+            process_id: Some(process_id),
         };
 
         let _ = self.tx.try_send(statistic);
+    }
 
+    pub fn client_disconnecting(&mut self, process_id: i32) {
         let statistic = Statistic {
-            name: StatisticName::ClientsIdle,
+            name: StatisticName::ClientDisconnecting,
             value: 1,
+            process_id: Some(process_id),
         };
 
         let _ = self.tx.try_send(statistic);
@@ -157,6 +157,8 @@ impl Collector {
             ("cl_active", 0),
             ("cl_idle", 0),
         ]);
+
+        let mut client_states: HashMap<i32, StatisticName> = HashMap::new();
 
         let mut now = Instant::now();
 
@@ -210,32 +212,43 @@ impl Collector {
                     }
                 }
 
-                StatisticName::ClientsActive => {
-                    let counter = stats.entry("cl_active").or_insert(0);
-
-                    *counter += stat.value;
-                    *counter = std::cmp::max(*counter, 0);
+                StatisticName::ClientActive | StatisticName::ClientWaiting | StatisticName::ClientIdle => {
+                    client_states.insert(stat.process_id.unwrap(), stat.name);
                 }
 
-                StatisticName::ClientsWaiting => {
-                    let counter = stats.entry("cl_waiting").or_insert(0);
-                    *counter += stat.value;
-                    *counter = std::cmp::max(*counter, 0);
-                }
-
-                StatisticName::ClientsIdle => {
-                    let counter = stats.entry("cl_idle").or_insert(0);
-                    *counter += stat.value;
-                    *counter = std::cmp::max(*counter, 0);
+                StatisticName::ClientDisconnecting => {
+                    client_states.remove(&stat.process_id.unwrap());
                 }
             };
+
 
             // It's been 15 seconds. If there is no traffic, it won't publish anything,
             // but it also doesn't matter then.
             if now.elapsed().as_secs() > 15 {
-                let mut pipeline = self.client.pipeline();
+                for (_, state) in &client_states {
+                    match state {
+                        StatisticName::ClientActive => {
+                            let counter = stats.entry("cl_active").or_insert(0);
+                            *counter += 1;
+                        }
 
-                println!(">> Publishing statistics to StatsD: {:?}", stats);
+                        StatisticName::ClientWaiting => {
+                            let counter = stats.entry("cl_waiting").or_insert(0);
+                            *counter += 1;
+                        }
+
+                        StatisticName::ClientIdle => {
+                            let counter = stats.entry("cl_idle").or_insert(0);
+                            *counter += 1;
+                        }
+
+                        _ => unreachable!(),
+                    };
+                }
+
+                println!(">> Reporting to StatsD: {:?}", stats);
+
+                let mut pipeline = self.client.pipeline();
 
                 for (key, value) in stats.iter_mut() {
                     pipeline.gauge(key, *value as f64);
