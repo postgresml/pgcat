@@ -147,10 +147,6 @@ impl ConnectionPool {
         role: Option<Role>,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
-
-        // We are waiting for a server now.
-        self.stats.client_waiting();
-
         let addresses = &self.addresses[shard];
 
         let mut allowed_attempts = match role {
@@ -222,7 +218,6 @@ impl ConnectionPool {
                 Ok(res) => match res {
                     Ok(_) => {
                         self.stats.checkout_time(now.elapsed().as_micros());
-                        self.stats.client_active();
                         return Ok((conn, address.clone()));
                     }
                     Err(_) => {

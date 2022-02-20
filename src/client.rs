@@ -192,6 +192,9 @@ impl Client {
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocols.
         loop {
+            // Client idle, waiting for messages.
+            self.stats.client_idle(self.process_id);
+
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
             // We can parse it here before grabbing a server from the pool,
@@ -243,6 +246,9 @@ impl Client {
                 continue;
             }
 
+            // Waiting for server connection.
+            self.stats.client_waiting(self.process_id);
+
             // Grab a server from the pool: the client issued a regular query.
             let connection = match pool.get(query_router.shard(), query_router.role()).await {
                 Ok(conn) => conn,
@@ -260,6 +266,9 @@ impl Client {
 
             // Claim this server as mine for query cancellation.
             server.claim(self.process_id, self.secret_key);
+
+            // Client active
+            self.stats.client_active(self.process_id);
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
@@ -330,7 +339,6 @@ impl Client {
                             // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
                                 // Report this client as idle.
-                                self.stats.client_idle();
                                 break;
                             }
                         }
@@ -412,7 +420,6 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
-                                self.stats.client_idle();
                                 break;
                             }
                         }
@@ -446,7 +453,6 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
-                                self.stats.client_idle();
                                 break;
                             }
                         }
@@ -469,5 +475,11 @@ impl Client {
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock().unwrap();
         guard.remove(&(self.process_id, self.secret_key));
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.stats.client_disconnecting(self.process_id);
     }
 }
