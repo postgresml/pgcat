@@ -167,10 +167,7 @@ impl ConnectionPool {
         };
 
         if !exists {
-            error!(
-                "Requested role {:?}, but none are configured",
-                role
-            );
+            error!("Requested role {:?}, but none are configured", role);
             return Err(Error::BadConfig);
         }
 

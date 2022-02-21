@@ -26,6 +26,9 @@ jobs:
       - restore_cache:
           key: cargo-lock-2-{{ checksum "Cargo.lock" }}
       - run:
+          name: "Lint"
+          command: "cargo fmt --check"
+      - run:
           name: "Install dependencies"
           command: "sudo apt-get update && sudo apt-get install -y psmisc postgresql-contrib-12 postgresql-client-12 ruby ruby-dev libpq-dev"
       - run:
