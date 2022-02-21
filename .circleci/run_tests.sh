@@ -34,9 +34,6 @@ psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /
 # Replica/primary selection & more sharding tests
 psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
 
-# Prepared statements that will only work in session mode
-pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
-
 #
 # ActiveRecord tests!
 #
@@ -51,6 +48,8 @@ sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 # Reload config
 kill -SIGHUP $(pgrep pgcat)
 
+# Prepared statements that will only work in session mode
+pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
 
 # Attempt clean shut down
 killall pgcat -s SIGINT
