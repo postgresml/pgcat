@@ -10,6 +10,8 @@ jobs:
     # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
       - image: cimg/rust:1.58.1
+        environment:
+          RUST_LOG: info
       - image: cimg/postgres:14.0
         auth:
           username: mydockerhub-user
