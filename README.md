@@ -50,7 +50,7 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 | **Feature**           | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
 |-----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
 | Transaction pooling   | :heavy_check_mark: | :heavy_check_mark:  | Used by default for all tests.                                                                                           |
-| Session pooling       | :x:                | :heavy_check_mark:  | Easiest way to test is to enable it and run pgbench - results will be better than transaction pooling as expected.       |
+| Session pooling       | :heavy_check_mark: | :heavy_check_mark:  | Tested by running pgbench with `--protocol prepared` which only works in session mode.                                   |
 | `COPY`                | :heavy_check_mark: | :heavy_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
 | Query cancellation    | :heavy_check_mark: | :heavy_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
 | Load balancing        | :x:                | :heavy_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
