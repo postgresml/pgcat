@@ -3,12 +3,12 @@ use crate::sharding::Sharder;
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
+use log::{debug, error};
 use once_cell::sync::OnceCell;
 use regex::RegexSet;
 use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
-use log::{error, debug};
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
     r"(?i)SET SHARDING KEY TO '[0-9]+'",
@@ -174,6 +174,7 @@ impl QueryRouter {
                     "default" => {
                         // TODO: reset query parser to default here.
                         self.active_role = self.default_server_role;
+                        self.query_parser_enabled = get_config().query_router.query_parser_enabled;
                         self.active_role
                     }
 
@@ -220,11 +221,7 @@ impl QueryRouter {
         let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => ast,
             Err(err) => {
-                debug!(
-                    "{:?}, query: {}",
-                    err,
-                    query
-                );
+                debug!("{:?}, query: {}", err, query);
                 return false;
             }
         };
@@ -483,5 +480,10 @@ mod test {
         let query = simple_query("SELECT * FROM test_table");
         assert_eq!(qr.infer_role(query), true);
         assert_eq!(qr.role(), Some(Role::Replica));
+
+        assert!(qr.query_parser_enabled());
+        let query = simple_query("SET SERVER ROLE TO 'default'");
+        assert!(qr.try_execute_command(query) != None);
+        assert!(!qr.query_parser_enabled());
     }
 }
