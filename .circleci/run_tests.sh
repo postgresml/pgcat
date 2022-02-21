@@ -42,6 +42,7 @@ sudo gem install bundler
 bundle install
 ruby tests.rb
 
+cd ../../
 # Test session mode (and config reload)
 sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 
