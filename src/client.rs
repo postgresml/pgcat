@@ -2,6 +2,7 @@
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
+use log::error;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -253,7 +254,7 @@ impl Client {
             let connection = match pool.get(query_router.shard(), query_router.role()).await {
                 Ok(conn) => conn,
                 Err(err) => {
-                    println!(">> Could not get connection from pool: {:?}", err);
+                    error!("Could not get connection from pool: {:?}", err);
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
                     continue;
@@ -267,8 +268,9 @@ impl Client {
             // Claim this server as mine for query cancellation.
             server.claim(self.process_id, self.secret_key);
 
-            // Client active
+            // Client active & server active
             self.stats.client_active(self.process_id);
+            self.stats.server_active(server.process_id());
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
@@ -338,7 +340,7 @@ impl Client {
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
-                                // Report this client as idle.
+                                self.stats.server_idle(server.process_id());
                                 break;
                             }
                         }
@@ -420,6 +422,7 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
+                                self.stats.server_idle(server.process_id());
                                 break;
                             }
                         }
@@ -453,6 +456,7 @@ impl Client {
                             self.stats.transaction();
 
                             if self.transaction_mode {
+                                self.stats.server_idle(server.process_id());
                                 break;
                             }
                         }
@@ -461,7 +465,7 @@ impl Client {
                     // Some unexpected message. We either did not implement the protocol correctly
                     // or this is not a Postgres client we're talking to.
                     _ => {
-                        println!(">>> Unexpected code: {}", code);
+                        error!("Unexpected code: {}", code);
                     }
                 }
             }

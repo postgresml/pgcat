@@ -8,6 +8,7 @@ use regex::RegexSet;
 use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
+use log::{error, debug};
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
     r"(?i)SET SHARDING KEY TO '[0-9]+'",
@@ -54,7 +55,7 @@ impl QueryRouter {
         let set = match RegexSet::new(&CUSTOM_SQL_REGEXES) {
             Ok(rgx) => rgx,
             Err(err) => {
-                log::error!("QueryRouter::setup Could not compile regex set: {:?}", err);
+                error!("QueryRouter::setup Could not compile regex set: {:?}", err);
                 return false;
             }
         };
@@ -219,8 +220,8 @@ impl QueryRouter {
         let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => ast,
             Err(err) => {
-                log::debug!(
-                    "QueryParser::infer_role could not parse query, error: {:?}, query: {}",
+                debug!(
+                    "{:?}, query: {}",
                     err,
                     query
                 );

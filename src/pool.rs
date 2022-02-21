@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
+use log::{error, info, warn};
 
 use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
@@ -54,7 +55,7 @@ impl ConnectionPool {
                     "primary" => Role::Primary,
                     "replica" => Role::Replica,
                     _ => {
-                        println!("> Config error: server role can be 'primary' or 'replica', have: '{}'. Defaulting to 'replica'.", server.2);
+                        error!("Config error: server role can be 'primary' or 'replica', have: '{}'. Defaulting to 'replica'.", server.2);
                         Role::Replica
                     }
                 };
@@ -118,7 +119,7 @@ impl ConnectionPool {
                 let connection = match self.get(shard, None).await {
                     Ok(conn) => conn,
                     Err(err) => {
-                        println!("> Shard {} down or misconfigured: {:?}", shard, err);
+                        error!("Shard {} down or misconfigured: {:?}", shard, err);
                         continue;
                     }
                 };
@@ -166,8 +167,8 @@ impl ConnectionPool {
         };
 
         if !exists {
-            log::error!(
-                "ConnectionPool::get Requested role {:?}, but none is configured.",
+            error!(
+                "Requested role {:?}, but none are configured",
                 role
             );
             return Err(Error::BadConfig);
@@ -198,7 +199,7 @@ impl ConnectionPool {
             let mut conn = match self.databases[shard][index].get().await {
                 Ok(conn) => conn,
                 Err(err) => {
-                    println!(">> Banning replica {}, error: {:?}", index, err);
+                    error!("Banning replica {}, error: {:?}", index, err);
                     self.ban(address, shard);
                     continue;
                 }
@@ -207,6 +208,8 @@ impl ConnectionPool {
             // // Check if this server is alive with a health check
             let server = &mut *conn;
             let healthcheck_timeout = get_config().general.healthcheck_timeout;
+
+            self.stats.server_tested(server.process_id());
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
@@ -218,13 +221,11 @@ impl ConnectionPool {
                 Ok(res) => match res {
                     Ok(_) => {
                         self.stats.checkout_time(now.elapsed().as_micros());
+                        self.stats.server_idle(conn.process_id());
                         return Ok((conn, address.clone()));
                     }
                     Err(_) => {
-                        println!(
-                            ">> Banning replica {} because of failed health check",
-                            index
-                        );
+                        error!("Banning replica {} because of failed health check", index);
                         // Don't leave a bad connection in the pool.
                         server.mark_bad();
 
@@ -234,10 +235,7 @@ impl ConnectionPool {
                 },
                 // Health check never came back, database is really really down
                 Err(_) => {
-                    println!(
-                        ">> Banning replica {} because of health check timeout",
-                        index
-                    );
+                    error!("Banning replica {} because of health check timeout", index);
                     // Don't leave a bad connection in the pool.
                     server.mark_bad();
 
@@ -254,7 +252,7 @@ impl ConnectionPool {
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, shard: usize) {
-        println!(">> Banning {:?}", address);
+        error!("Banning {:?}", address);
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.lock().unwrap();
         guard[shard].insert(address.clone(), now);
@@ -287,7 +285,7 @@ impl ConnectionPool {
         if guard[shard].len() == replicas_available {
             guard[shard].clear();
             drop(guard);
-            println!(">> Unbanning all replicas.");
+            warn!("Unbanning all replicas.");
             return false;
         }
 
@@ -351,7 +349,10 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        println!(">> Creating a new connection for the pool");
+        info!(
+            "Creating a new connection to {:?} using user {:?}",
+            self.address, self.user.name
+        );
 
         Server::startup(
             &self.address,

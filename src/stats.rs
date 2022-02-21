@@ -1,3 +1,4 @@
+use log::info;
 use statsd::Client;
 /// Statistics collector and publisher.
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -20,6 +21,11 @@ pub enum StatisticName {
     ClientActive,
     ClientIdle,
     ClientDisconnecting,
+    ServerActive,
+    ServerIdle,
+    ServerTested,
+    ServerLogin,
+    ServerDisconnecting,
 }
 
 #[derive(Debug)]
@@ -100,7 +106,6 @@ impl Reporter {
     }
 
     pub fn client_active(&mut self, process_id: i32) {
-
         let statistic = Statistic {
             name: StatisticName::ClientActive,
             value: 1,
@@ -129,6 +134,56 @@ impl Reporter {
 
         let _ = self.tx.try_send(statistic);
     }
+
+    pub fn server_active(&mut self, process_id: i32) {
+        let statistic = Statistic {
+            name: StatisticName::ServerActive,
+            value: 1,
+            process_id: Some(process_id),
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
+
+    pub fn server_idle(&mut self, process_id: i32) {
+        let statistic = Statistic {
+            name: StatisticName::ServerIdle,
+            value: 1,
+            process_id: Some(process_id),
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
+
+    pub fn server_login(&mut self, process_id: i32) {
+        let statistic = Statistic {
+            name: StatisticName::ServerLogin,
+            value: 1,
+            process_id: Some(process_id),
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
+
+    pub fn server_tested(&mut self, process_id: i32) {
+        let statistic = Statistic {
+            name: StatisticName::ServerTested,
+            value: 1,
+            process_id: Some(process_id),
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
+
+    pub fn server_disconnecting(&mut self, process_id: i32) {
+        let statistic = Statistic {
+            name: StatisticName::ServerDisconnecting,
+            value: 1,
+            process_id: Some(process_id),
+        };
+
+        let _ = self.tx.try_send(statistic);
+    }
 }
 
 pub struct Collector {
@@ -145,6 +200,8 @@ impl Collector {
     }
 
     pub async fn collect(&mut self) {
+        info!("Statistics reporter started");
+
         let mut stats = HashMap::from([
             ("total_query_count", 0),
             ("total_xact_count", 0),
@@ -156,9 +213,13 @@ impl Collector {
             ("cl_waiting", 0),
             ("cl_active", 0),
             ("cl_idle", 0),
+            ("sv_idle", 0),
+            ("sv_active", 0),
+            ("sv_login", 0),
+            ("sv_tested", 0),
         ]);
 
-        let mut client_states: HashMap<i32, StatisticName> = HashMap::new();
+        let mut client_server_states: HashMap<i32, StatisticName> = HashMap::new();
 
         let mut now = Instant::now();
 
@@ -166,7 +227,7 @@ impl Collector {
             let stat = match self.rx.recv().await {
                 Some(stat) => stat,
                 None => {
-                    println!(">> Statistics collector is shutting down.");
+                    info!("Statistics collector is shutting down");
                     return;
                 }
             };
@@ -212,20 +273,25 @@ impl Collector {
                     }
                 }
 
-                StatisticName::ClientActive | StatisticName::ClientWaiting | StatisticName::ClientIdle => {
-                    client_states.insert(stat.process_id.unwrap(), stat.name);
+                StatisticName::ClientActive
+                | StatisticName::ClientWaiting
+                | StatisticName::ClientIdle
+                | StatisticName::ServerActive
+                | StatisticName::ServerIdle
+                | StatisticName::ServerTested
+                | StatisticName::ServerLogin => {
+                    client_server_states.insert(stat.process_id.unwrap(), stat.name);
                 }
 
-                StatisticName::ClientDisconnecting => {
-                    client_states.remove(&stat.process_id.unwrap());
+                StatisticName::ClientDisconnecting | StatisticName::ServerDisconnecting => {
+                    client_server_states.remove(&stat.process_id.unwrap());
                 }
             };
-
 
             // It's been 15 seconds. If there is no traffic, it won't publish anything,
             // but it also doesn't matter then.
             if now.elapsed().as_secs() > 15 {
-                for (_, state) in &client_states {
+                for (_, state) in &client_server_states {
                     match state {
                         StatisticName::ClientActive => {
                             let counter = stats.entry("cl_active").or_insert(0);
@@ -242,11 +308,31 @@ impl Collector {
                             *counter += 1;
                         }
 
+                        StatisticName::ServerIdle => {
+                            let counter = stats.entry("sv_idle").or_insert(0);
+                            *counter += 1;
+                        }
+
+                        StatisticName::ServerActive => {
+                            let counter = stats.entry("sv_active").or_insert(0);
+                            *counter += 1;
+                        }
+
+                        StatisticName::ServerTested => {
+                            let counter = stats.entry("sv_tested").or_insert(0);
+                            *counter += 1;
+                        }
+
+                        StatisticName::ServerLogin => {
+                            let counter = stats.entry("sv_login").or_insert(0);
+                            *counter += 1;
+                        }
+
                         _ => unreachable!(),
                     };
                 }
 
-                println!(">> Reporting to StatsD: {:?}", stats);
+                info!("{:?}", stats);
 
                 let mut pipeline = self.client.pipeline();
 
