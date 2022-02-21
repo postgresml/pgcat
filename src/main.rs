@@ -23,6 +23,7 @@ extern crate arc_swap;
 extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
+extern crate env_logger;
 extern crate log;
 extern crate md5;
 extern crate num_cpus;
@@ -34,15 +35,16 @@ extern crate statsd;
 extern crate tokio;
 extern crate toml;
 
+use log::{error, info};
 use tokio::net::TcpListener;
 use tokio::{
     signal,
     signal::unix::{signal as unix_signal, SignalKind},
+    sync::mpsc,
 };
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
 
 mod client;
 mod config;
@@ -64,11 +66,12 @@ use stats::{Collector, Reporter};
 /// Main!
 #[tokio::main(worker_threads = 4)]
 async fn main() {
-    println!("> Welcome to PgCat! Meow.");
+    env_logger::init();
+    info!("Welcome to PgCat! Meow.");
 
     // Prepare regexes
     if !query_router::QueryRouter::setup() {
-        println!("> Could not setup query router.");
+        error!("Could not setup query router");
         return;
     }
 
@@ -76,7 +79,7 @@ async fn main() {
     match config::parse("pgcat.toml").await {
         Ok(_) => (),
         Err(err) => {
-            println!("> Config parse error: {:?}", err);
+            error!("Config parse error: {:?}", err);
             return;
         }
     };
@@ -87,12 +90,12 @@ async fn main() {
     let listener = match TcpListener::bind(&addr).await {
         Ok(sock) => sock,
         Err(err) => {
-            println!("> Error: {:?}", err);
+            error!("Listener socket error: {:?}", err);
             return;
         }
     };
 
-    println!("> Running on {}", addr);
+    info!("Running on {}", addr);
     config.show();
 
     // Tracks which client is connected to which server for query cancellation.
@@ -102,8 +105,6 @@ async fn main() {
     let (tx, rx) = mpsc::channel(100);
 
     tokio::task::spawn(async move {
-        println!("> Statistics reporter started");
-
         let mut stats_collector = Collector::new(rx);
         stats_collector.collect().await;
     });
@@ -114,12 +115,12 @@ async fn main() {
     let server_info = match pool.validate().await {
         Ok(info) => info,
         Err(err) => {
-            println!("> Could not validate connection pool: {:?}", err);
+            error!("Could not validate connection pool: {:?}", err);
             return;
         }
     };
 
-    println!("> Waiting for clients...");
+    info!("Waiting for clients");
 
     // Main app runs here.
     tokio::task::spawn(async move {
@@ -132,7 +133,7 @@ async fn main() {
             let (socket, addr) = match listener.accept().await {
                 Ok((socket, addr)) => (socket, addr),
                 Err(err) => {
-                    println!("> Listener: {:?}", err);
+                    error!("{:?}", err);
                     continue;
                 }
             };
@@ -140,35 +141,31 @@ async fn main() {
             // Client goes to another thread, bye.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
-
-                println!(">> Client {:?} connected", addr);
-
                 match client::Client::startup(socket, client_server_map, server_info, reporter)
                     .await
                 {
                     Ok(mut client) => {
-                        println!(">> Client {:?} authenticated successfully!", addr);
-
+                        info!("Client {:?} connected", addr);
                         match client.handle(pool).await {
                             Ok(()) => {
                                 let duration = chrono::offset::Utc::now().naive_utc() - start;
 
-                                println!(
-                                    ">> Client {:?} disconnected, session duration: {}",
+                                info!(
+                                    "Client {:?} disconnected, session duration: {}",
                                     addr,
                                     format_duration(&duration)
                                 );
                             }
 
                             Err(err) => {
-                                println!(">> Client disconnected with error: {:?}", err);
+                                error!("Client disconnected with error: {:?}", err);
                                 client.release();
                             }
                         }
                     }
 
                     Err(err) => {
-                        println!(">> Error: {:?}", err);
+                        error!("Client failed to login: {:?}", err);
                     }
                 };
             });
@@ -182,13 +179,13 @@ async fn main() {
 
         loop {
             stream.recv().await;
-            println!("> Reloading config");
+            info!("Reloading config");
             match config::parse("pgcat.toml").await {
                 Ok(_) => {
                     get_config().show();
                 }
                 Err(err) => {
-                    println!("> Config parse error: {:?}", err);
+                    error!("{:?}", err);
                     return;
                 }
             };
@@ -198,11 +195,11 @@ async fn main() {
     // Setup shut down sequence
     match signal::ctrl_c().await {
         Ok(()) => {
-            println!("> Shutting down...");
+            info!("Shutting down...");
         }
 
         Err(err) => {
-            eprintln!("Unable to listen for shutdown signal: {}", err);
+            error!("Unable to listen for shutdown signal: {}", err);
         }
     };
 }

@@ -1,4 +1,5 @@
 use arc_swap::{ArcSwap, Guard};
+use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
 use tokio::fs::File;
@@ -150,14 +151,14 @@ impl Default for Config {
 
 impl Config {
     pub fn show(&self) {
-        println!("> Pool size: {}", self.general.pool_size);
-        println!("> Pool mode: {}", self.general.pool_mode);
-        println!("> Ban time: {}s", self.general.ban_time);
-        println!(
-            "> Healthcheck timeout: {}ms",
+        info!("Pool size: {}", self.general.pool_size);
+        info!("Pool mode: {}", self.general.pool_mode);
+        info!("Ban time: {}s", self.general.ban_time);
+        info!(
+            "Healthcheck timeout: {}ms",
             self.general.healthcheck_timeout
         );
-        println!("> Connection timeout: {}ms", self.general.connect_timeout);
+        info!("Connection timeout: {}ms", self.general.connect_timeout);
     }
 }
 
@@ -171,7 +172,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     let mut file = match File::open(path).await {
         Ok(file) => file,
         Err(err) => {
-            println!("> Config error: {:?}", err);
+            error!("{:?}", err);
             return Err(Error::BadConfig);
         }
     };
@@ -179,7 +180,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     match file.read_to_string(&mut contents).await {
         Ok(_) => (),
         Err(err) => {
-            println!("> Config error: {:?}", err);
+            error!("{:?}", err);
             return Err(Error::BadConfig);
         }
     };
@@ -187,7 +188,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     let config: Config = match toml::from_str(&contents) {
         Ok(config) => config,
         Err(err) => {
-            println!("> Config error: {:?}", err);
+            error!("{:?}", err);
             return Err(Error::BadConfig);
         }
     };
@@ -200,7 +201,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         let mut primary_count = 0;
 
         if shard.1.servers.len() == 0 {
-            println!("> Shard {} has no servers configured", shard.0);
+            error!("Shard {} has no servers configured", shard.0);
             return Err(Error::BadConfig);
         }
 
@@ -218,8 +219,8 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                 "primary" => (),
                 "replica" => (),
                 _ => {
-                    println!(
-                        "> Shard {} server role must be either 'primary' or 'replica', got: '{}'",
+                    error!(
+                        "Shard {} server role must be either 'primary' or 'replica', got: '{}'",
                         shard.0, server.2
                     );
                     return Err(Error::BadConfig);
@@ -228,12 +229,12 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
 
         if primary_count > 1 {
-            println!("> Shard {} has more than on primary configured.", &shard.0);
+            error!("Shard {} has more than on primary configured", &shard.0);
             return Err(Error::BadConfig);
         }
 
         if dup_check.len() != shard.1.servers.len() {
-            println!("> Shard {} contains duplicate server configs.", &shard.0);
+            error!("Shard {} contains duplicate server configs", &shard.0);
             return Err(Error::BadConfig);
         }
     }
@@ -243,8 +244,8 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         "primary" => (),
         "replica" => (),
         other => {
-            println!(
-                "> Query router default_role must be 'primary', 'replica', or 'any', got: '{}'",
+            error!(
+                "Query router default_role must be 'primary', 'replica', or 'any', got: '{}'",
                 other
             );
             return Err(Error::BadConfig);

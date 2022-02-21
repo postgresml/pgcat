@@ -1,6 +1,7 @@
+use bytes::{Buf, BufMut, BytesMut};
 ///! Implementation of the PostgreSQL server (database) protocol.
 ///! Here we are pretending to the a Postgres client.
-use bytes::{Buf, BufMut, BytesMut};
+use log::{error, info};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -33,7 +34,7 @@ pub struct Server {
     server_info: BytesMut,
 
     // Backend id and secret key used for query cancellation.
-    backend_id: i32,
+    process_id: i32,
     secret_key: i32,
 
     // Is the server inside a transaction or idle.
@@ -69,7 +70,7 @@ impl Server {
             match TcpStream::connect(&format!("{}:{}", &address.host, &address.port)).await {
                 Ok(stream) => stream,
                 Err(err) => {
-                    println!(">> Could not connect to server: {}", err);
+                    error!("Could not connect to server: {}", err);
                     return Err(Error::SocketError);
                 }
             };
@@ -78,7 +79,7 @@ impl Server {
         startup(&mut stream, &user.name, database).await?;
 
         let mut server_info = BytesMut::new();
-        let mut backend_id: i32 = 0;
+        let mut process_id: i32 = 0;
         let mut secret_key: i32 = 0;
 
         // We'll be handling multiple packets, but they will all be structured the same.
@@ -121,7 +122,7 @@ impl Server {
                         AUTHENTICATION_SUCCESSFUL => (),
 
                         _ => {
-                            println!(">> Unsupported authentication mechanism: {}", auth_code);
+                            error!("Unsupported authentication mechanism: {}", auth_code);
                             return Err(Error::ServerError);
                         }
                     }
@@ -151,7 +152,7 @@ impl Server {
                             // TODO: the error message contains multiple fields; we can decode them and
                             // present a prettier message to the user.
                             // See: https://www.postgresql.org/docs/12/protocol-error-fields.html
-                            println!(">> Server error: {}", String::from_utf8_lossy(&error));
+                            error!("Server error: {}", String::from_utf8_lossy(&error));
                         }
                     };
 
@@ -179,7 +180,7 @@ impl Server {
                 'K' => {
                     // The frontend must save these values if it wishes to be able to issue CancelRequest messages later.
                     // See: https://www.postgresql.org/docs/12/protocol-message-formats.html
-                    backend_id = match stream.read_i32().await {
+                    process_id = match stream.read_i32().await {
                         Ok(id) => id,
                         Err(_) => return Err(Error::SocketError),
                     };
@@ -209,7 +210,7 @@ impl Server {
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
                         server_info: server_info,
-                        backend_id: backend_id,
+                        process_id: process_id,
                         secret_key: secret_key,
                         in_transaction: false,
                         data_available: false,
@@ -223,7 +224,7 @@ impl Server {
                 // We have an unexpected message from the server during this exchange.
                 // Means we implemented the protocol wrong or we're not talking to a Postgres server.
                 _ => {
-                    println!(">> Unknown code: {}", code);
+                    error!("Unknown code: {}", code);
                     return Err(Error::ProtocolSyncError);
                 }
             };
@@ -241,7 +242,7 @@ impl Server {
         let mut stream = match TcpStream::connect(&format!("{}:{}", host, port)).await {
             Ok(stream) => stream,
             Err(err) => {
-                println!(">> Could not connect to server: {}", err);
+                error!("Could not connect to server: {}", err);
                 return Err(Error::SocketError);
             }
         };
@@ -262,7 +263,7 @@ impl Server {
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                println!(">> Terminating server because of: {:?}", err);
+                error!("Terminating server because of: {:?}", err);
                 self.bad = true;
                 Err(err)
             }
@@ -277,7 +278,7 @@ impl Server {
             let mut message = match read_message(&mut self.read).await {
                 Ok(message) => message,
                 Err(err) => {
-                    println!(">> Terminating server because of: {:?}", err);
+                    error!("Terminating server because of: {:?}", err);
                     self.bad = true;
                     return Err(err);
                 }
@@ -396,7 +397,7 @@ impl Server {
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
-        println!(">> Server marked bad");
+        error!("Server marked bad");
         self.bad = true;
     }
 
@@ -406,7 +407,7 @@ impl Server {
         guard.insert(
             (process_id, secret_key),
             (
-                self.backend_id,
+                self.process_id,
                 self.secret_key,
                 self.address.host.clone(),
                 self.address.port.clone(),
@@ -455,6 +456,10 @@ impl Server {
     pub fn address(&self) -> Address {
         self.address.clone()
     }
+
+    pub fn process_id(&self) -> i32 {
+        self.process_id
+    }
 }
 
 impl Drop for Server {
@@ -462,6 +467,8 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
+        self.stats.server_disconnecting(self.process_id());
+
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');
         bytes.put_i32(4);
@@ -476,8 +483,8 @@ impl Drop for Server {
         let now = chrono::offset::Utc::now().naive_utc();
         let duration = now - self.connected_at;
 
-        println!(
-            ">> Server connection closed, session duration: {}",
+        info!(
+            "Server connection closed, session duration: {}",
             crate::format_duration(&duration)
         );
     }
