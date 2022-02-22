@@ -28,7 +28,6 @@ See `Dockerfile` for example deployment using Docker. The pooler is configured t
 That setting can be adjusted to spawn as many (or as little) workers as needed.
 
 ### Config
-
 | **Name**                | **Description**                                                                                                                            | **Examples**                     |
 |-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
 | **`general`**           |                                                                                                                                            |                                  |
