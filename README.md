@@ -28,6 +28,7 @@ See `Dockerfile` for example deployment using Docker. The pooler is configured t
 That setting can be adjusted to spawn as many (or as little) workers as needed.
 
 ### Config
+
 | **Name**                | **Description**                                                                                                                            | **Examples**                     |
 |-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
 | **`general`**           |                                                                                                                                            |                                  |
@@ -39,9 +40,11 @@ That setting can be adjusted to spawn as many (or as little) workers as needed.
 | `healthcheck_timeout`   | Maximum time to pass a health check (`SELECT 1`, milliseconds). If reached, the server is banned and the next target is attempted.         | `1000`                           |
 | `ban_time`              | Ban time for a server (seconds). It won't be allowed to serve transactions until the ban expires; failover targets will be used instead.   | `60`                             |
 | `statsd_address`        | StatsD host and port. Statistics will be sent there every 15 seconds.                                                                      | `127.0.0.1:8125`                 |
+|                         |                                                                                                                                            |                                  |
 | **`user`**              |                                                                                                                                            |                                  |
 | `name`                  | The user name.                                                                                                                             | `sharding_user`                  |
 | `password`              | The user password in plaintext.                                                                                                            | `hunter2`                        |
+|                         |                                                                                                                                            |                                  |
 | **`shards`**            |                                                                                                                                            |                                  |
 | `servers`               | List of servers to connect to and their roles. A server is: `[host, port, role]`, where `role` is either `primary` or `replica`.           | `["127.0.0.1", 5432, "primary"]` |
 | `database`              | The name of the database to connect to. This is the same on all servers that are part of one shard.                                        |                                  |
