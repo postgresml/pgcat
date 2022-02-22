@@ -6,7 +6,7 @@
 
 Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover support.
 
-**Alpha**: don't use in production just yet.
+**Alpha**: looking for alpha testers, see [#35](https://github.com/levkk/pgcat/issues/35).
 
 ## Features
 | **Feature**                    | **Status**            | **Comments**                                                                                                                                          |
