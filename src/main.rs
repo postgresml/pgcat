@@ -75,8 +75,16 @@ async fn main() {
         return;
     }
 
+    let args = std::env::args().collect::<Vec<String>>();
+
+    let config_file = if args.len() == 2 {
+        args[1].to_string()
+    } else {
+        String::from("pgcat.toml")
+    };
+
     // Prepare the config
-    match config::parse("pgcat.toml").await {
+    match config::parse(&config_file).await {
         Ok(_) => (),
         Err(err) => {
             error!("Config parse error: {:?}", err);
