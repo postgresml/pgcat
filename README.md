@@ -33,7 +33,7 @@ That setting can be adjusted to spawn as many (or as little) workers as needed.
 2. `cargo build --release` (to get better benchmarks).
 3. Change the config in `pgcat.toml` to fit your setup (optional given next step).
 4. Install Postgres and run `psql -f tests/sharding/query_routing_setup.sql` (user/password may be required depending on your setup)
-5. `cargo run --release` You're ready to go!
+5. `RUST_LOG=info cargo run --release` You're ready to go!
 
 ### Tests
 
