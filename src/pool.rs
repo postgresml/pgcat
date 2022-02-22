@@ -351,7 +351,12 @@ impl ManageConnection for ServerPool {
             self.address, self.user.name
         );
 
-        Server::startup(
+        // Put a temporary process_id into the stats
+        // for server login.
+        let process_id = rand::random::<i32>();
+        self.stats.server_login(process_id);
+
+        match Server::startup(
             &self.address,
             &self.user,
             &self.database,
@@ -359,6 +364,18 @@ impl ManageConnection for ServerPool {
             self.stats.clone(),
         )
         .await
+        {
+            Ok(conn) => {
+                // Remove the temporary process_id from the stats.
+                self.stats.server_disconnecting(process_id);
+                Ok(conn)
+            }
+            Err(err) => {
+                // Remove the temporary process_id from the stats.
+                self.stats.server_disconnecting(process_id);
+                Err(err)
+            }
+        }
     }
 
     /// Determines if the connection is still connected to the database.
