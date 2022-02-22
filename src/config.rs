@@ -203,7 +203,10 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         match shard.0.parse::<usize>() {
             Ok(_) => (),
             Err(_) => {
-                error!("Shard '{}' is not a valid number, shards must be numbered starting at 0", shard.0);
+                error!(
+                    "Shard '{}' is not a valid number, shards must be numbered starting at 0",
+                    shard.0
+                );
                 return Err(Error::BadConfig);
             }
         };
