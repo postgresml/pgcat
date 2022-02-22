@@ -45,7 +45,7 @@ That setting can be adjusted to spawn as many (or as little) workers as needed.
 | `name`                  | The user name.                                                                                                                             | `sharding_user`                  |
 | `password`              | The user password in plaintext.                                                                                                            | `hunter2`                        |
 |                         |                                                                                                                                            |                                  |
-| **`shards`**            |                                                                                                                                            |                                  |
+| **`shards`**            | Shards are numerically numbered starting from 0; the order in the config is preserved by the pooler to route queries accordingly.          | `[shards.0]`                     |
 | `servers`               | List of servers to connect to and their roles. A server is: `[host, port, role]`, where `role` is either `primary` or `replica`.           | `["127.0.0.1", 5432, "primary"]` |
 | `database`              | The name of the database to connect to. This is the same on all servers that are part of one shard.                                        |                                  |
 | **`query_router`**      |                                                                                                                                            |                                  |
