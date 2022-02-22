@@ -172,7 +172,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     let mut file = match File::open(path).await {
         Ok(file) => file,
         Err(err) => {
-            error!("{:?}", err);
+            error!("Could not open '{}': {}", path, err.to_string());
             return Err(Error::BadConfig);
         }
     };
@@ -180,7 +180,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     match file.read_to_string(&mut contents).await {
         Ok(_) => (),
         Err(err) => {
-            error!("{:?}", err);
+            error!("Could not read config file: {}", err.to_string());
             return Err(Error::BadConfig);
         }
     };
@@ -188,7 +188,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     let config: Config = match toml::from_str(&contents) {
         Ok(config) => config,
         Err(err) => {
-            error!("{:?}", err);
+            error!("Could not parse config file: {}", err.to_string());
             return Err(Error::BadConfig);
         }
     };
@@ -199,6 +199,14 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         // let's make sure they are unique in the config as well.
         let mut dup_check = HashSet::new();
         let mut primary_count = 0;
+
+        match shard.0.parse::<usize>() {
+            Ok(_) => (),
+            Err(_) => {
+                error!("Shard '{}' is not a valid number, shards must be numbered starting at 0", shard.0);
+                return Err(Error::BadConfig);
+            }
+        };
 
         if shard.1.servers.len() == 0 {
             error!("Shard {} has no servers configured", shard.0);
