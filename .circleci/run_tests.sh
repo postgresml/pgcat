@@ -9,6 +9,7 @@ psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.s
 wget -O toxiproxy-2.1.4.deb https://github.com/Shopify/toxiproxy/releases/download/v2.1.4/toxiproxy_2.1.4_amd64.deb
 sudo dpkg -i toxiproxy-2.1.4.deb
 toxiproxy-server &
+sleep 2
 toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 
 ./target/debug/pgcat ./circleci/pgcat.toml &
