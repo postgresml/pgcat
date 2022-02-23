@@ -5,7 +5,13 @@ set -o xtrace
 
 psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
 
-./target/debug/pgcat &
+# Toxiproxy
+wget -O toxiproxy-2.1.4.deb https://github.com/Shopify/toxiproxy/releases/download/v2.1.4/toxiproxy_2.1.4_amd64.deb
+sudo dpkg -i toxiproxy-2.1.4.deb
+toxiproxy-server &
+toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
+
+./target/debug/pgcat ./circleci/pgcat.toml &
 
 sleep 1
 
@@ -43,6 +49,7 @@ bundle install
 ruby tests.rb
 
 cd ../../
+
 # Test session mode (and config reload)
 sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 
@@ -51,6 +58,13 @@ kill -SIGHUP $(pgrep pgcat)
 
 # Prepared statements that will only work in session mode
 pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
+
+# Failover tests
+toxiproxy-cli toxic add -t latency -a latency=5200 postgres_replica
+sed -i 's/pool_mode = "session"/pool_mode = "transaction"/' pgcat.toml
+kill -SIGHUP $(pgrep pgcat)
+sleep 1
+psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /dev/null
 
 # Attempt clean shut down
 killall pgcat -s SIGINT
