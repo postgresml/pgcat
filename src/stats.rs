@@ -24,6 +24,7 @@ enum EventName {
     ServerTested,
     ServerLogin,
     ServerDisconnecting,
+    FlushStatsToStatsD,
 }
 
 #[derive(Debug)]
@@ -182,17 +183,29 @@ impl Reporter {
 
         let _ = self.tx.try_send(statistic);
     }
+
+    // pub fn flush_to_statsd(&self) {
+    //     let event = Event {
+    //         name: EventName::FlushStatsToStatsD,
+    //         value: 0,
+    //         process_id: None,
+    //     };
+
+    //     let _ = self.tx.try_send(event);
+    // }
 }
 
 pub struct Collector {
     rx: Receiver<Event>,
+    tx: Sender<Event>,
     client: Client,
 }
 
 impl Collector {
-    pub fn new(rx: Receiver<Event>) -> Collector {
+    pub fn new(rx: Receiver<Event>, tx: Sender<Event>) -> Collector {
         Collector {
-            rx: rx,
+            rx,
+            tx,
             client: Client::new(&get_config().general.statsd_address, "pgcat").unwrap(),
         }
     }
@@ -218,8 +231,19 @@ impl Collector {
         ]);
 
         let mut client_server_states: HashMap<i32, EventName> = HashMap::new();
+        let tx = self.tx.clone();
 
-        let mut now = Instant::now();
+        tokio::task::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(15000));
+            loop {
+                interval.tick().await;
+                let _ = tx.try_send(Event {
+                    name: EventName::FlushStatsToStatsD,
+                    value: 0,
+                    process_id: None,
+                });
+            }
+        });
 
         loop {
             let stat = match self.rx.recv().await {
@@ -284,65 +308,61 @@ impl Collector {
                 EventName::ClientDisconnecting | EventName::ServerDisconnecting => {
                     client_server_states.remove(&stat.process_id.unwrap());
                 }
+
+                EventName::FlushStatsToStatsD => {
+                    for (_, state) in &client_server_states {
+                        match state {
+                            EventName::ClientActive => {
+                                let counter = stats.entry("cl_active").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            EventName::ClientWaiting => {
+                                let counter = stats.entry("cl_waiting").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            EventName::ClientIdle => {
+                                let counter = stats.entry("cl_idle").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            EventName::ServerIdle => {
+                                let counter = stats.entry("sv_idle").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            EventName::ServerActive => {
+                                let counter = stats.entry("sv_active").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            EventName::ServerTested => {
+                                let counter = stats.entry("sv_tested").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            EventName::ServerLogin => {
+                                let counter = stats.entry("sv_login").or_insert(0);
+                                *counter += 1;
+                            }
+
+                            _ => unreachable!(),
+                        };
+                    }
+
+                    info!("{:?}", stats);
+
+                    let mut pipeline = self.client.pipeline();
+
+                    for (key, value) in stats.iter_mut() {
+                        pipeline.gauge(key, *value as f64);
+                        *value = 0;
+                    }
+
+                    pipeline.send(&self.client);
+                }
             };
-
-            // It's been 15 seconds. If there is no traffic, it won't publish anything,
-            // but it also doesn't matter then.
-            if now.elapsed().as_secs() > 15 {
-                for (_, state) in &client_server_states {
-                    match state {
-                        EventName::ClientActive => {
-                            let counter = stats.entry("cl_active").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        EventName::ClientWaiting => {
-                            let counter = stats.entry("cl_waiting").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        EventName::ClientIdle => {
-                            let counter = stats.entry("cl_idle").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        EventName::ServerIdle => {
-                            let counter = stats.entry("sv_idle").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        EventName::ServerActive => {
-                            let counter = stats.entry("sv_active").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        EventName::ServerTested => {
-                            let counter = stats.entry("sv_tested").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        EventName::ServerLogin => {
-                            let counter = stats.entry("sv_login").or_insert(0);
-                            *counter += 1;
-                        }
-
-                        _ => unreachable!(),
-                    };
-                }
-
-                info!("{:?}", stats);
-
-                let mut pipeline = self.client.pipeline();
-
-                for (key, value) in stats.iter_mut() {
-                    pipeline.gauge(key, *value as f64);
-                    *value = 0;
-                }
-
-                pipeline.send(&self.client);
-
-                now = Instant::now();
-            }
         }
     }
 }
