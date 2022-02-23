@@ -111,9 +111,9 @@ async fn main() {
 
     // Collect statistics and send them to StatsD
     let (tx, rx) = mpsc::channel(100);
-
+    let collector_tx = tx.clone();
     tokio::task::spawn(async move {
-        let mut stats_collector = Collector::new(rx);
+        let mut stats_collector = Collector::new(rx, collector_tx);
         stats_collector.collect().await;
     });
 
