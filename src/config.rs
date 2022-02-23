@@ -118,6 +118,7 @@ pub struct QueryRouter {
     pub default_role: String,
     pub query_parser_enabled: bool,
     pub primary_reads_enabled: bool,
+    pub sharding_function: String,
 }
 
 impl Default for QueryRouter {
@@ -126,6 +127,7 @@ impl Default for QueryRouter {
             default_role: String::from("any"),
             query_parser_enabled: false,
             primary_reads_enabled: true,
+            sharding_function: "pg_bigint_hash".to_string(),
         }
     }
 }
@@ -159,6 +161,8 @@ impl Config {
             self.general.healthcheck_timeout
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
+        info!("Sharding function: {}", self.query_router.sharding_function);
+        info!("Number of shards: {}", self.shards.len());
     }
 }
 
@@ -189,6 +193,18 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         Ok(config) => config,
         Err(err) => {
             error!("Could not parse config file: {}", err.to_string());
+            return Err(Error::BadConfig);
+        }
+    };
+
+    match config.query_router.sharding_function.as_ref() {
+        "pg_bigint_hash" => (),
+        "sha1" => (),
+        _ => {
+            error!(
+                "Supported sharding functions are: 'pg_bigint_hash', 'sha1', got: '{}'",
+                config.query_router.sharding_function
+            );
             return Err(Error::BadConfig);
         }
     };

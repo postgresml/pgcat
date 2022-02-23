@@ -1,24 +1,60 @@
+use sha1::{Digest, Sha1};
+
 // https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/catalog/partition.h#L20
 const PARTITION_HASH_SEED: u64 = 0x7A5B22367996DCFD;
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum ShardingFunction {
+    PgBigintHash,
+    Sha1,
+}
+
 pub struct Sharder {
     shards: usize,
+    sharding_function: ShardingFunction,
 }
 
 impl Sharder {
-    pub fn new(shards: usize) -> Sharder {
-        Sharder { shards: shards }
+    pub fn new(shards: usize, sharding_function: ShardingFunction) -> Sharder {
+        Sharder {
+            shards,
+            sharding_function,
+        }
+    }
+
+    pub fn shard(&self, key: i64) -> usize {
+        match self.sharding_function {
+            ShardingFunction::PgBigintHash => self.pg_bigint_hash(key),
+            ShardingFunction::Sha1 => self.sha1(key),
+        }
     }
 
     /// Hash function used by Postgres to determine which partition
     /// to put the row in when using HASH(column) partitioning.
     /// Source: https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/common/hashfn.c#L631
     /// Supports only 1 bigint at the moment, but we can add more later.
-    pub fn pg_bigint_hash(&self, key: i64) -> usize {
+    fn pg_bigint_hash(&self, key: i64) -> usize {
         let mut lohalf = key as u32;
         let hihalf = (key >> 32) as u32;
         lohalf ^= if key >= 0 { hihalf } else { !hihalf };
         Self::combine(0, Self::pg_u32_hash(lohalf)) as usize % self.shards
+    }
+
+    /// Example of a hashing function based on SHA1.
+    fn sha1(&self, key: i64) -> usize {
+        let mut hasher = Sha1::new();
+
+        hasher.update(&key.to_string().as_bytes());
+
+        let result = hasher.finalize();
+
+        // Convert the SHA1 hash into hex so we can parse it as a large integer.
+        let hex = format!("{:x}", result);
+
+        // Parse the last 8 bytes as an integer (8 bytes = bigint).
+        let key = i64::from_str_radix(&hex[hex.len() - 8..], 16).unwrap() as usize;
+
+        key % self.shards
     }
 
     #[inline]
@@ -139,6 +175,21 @@ mod test {
 
         for v in shard_4 {
             assert_eq!(sharder.pg_bigint_hash(v), 4);
+        }
+    }
+
+    #[test]
+    fn test_sha1_hash() {
+        let sharder = Sharder::new(12);
+        let ids = vec![
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        ];
+        let shards = vec![
+            4, 7, 8, 3, 6, 0, 0, 10, 3, 11, 1, 7, 4, 4, 11, 2, 5, 0, 8, 3,
+        ];
+
+        for (i, id) in ids.iter().enumerate() {
+            assert_eq!(sharder.sha1(*id), shards[i]);
         }
     }
 }

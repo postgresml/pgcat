@@ -1,5 +1,5 @@
 use crate::config::{get_config, Role};
-use crate::sharding::Sharder;
+use crate::sharding::{Sharder, ShardingFunction};
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
@@ -48,6 +48,9 @@ pub struct QueryRouter {
 
     // Should we try to parse queries?
     query_parser_enabled: bool,
+
+    // Which sharding function are we using?
+    sharding_function: ShardingFunction,
 }
 
 impl QueryRouter {
@@ -76,6 +79,12 @@ impl QueryRouter {
             _ => unreachable!(),
         };
 
+        let sharding_function = match config.query_router.sharding_function.as_ref() {
+            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
+            "sha1" => ShardingFunction::Sha1,
+            _ => unreachable!(),
+        };
+
         QueryRouter {
             default_server_role: default_server_role,
             shards: config.shards.len(),
@@ -84,6 +93,7 @@ impl QueryRouter {
             active_shard: None,
             primary_reads_enabled: config.query_router.primary_reads_enabled,
             query_parser_enabled: config.query_router.query_parser_enabled,
+            sharding_function,
         }
     }
 
@@ -139,8 +149,8 @@ impl QueryRouter {
 
         match command {
             Command::SetShardingKey => {
-                let sharder = Sharder::new(self.shards);
-                let shard = sharder.pg_bigint_hash(value.parse::<i64>().unwrap());
+                let sharder = Sharder::new(self.shards, self.sharding_function);
+                let shard = sharder.shard(value.parse::<i64>().unwrap());
                 self.active_shard = Some(shard);
                 value = shard.to_string();
             }
