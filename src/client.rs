@@ -338,6 +338,8 @@ impl Client {
                 match code {
                     // ReadyForQuery
                     'Q' => {
+                        debug!("Sending query to server");
+
                         // TODO: implement retries here for read-only transactions.
                         server.send(original).await?;
 
@@ -419,6 +421,8 @@ impl Client {
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {
+                        debug!("Sending query to server");
+
                         self.buffer.put(&original[..]);
 
                         // TODO: retries for read-only transactions.
@@ -503,6 +507,7 @@ impl Client {
             }
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
+            debug!("Releasing server back into the pool");
             self.release();
         }
     }
