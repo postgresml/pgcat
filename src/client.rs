@@ -2,7 +2,7 @@
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{error, debug};
+use log::{debug, error};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -217,7 +217,7 @@ impl Client {
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {
                 debug!("Client disconnecting");
-                return Ok(())
+                return Ok(());
             }
 
             // Handle all custom protocol commands here.
@@ -294,7 +294,11 @@ impl Client {
             self.stats.client_active(self.process_id);
             self.stats.server_active(server.process_id());
 
-            debug!("Client {:?} talking to server {:?}", self.write.peer_addr().unwrap(), server.address());
+            debug!(
+                "Client {:?} talking to server {:?}",
+                self.write.peer_addr().unwrap(),
+                server.address()
+            );
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,

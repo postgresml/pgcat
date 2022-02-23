@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 ///! Implementation of the PostgreSQL server (database) protocol.
 ///! Here we are pretending to the a Postgres client.
-use log::{error, info, debug};
+use log::{debug, error, info};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
