@@ -4,7 +4,6 @@ use statsd::Client;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use crate::config::get_config;
 
@@ -45,143 +44,143 @@ impl Reporter {
     }
 
     pub fn query(&self) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::Query,
             value: 1,
             process_id: None,
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn transaction(&self) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::Transaction,
             value: 1,
             process_id: None,
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn data_sent(&self, amount: usize) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::DataSent,
             value: amount as i64,
             process_id: None,
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn data_received(&self, amount: usize) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::DataReceived,
             value: amount as i64,
             process_id: None,
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn checkout_time(&self, ms: u128) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::CheckoutTime,
             value: ms as i64,
             process_id: None,
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn client_waiting(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ClientWaiting,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn client_active(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ClientActive,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn client_idle(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ClientIdle,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn client_disconnecting(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ClientDisconnecting,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn server_active(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ServerActive,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn server_idle(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ServerIdle,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn server_login(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ServerLogin,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn server_tested(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ServerTested,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     pub fn server_disconnecting(&self, process_id: i32) {
-        let statistic = Event {
+        let event = Event {
             name: EventName::ServerDisconnecting,
             value: 1,
             process_id: Some(process_id),
         };
 
-        let _ = self.tx.try_send(statistic);
+        let _ = self.tx.try_send(event);
     }
 
     // pub fn flush_to_statsd(&self) {
