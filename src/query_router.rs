@@ -194,7 +194,12 @@ impl QueryRouter {
         let len = buf.get_i32() as usize;
 
         let query = match code {
-            'Q' => String::from_utf8_lossy(&buf[..len - 5]).to_string(),
+            'Q' => {
+                let query = String::from_utf8_lossy(&buf[..len - 5]).to_string();
+                debug!("Query: '{}'", query);
+                query
+            }
+
             'P' => {
                 let mut start = 0;
                 let mut end;
@@ -213,6 +218,8 @@ impl QueryRouter {
 
                 let query = String::from_utf8_lossy(&buf[start..end]).to_string();
 
+                debug!("Prepared statement: '{}'", query);
+
                 query.replace("$", "") // Remove placeholders turning them into "values"
             }
             _ => return false,
@@ -221,7 +228,7 @@ impl QueryRouter {
         let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => ast,
             Err(err) => {
-                debug!("{:?}, query: {}", err, query);
+                debug!("{}", err.to_string());
                 return false;
             }
         };
