@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 ///! Implementation of the PostgreSQL server (database) protocol.
 ///! Here we are pretending to the a Postgres client.
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -75,7 +75,7 @@ impl Server {
                 }
             };
 
-        debug!("Sending StartupMessage");
+        trace!("Sending StartupMessage");
 
         // Send the startup packet telling the server we're a normal Postgres client.
         startup(&mut stream, &user.name, database).await?;
@@ -97,7 +97,7 @@ impl Server {
                 Err(_) => return Err(Error::SocketError),
             };
 
-            debug!("Message: {}", code);
+            trace!("Message: {}", code);
 
             match code {
                 // Authentication
@@ -108,7 +108,7 @@ impl Server {
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    debug!("Auth: {}", auth_code);
+                    trace!("Auth: {}", auth_code);
 
                     match auth_code {
                         MD5_ENCRYPTED_PASSWORD => {
@@ -141,7 +141,7 @@ impl Server {
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    debug!("Error: {}", error_code);
+                    trace!("Error: {}", error_code);
 
                     match error_code {
                         // No error message is present in the message.
@@ -300,7 +300,7 @@ impl Server {
             let code = message.get_u8() as char;
             let _len = message.get_i32();
 
-            debug!("Message: {}", code);
+            trace!("Message: {}", code);
 
             match code {
                 // ReadyForQuery

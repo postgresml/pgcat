@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use parking_lot::{Mutex, RwLock};
 
 use crate::config::{get_config, Address, Role, User};
@@ -162,6 +162,8 @@ impl ConnectionPool {
             _ => addresses.len(),
         };
 
+        debug!("Allowed attempts for {:?}: {}", role, allowed_attempts);
+
         let exists = match role {
             Some(role) => addresses.iter().filter(|addr| addr.role == role).count() > 0,
             None => true,
@@ -275,6 +277,8 @@ impl ConnectionPool {
             Some(Role::Primary) => return false, // Primary cannot be banned.
         };
 
+        debug!("Available targets for {:?}: {}", role, replicas_available);
+
         let guard = self.banlist.read();
 
         // Everything is banned = nothing is banned.
@@ -296,15 +300,20 @@ impl ConnectionPool {
                 // Ban expired.
                 if now.timestamp() - timestamp.timestamp() > config.general.ban_time {
                     drop(guard);
+                    warn!("Unbanning {:?}", address);
                     let mut guard = self.banlist.write();
                     guard[shard].remove(address);
                     false
                 } else {
+                    debug!("{:?} is banned", address);
                     true
                 }
             }
 
-            None => false,
+            None => {
+                debug!("{:?} is ok", address);
+                false
+            }
         }
     }
 
