@@ -36,6 +36,7 @@ extern crate tokio;
 extern crate toml;
 
 use log::{error, info};
+use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::{
     signal,
@@ -44,7 +45,7 @@ use tokio::{
 };
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 mod client;
 mod config;

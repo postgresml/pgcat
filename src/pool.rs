@@ -4,6 +4,7 @@ use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
 use log::{error, info, warn};
+use parking_lot::{Mutex, RwLock};
 
 use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
@@ -11,11 +12,11 @@ use crate::server::Server;
 use crate::stats::Reporter;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 // Banlist: bad servers go in here.
-pub type BanList = Arc<Mutex<Vec<HashMap<Address, NaiveDateTime>>>>;
+pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
 #[derive(Clone, Debug)]
@@ -101,7 +102,7 @@ impl ConnectionPool {
             databases: shards,
             addresses: addresses,
             round_robin: rand::random::<usize>() % address_len, // Start at a random replica
-            banlist: Arc::new(Mutex::new(banlist)),
+            banlist: Arc::new(RwLock::new(banlist)),
             stats: stats,
         }
     }
@@ -251,14 +252,14 @@ impl ConnectionPool {
     pub fn ban(&self, address: &Address, shard: usize) {
         error!("Banning {:?}", address);
         let now = chrono::offset::Utc::now().naive_utc();
-        let mut guard = self.banlist.lock().unwrap();
+        let mut guard = self.banlist.write();
         guard[shard].insert(address.clone(), now);
     }
 
     /// Clear the replica to receive traffic again. Takes effect immediately
     /// for all new transactions.
     pub fn _unban(&self, address: &Address, shard: usize) {
-        let mut guard = self.banlist.lock().unwrap();
+        let mut guard = self.banlist.write();
         guard[shard].remove(address);
     }
 
@@ -274,12 +275,12 @@ impl ConnectionPool {
             Some(Role::Primary) => return false, // Primary cannot be banned.
         };
 
-        // If you're not asking for the primary,
-        // all databases are treated as replicas.
-        let mut guard = self.banlist.lock().unwrap();
+        let guard = self.banlist.read();
 
         // Everything is banned = nothing is banned.
         if guard[shard].len() == replicas_available {
+            drop(guard);
+            let mut guard = self.banlist.write();
             guard[shard].clear();
             drop(guard);
             warn!("Unbanning all replicas.");
@@ -291,8 +292,11 @@ impl ConnectionPool {
             Some(timestamp) => {
                 let now = chrono::offset::Utc::now().naive_utc();
                 let config = get_config();
+
                 // Ban expired.
                 if now.timestamp() - timestamp.timestamp() > config.general.ban_time {
+                    drop(guard);
+                    let mut guard = self.banlist.write();
                     guard[shard].remove(address);
                     false
                 } else {

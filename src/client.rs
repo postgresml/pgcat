@@ -171,7 +171,7 @@ impl Client {
             debug!("Sending CancelRequest");
 
             let (process_id, secret_key, address, port) = {
-                let guard = self.client_server_map.lock().unwrap();
+                let guard = self.client_server_map.lock();
 
                 match guard.get(&(self.process_id, self.secret_key)) {
                     // Drop the mutex as soon as possible.
@@ -514,7 +514,7 @@ impl Client {
 
     /// Release the server from being mine. I can't cancel its queries anymore.
     pub fn release(&self) {
-        let mut guard = self.client_server_map.lock().unwrap();
+        let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
     }
 }

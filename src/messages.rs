@@ -38,7 +38,7 @@ pub async fn backend_key_data(
     Ok(write_all(stream, key_data).await?)
 }
 
-#[allow(dead_code)]
+/// Construct a `Q`: Query message.
 pub fn simple_query(query: &str) -> BytesMut {
     let mut res = BytesMut::from(&b"Q"[..]);
     let query = format!("{}\0", query);
