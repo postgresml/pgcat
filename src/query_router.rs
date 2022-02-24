@@ -11,11 +11,11 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
-    r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *",
-    r"(?i)^ *SET SHARD TO '?([0-9]+)'? *",
-    r"(?i)^ *SHOW SHARD",
-    r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)'",
-    r"(?i)^ *SHOW SERVER ROLE",
+    r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *;? *$",
+    r"(?i)^ *SET SHARD TO '?([0-9]+)'? *;? *$",
+    r"(?i)^ *SHOW SHARD *;? *$",
+    r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)' *;? *$",
+    r"(?i)^ *SHOW SERVER ROLE *;? *$",
 ];
 
 #[derive(PartialEq, Debug)]
@@ -450,10 +450,19 @@ mod test {
             // No quotes
             "SET SHARDING KEY TO 11235",
             "SET SHARD TO 15",
+            // Spaces and semicolon
+            "  SET SHARDING KEY TO 11235  ; ",
+            "  SET SHARD TO 15;   ",
+            "  SET SHARDING KEY TO 11235  ;",
+            " SET SERVER ROLE TO 'primary';   ",
+            "    SET SERVER ROLE TO 'primary'  ; ",
+            "  SET SERVER ROLE TO 'primary'  ;",
         ];
 
         // Which regexes it'll match to in the list
-        let matches = [0, 1, 2, 3, 3, 3, 3, 4, 0, 1, 2, 3, 3, 3, 3, 4, 0, 1];
+        let matches = [
+            0, 1, 2, 3, 3, 3, 3, 4, 0, 1, 2, 3, 3, 3, 3, 4, 0, 1, 0, 1, 0, 3, 3, 3,
+        ];
 
         let list = CUSTOM_SQL_REGEX_LIST.get().unwrap();
         let set = CUSTOM_SQL_REGEX_SET.get().unwrap();
@@ -461,6 +470,15 @@ mod test {
         for (i, test) in tests.iter().enumerate() {
             assert!(list[matches[i]].is_match(test));
             assert_eq!(set.matches(test).into_iter().collect::<Vec<_>>().len(), 1);
+        }
+
+        let bad = [
+            "SELECT * FROM table",
+            "SELECT * FROM table WHERE value = 'set sharding key to 5'", // Don't capture things in the middle of the query
+        ];
+
+        for query in &bad {
+            assert_eq!(set.matches(query).into_iter().collect::<Vec<_>>().len(), 0);
         }
     }
 
