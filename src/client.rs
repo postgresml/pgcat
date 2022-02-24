@@ -2,7 +2,7 @@
 /// We are pretending to the server in this scenario,
 /// and this module implements that.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error};
+use log::{debug, error, trace};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -70,7 +70,7 @@ impl Client {
         let transaction_mode = config.general.pool_mode.starts_with("t");
         drop(config);
         loop {
-            debug!("Waiting for StartupMessage");
+            trace!("Waiting for StartupMessage");
 
             // Could be StartupMessage or SSLRequest
             // which makes this variable length.
@@ -93,7 +93,7 @@ impl Client {
             match code {
                 // Client wants SSL. We don't support it at the moment.
                 SSL_REQUEST_CODE => {
-                    debug!("Rejecting SSLRequest");
+                    trace!("Rejecting SSLRequest");
 
                     let mut no = BytesMut::with_capacity(1);
                     no.put_u8(b'N');
@@ -103,7 +103,7 @@ impl Client {
 
                 // Regular startup message.
                 PROTOCOL_VERSION_NUMBER => {
-                    debug!("Got StartupMessage");
+                    trace!("Got StartupMessage");
 
                     // TODO: perform actual auth.
                     let parameters = parse_startup(bytes.clone())?;
@@ -116,7 +116,7 @@ impl Client {
                     write_all(&mut stream, server_info).await?;
                     backend_key_data(&mut stream, process_id, secret_key).await?;
                     ready_for_query(&mut stream).await?;
-                    debug!("Startup OK");
+                    trace!("Startup OK");
 
                     // Split the read and write streams
                     // so we can control buffering.
@@ -168,10 +168,10 @@ impl Client {
     pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
         // The client wants to cancel a query it has issued previously.
         if self.cancel_mode {
-            debug!("Sending CancelRequest");
+            trace!("Sending CancelRequest");
 
             let (process_id, secret_key, address, port) = {
-                let guard = self.client_server_map.lock().unwrap();
+                let guard = self.client_server_map.lock();
 
                 match guard.get(&(self.process_id, self.secret_key)) {
                     // Drop the mutex as soon as possible.
@@ -202,7 +202,7 @@ impl Client {
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocols.
         loop {
-            debug!("Client idle, waiting for message");
+            trace!("Client idle, waiting for message");
 
             // Client idle, waiting for messages.
             self.stats.client_idle(self.process_id);
@@ -216,7 +216,7 @@ impl Client {
 
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {
-                debug!("Client disconnecting");
+                trace!("Client disconnecting");
                 return Ok(());
             }
 
@@ -333,7 +333,7 @@ impl Client {
                 let code = message.get_u8() as char;
                 let _len = message.get_i32() as usize;
 
-                debug!("Message: {}", code);
+                trace!("Message: {}", code);
 
                 match code {
                     // ReadyForQuery
@@ -514,7 +514,7 @@ impl Client {
 
     /// Release the server from being mine. I can't cancel its queries anymore.
     pub fn release(&self) {
-        let mut guard = self.client_server_map.lock().unwrap();
+        let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
     }
 }

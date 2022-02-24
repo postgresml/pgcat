@@ -364,6 +364,7 @@ dependencies = [
  "md-5",
  "num_cpus",
  "once_cell",
+ "parking_lot",
  "rand",
  "regex",
  "serde",

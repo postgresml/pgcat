@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 ///! Implementation of the PostgreSQL server (database) protocol.
 ///! Here we are pretending to the a Postgres client.
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -75,7 +75,7 @@ impl Server {
                 }
             };
 
-        debug!("Sending StartupMessage");
+        trace!("Sending StartupMessage");
 
         // Send the startup packet telling the server we're a normal Postgres client.
         startup(&mut stream, &user.name, database).await?;
@@ -97,7 +97,7 @@ impl Server {
                 Err(_) => return Err(Error::SocketError),
             };
 
-            debug!("Message: {}", code);
+            trace!("Message: {}", code);
 
             match code {
                 // Authentication
@@ -108,7 +108,7 @@ impl Server {
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    debug!("Auth: {}", auth_code);
+                    trace!("Auth: {}", auth_code);
 
                     match auth_code {
                         MD5_ENCRYPTED_PASSWORD => {
@@ -141,7 +141,7 @@ impl Server {
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    debug!("Error: {}", error_code);
+                    trace!("Error: {}", error_code);
 
                     match error_code {
                         // No error message is present in the message.
@@ -300,7 +300,7 @@ impl Server {
             let code = message.get_u8() as char;
             let _len = message.get_i32();
 
-            debug!("Message: {}", code);
+            trace!("Message: {}", code);
 
             match code {
                 // ReadyForQuery
@@ -415,7 +415,7 @@ impl Server {
 
     /// Claim this server as mine for the purposes of query cancellation.
     pub fn claim(&mut self, process_id: i32, secret_key: i32) {
-        let mut guard = self.client_server_map.lock().unwrap();
+        let mut guard = self.client_server_map.lock();
         guard.insert(
             (process_id, secret_key),
             (
@@ -431,18 +431,9 @@ impl Server {
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
-        let mut query = BytesMut::from(&query.as_bytes()[..]);
-        query.put_u8(0); // C-string terminator (NULL character).
+        let query = simple_query(query);
 
-        let len = query.len() as i32 + 4;
-
-        let mut msg = BytesMut::with_capacity(len as usize + 1);
-
-        msg.put_u8(b'Q');
-        msg.put_i32(len);
-        msg.put_slice(&query[..]);
-
-        self.send(msg).await?;
+        self.send(query).await?;
 
         loop {
             let _ = self.recv().await?;
