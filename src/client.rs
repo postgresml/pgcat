@@ -229,8 +229,14 @@ impl Client {
                     }
                 }
 
-                Some((Command::SetShard, _)) | Some((Command::SetShardingKey, _)) => {
+                Some((Command::SetShard, _)) => {
                     custom_protocol_response_ok(&mut self.write, &format!("SET SHARD")).await?;
+                    continue;
+                }
+
+                Some((Command::SetShardingKey, _)) => {
+                    custom_protocol_response_ok(&mut self.write, &format!("SET SHARDING KEY"))
+                        .await?;
                     continue;
                 }
 
