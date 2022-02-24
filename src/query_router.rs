@@ -5,14 +5,14 @@ use crate::sharding::{Sharder, ShardingFunction};
 use bytes::{Buf, BytesMut};
 use log::{debug, error};
 use once_cell::sync::OnceCell;
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
 use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
-    r"(?i)SET SHARDING KEY TO '[0-9]+'",
-    r"(?i)SET SHARD TO '[0-9]+'",
+    r"(?i)SET SHARDING KEY TO '?([0-9]+)'? *",
+    r"(?i)SET SHARD TO '?([0-9]+)'? *",
     r"(?i)SHOW SHARD",
     r"(?i)SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)'",
     r"(?i)SHOW SERVER ROLE",
@@ -27,7 +27,11 @@ pub enum Command {
     ShowServerRole,
 }
 
+// Quick test
 static CUSTOM_SQL_REGEX_SET: OnceCell<RegexSet> = OnceCell::new();
+
+// Capture value
+static CUSTOM_SQL_REGEX_LIST: OnceCell<Vec<Regex>> = OnceCell::new();
 
 pub struct QueryRouter {
     // By default, queries go here, unless we have better information
@@ -61,6 +65,21 @@ impl QueryRouter {
                 error!("QueryRouter::setup Could not compile regex set: {:?}", err);
                 return false;
             }
+        };
+
+        let list: Vec<_> = CUSTOM_SQL_REGEXES
+            .iter()
+            .map(|rgx| Regex::new(rgx).unwrap())
+            .collect();
+
+        // Impossible
+        if list.len() != set.len() {
+            return false;
+        }
+
+        match CUSTOM_SQL_REGEX_LIST.set(list) {
+            Ok(_) => true,
+            Err(_) => return false,
         };
 
         match CUSTOM_SQL_REGEX_SET.set(set) {
@@ -113,6 +132,11 @@ impl QueryRouter {
             None => return None,
         };
 
+        let regex_list = match CUSTOM_SQL_REGEX_LIST.get() {
+            Some(regex_list) => regex_list,
+            None => return None,
+        };
+
         let matches: Vec<_> = regex_set.matches(&query).into_iter().collect();
 
         if matches.len() != 1 {
@@ -130,7 +154,19 @@ impl QueryRouter {
 
         let mut value = match command {
             Command::SetShardingKey | Command::SetShard | Command::SetServerRole => {
-                query.split("'").collect::<Vec<&str>>()[1].to_string()
+                // Capture value. I know this re-runs the regex engine, but I haven't
+                // figured out a better way just yet. I think I can write a single Regex
+                // that matches all 5 custom SQL patterns, but maybe that's not very legible?
+                //
+                // I think this is faster than running the Regex engine 5 times, so
+                // this is a strong maybe for me so far.
+                match regex_list[matches[0]].captures(&query) {
+                    Some(captures) => match captures.get(1) {
+                        Some(value) => value.as_str().to_string(),
+                        None => return None,
+                    },
+                    None => return None,
+                }
             }
 
             Command::ShowShard => self.shard().to_string(),
@@ -411,14 +447,20 @@ mod test {
             "set server role to 'any'",
             "set server role to 'auto'",
             "show server role",
+            // No quotes
+            "SET SHARDING KEY TO 11235",
+            "SET SHARD TO 15",
         ];
 
+        // Which regexes it'll match to in the list
+        let matches = [0, 1, 2, 3, 3, 3, 3, 4, 0, 1, 2, 3, 3, 3, 3, 4, 0, 1];
+
+        let list = CUSTOM_SQL_REGEX_LIST.get().unwrap();
         let set = CUSTOM_SQL_REGEX_SET.get().unwrap();
 
-        for test in &tests {
-            let matches: Vec<_> = set.matches(test).into_iter().collect();
-
-            assert_eq!(matches.len(), 1);
+        for (i, test) in tests.iter().enumerate() {
+            assert!(list[matches[i]].is_match(test));
+            assert_eq!(set.matches(test).into_iter().collect::<Vec<_>>().len(), 1);
         }
     }
 
