@@ -470,7 +470,7 @@ mod test {
         let mut qr = QueryRouter::new();
 
         // SetShardingKey
-        let query = simple_query("SET SHARDING KEY TO '13'");
+        let query = simple_query("SET SHARDING KEY TO 13");
         assert_eq!(
             qr.try_execute_command(query),
             Some((Command::SetShardingKey, String::from("1")))
