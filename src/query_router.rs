@@ -11,11 +11,11 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
-    r"(?i)SET SHARDING KEY TO '?([0-9]+)'? *",
-    r"(?i)SET SHARD TO '?([0-9]+)'? *",
-    r"(?i)SHOW SHARD",
-    r"(?i)SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)'",
-    r"(?i)SHOW SERVER ROLE",
+    r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *",
+    r"(?i)^ *SET SHARD TO '?([0-9]+)'? *",
+    r"(?i)^ *SHOW SHARD",
+    r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)'",
+    r"(?i)^ *SHOW SERVER ROLE",
 ];
 
 #[derive(PartialEq, Debug)]
