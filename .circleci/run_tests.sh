@@ -58,9 +58,9 @@ toxiproxy-cli toxic add -t latency -a latency=300 postgres_replica
 sleep 1
 
 # Note the failover in the logs
-timeout 5 psql -h 127.0.0.1 -p 6432 'SELECT 1'
-timeout 5 psql -h 127.0.0.1 -p 6432 'SELECT 1'
-timeout 5 psql -h 127.0.0.1 -p 6432 'SELECT 1'
+timeout 5 psql -e -h 127.0.0.1 -p 6432 'SELECT 1' > /dev/null
+timeout 5 psql -e -h 127.0.0.1 -p 6432 'SELECT 1' > /dev/null
+timeout 5 psql -e -h 127.0.0.1 -p 6432 'SELECT 1' > /dev/null
 
 # Test session mode (and config reload)
 sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
