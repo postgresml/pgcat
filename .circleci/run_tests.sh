@@ -12,8 +12,7 @@ toxiproxy-server &
 sleep 2
 toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 
-RUST_LOG=debug ./target/debug/pgcat .circleci/pgcat.toml &
-
+RUST_LOG=info ./target/debug/pgcat .circleci/pgcat.toml &
 sleep 1
 
 # Setup PgBench
@@ -48,6 +47,10 @@ cd tests/ruby
 sudo gem install bundler
 bundle install
 ruby tests.rb
+
+kill -s SIGINT $(pgrep pgcat)
+RUST_LOG=debug ./target/debug/pgcat .circleci/pgcat.toml &
+sleep 1
 
 # Failover tests
 toxiproxy-cli toxic add -t latency -a latency=300 postgres_replica
