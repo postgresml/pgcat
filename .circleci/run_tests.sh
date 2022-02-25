@@ -65,9 +65,11 @@ toxiproxy-cli toxic add -t latency -a latency=300 postgres_replica
 sleep 1
 
 # Note the failover in the logs
-timeout 5 psql -e -h 127.0.0.1 -p 6432 -c 'SELECT 1' > /dev/null
-timeout 5 psql -e -h 127.0.0.1 -p 6432 -c 'SELECT 1' > /dev/null
-timeout 5 psql -e -h 127.0.0.1 -p 6432 -c 'SELECT 1' > /dev/null
+timeout 5 psql -e -h 127.0.0.1 -p 6432 <<-EOF
+SELECT 1;
+SELECT 1;
+SELECT 1;
+EOF
 
 # Remove latency
 toxiproxy-cli toxic remove --toxicName latency_downstream postgres_replica
