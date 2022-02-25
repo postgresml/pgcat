@@ -79,8 +79,8 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 | Session pooling       | :white_check_mark: | :white_check_mark:  | Tested by running pgbench with `--protocol prepared` which only works in session mode.                                   |
 | `COPY`                | :white_check_mark: | :white_check_mark:  | `pgbench -i` uses `COPY`. `COPY FROM` is tested as well.                                                                 |
 | Query cancellation    | :white_check_mark: | :white_check_mark:  | `psql -c 'SELECT pg_sleep(1000);'` and press `Ctrl-C`.                                                                   |
-| Load balancing        | :x:                | :white_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
-| Failover              | :x:                | :white_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
+| Load balancing        | :white_check_mark: | :white_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
+| Failover              | :white_check_mark: | :white_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing could include using Toxiproxy. |
 | Sharding              | :white_check_mark: | :white_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
 | Statistics reporting  | :x:                | :white_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
 | Live config reloading | :white_check_mark: | :white_check_mark:  | Run `kill -s SIGHUP $(pgrep pgcat)` and watch the config reload.                                                         |
