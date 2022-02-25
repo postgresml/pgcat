@@ -5,7 +5,14 @@ set -o xtrace
 
 psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
 
-./target/debug/pgcat &
+# Toxiproxy
+wget -O toxiproxy-2.1.4.deb https://github.com/Shopify/toxiproxy/releases/download/v2.1.4/toxiproxy_2.1.4_amd64.deb
+sudo dpkg -i toxiproxy-2.1.4.deb
+toxiproxy-server &
+sleep 2
+toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
+
+./target/debug/pgcat .circleci/pgcat.toml &
 
 sleep 1
 
@@ -35,8 +42,11 @@ psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /
 psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
 
 #
-# ActiveRecord tests!
+# ActiveRecord tests with failover
 #
+toxiproxy-cli toxic add -t latency -a latency=2000 postgres_replica
+sleep 1
+
 cd tests/ruby
 sudo gem install bundler
 bundle install
