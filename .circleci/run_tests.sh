@@ -48,6 +48,7 @@ sudo gem install bundler
 bundle install
 ruby tests.rb
 
+cd ../..
 kill -s SIGINT $(pgrep pgcat)
 RUST_LOG=debug ./target/debug/pgcat .circleci/pgcat.toml &
 sleep 1
@@ -61,7 +62,6 @@ timeout 5 psql -h 127.0.0.1 -p 6432 'SELECT 1'
 timeout 5 psql -h 127.0.0.1 -p 6432 'SELECT 1'
 timeout 5 psql -h 127.0.0.1 -p 6432 'SELECT 1'
 
-cd ../../
 # Test session mode (and config reload)
 sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 
