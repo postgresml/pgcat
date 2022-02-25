@@ -12,7 +12,7 @@ toxiproxy-server &
 sleep 2
 toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 
-./target/debug/pgcat .circleci/pgcat.toml &
+RUST_LOG=debug ./target/debug/pgcat .circleci/pgcat.toml &
 
 sleep 1
 
