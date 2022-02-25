@@ -311,7 +311,7 @@ impl Client {
             // or until the client disconnects if we are in session mode.
             loop {
                 let mut message = if message.len() == 0 {
-                    debug!("Waiting for message inside transaction or in session mode");
+                    trace!("Waiting for message inside transaction or in session mode");
 
                     match read_message(&mut self.read).await {
                         Ok(message) => message,

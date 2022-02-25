@@ -42,15 +42,21 @@ psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /
 psql -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
 
 #
-# ActiveRecord tests with failover
+# ActiveRecord tests
 #
-toxiproxy-cli toxic add -t latency -a latency=2000 postgres_replica
-sleep 1
-
 cd tests/ruby
 sudo gem install bundler
 bundle install
 ruby tests.rb
+
+# Failover tests
+toxiproxy-cli toxic add -t latency -a latency=2000 postgres_replica
+sleep 1
+
+# Note the failover in the logs
+psql -h 127.0.0.1 -p 6432 'SELECT 1'
+psql -h 127.0.0.1 -p 6432 'SELECT 1'
+psql -h 127.0.0.1 -p 6432 'SELECT 1'
 
 cd ../../
 # Test session mode (and config reload)
