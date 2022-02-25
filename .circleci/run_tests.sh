@@ -62,6 +62,10 @@ timeout 5 psql -e -h 127.0.0.1 -p 6432 -c 'SELECT 1' > /dev/null
 timeout 5 psql -e -h 127.0.0.1 -p 6432 -c 'SELECT 1' > /dev/null
 timeout 5 psql -e -h 127.0.0.1 -p 6432 -c 'SELECT 1' > /dev/null
 
+kill -s SIGINT $(pgrep pgcat)
+RUST_LOG=info ./target/debug/pgcat .circleci/pgcat.toml &
+sleep 1
+
 # Test session mode (and config reload)
 sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 
