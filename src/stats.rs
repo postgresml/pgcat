@@ -259,7 +259,8 @@ impl Collector {
         // Flush stats to StatsD and calculate averages every 15 seconds.
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
             loop {
                 interval.tick().await;
                 let _ = tx.try_send(Event {
