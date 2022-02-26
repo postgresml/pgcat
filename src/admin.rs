@@ -1,6 +1,6 @@
-use tokio::net::tcp::OwnedWriteHalf;
 use bytes::{Buf, BufMut, BytesMut};
 use log::trace;
+use tokio::net::tcp::OwnedWriteHalf;
 
 use std::collections::HashMap;
 
