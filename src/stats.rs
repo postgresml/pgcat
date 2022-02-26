@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use crate::config::get_config;
 
 static LATEST_STATS: OnceCell<Arc<Mutex<HashMap<String, i64>>>> = OnceCell::new();
-static STAT_PERIOD: i64 = 15000; //15 seconds
+static STAT_PERIOD: u64 = 15000; //15 seconds
 
 #[derive(Debug, Clone, Copy)]
 enum EventName {
@@ -259,7 +259,7 @@ impl Collector {
         // Flush stats to StatsD and calculate averages every 15 seconds.
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(15000));
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
             loop {
                 interval.tick().await;
                 let _ = tx.try_send(Event {
@@ -390,7 +390,7 @@ impl Collector {
                         let total_name = stat.replace("avg_", "total_");
                         let old_value = old_stats.entry(total_name.clone()).or_insert(0);
                         let new_value = stats.get(total_name.as_str()).unwrap_or(&0).to_owned();
-                        let avg = (new_value - *old_value) / (STAT_PERIOD / 1_000); // Avg / second
+                        let avg = (new_value - *old_value) / (STAT_PERIOD as i64 / 1_000); // Avg / second
 
                         stats.insert(stat, avg);
                         *old_value = new_value;
