@@ -91,9 +91,8 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
     }
 }
 
-/// Parse StartupMessage parameters.
-/// e.g. user, database, application_name, etc.
-pub fn parse_startup(mut bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
+/// Parse the params the server sends as a key/value format.
+pub fn parse_params(mut bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
     let mut result = HashMap::new();
     let mut buf = Vec::new();
     let mut tmp = String::new();
@@ -115,7 +114,7 @@ pub fn parse_startup(mut bytes: BytesMut) -> Result<HashMap<String, String>, Err
 
     // Expect pairs of name and value
     // and at least one pair to be present.
-    if buf.len() % 2 != 0 && buf.len() >= 2 {
+    if buf.len() % 2 != 0 || buf.len() < 2 {
         return Err(Error::ClientBadStartup);
     }
 
@@ -126,6 +125,14 @@ pub fn parse_startup(mut bytes: BytesMut) -> Result<HashMap<String, String>, Err
         let _ = result.insert(name, value);
         i += 2;
     }
+
+    Ok(result)
+}
+
+/// Parse StartupMessage parameters.
+/// e.g. user, database, application_name, etc.
+pub fn parse_startup(bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
+    let result = parse_params(bytes)?;
 
     // Minimum required parameters
     // I want to have the user at the very minimum, according to the protocol spec.

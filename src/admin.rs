@@ -2,8 +2,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::trace;
 use tokio::net::tcp::OwnedWriteHalf;
 
-use std::collections::HashMap;
-
 use crate::constants::{OID_NUMERIC, OID_TEXT};
 use crate::errors::Error;
 use crate::messages::write_all_half;
@@ -50,7 +48,7 @@ pub async fn show_stats(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
         "avg_wait_time",
     ];
 
-    let stats = get_stats().unwrap_or(HashMap::new());
+    let stats = get_stats();
     let mut res = BytesMut::new();
     let mut row_desc = BytesMut::new();
     let mut data_row = BytesMut::new();
