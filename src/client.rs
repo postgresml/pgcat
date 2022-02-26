@@ -11,6 +11,7 @@ use tokio::net::{
 
 use std::collections::HashMap;
 
+use crate::admin::handle_admin;
 use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
@@ -54,6 +55,9 @@ pub struct Client {
 
     // Statistics
     stats: Reporter,
+
+    // Clients want to talk to admin
+    admin: bool,
 }
 
 impl Client {
@@ -118,6 +122,15 @@ impl Client {
                     ready_for_query(&mut stream).await?;
                     trace!("Startup OK");
 
+                    let database = parameters
+                        .get("database")
+                        .unwrap_or(parameters.get("user").unwrap());
+                    let admin = ["pgcat", "pgbouncer"]
+                        .iter()
+                        .filter(|db| *db == &database)
+                        .count()
+                        == 1;
+
                     // Split the read and write streams
                     // so we can control buffering.
                     let (read, write) = stream.into_split();
@@ -133,6 +146,7 @@ impl Client {
                         client_server_map: client_server_map,
                         parameters: parameters,
                         stats: stats,
+                        admin: admin,
                     });
                 }
 
@@ -154,6 +168,7 @@ impl Client {
                         client_server_map: client_server_map,
                         parameters: HashMap::new(),
                         stats: stats,
+                        admin: false,
                     });
                 }
 
@@ -218,6 +233,13 @@ impl Client {
             if message[0] as char == 'X' {
                 trace!("Client disconnecting");
                 return Ok(());
+            }
+
+            // Handle admin database real quick
+            if self.admin {
+                trace!("Handling admin command");
+                handle_admin(&mut self.write, message).await?;
+                continue;
             }
 
             // Handle all custom protocol commands here.

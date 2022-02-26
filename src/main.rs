@@ -47,6 +47,7 @@ use tokio::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod admin;
 mod client;
 mod config;
 mod constants;
