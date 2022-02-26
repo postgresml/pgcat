@@ -8,6 +8,7 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
+use crate::messages::parse_params;
 use crate::server::Server;
 use crate::stats::Reporter;
 
@@ -126,10 +127,22 @@ impl ConnectionPool {
                 };
 
                 let mut proxy = connection.0;
-                let _address = connection.1;
+                let address = connection.1;
                 let server = &mut *proxy;
 
-                server_infos.push(server.server_info());
+                let server_info = server.server_info();
+
+                if server_infos.len() > 0 {
+                    // Compare against the last server checked.
+                    if server_info != server_infos[server_infos.len() - 1] {
+                        warn!(
+                            "{:?} has different server configuration than the last server",
+                            address
+                        );
+                    }
+                }
+
+                server_infos.push(server_info);
             }
         }
 

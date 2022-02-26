@@ -1,15 +1,15 @@
-use log::{debug, error, info};
-use once_cell::sync::OnceCell;
+use log::{debug, info};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use statsd::Client;
-/// Events collector and publisher.
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use crate::config::get_config;
 
-static LATEST_STATS: OnceCell<Arc<Mutex<HashMap<String, i64>>>> = OnceCell::new();
+// Stats used in SHOW STATS
+static LATEST_STATS: Lazy<Mutex<HashMap<String, i64>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static STAT_PERIOD: u64 = 15000; //15 seconds
 
 #[derive(Debug, Clone, Copy)]
@@ -187,16 +187,6 @@ impl Reporter {
 
         let _ = self.tx.try_send(event);
     }
-
-    // pub fn flush_to_statsd(&self) {
-    //     let event = Event {
-    //         name: EventName::FlushStatsToStatsD,
-    //         value: 0,
-    //         process_id: None,
-    //     };
-
-    //     let _ = self.tx.try_send(event);
-    // }
 }
 
 pub struct Collector {
@@ -216,13 +206,6 @@ impl Collector {
 
     pub async fn collect(&mut self) {
         info!("Events reporter started");
-
-        match LATEST_STATS.set(Arc::new(Mutex::new(HashMap::new()))) {
-            Ok(_) => (),
-            Err(_) => {
-                error!("Latest stats will not be available");
-            }
-        };
 
         let mut stats = HashMap::from([
             ("total_query_count", 0),
@@ -400,16 +383,10 @@ impl Collector {
                     debug!("{:?}", stats);
 
                     // Update latest stats used in SHOW STATS
-                    match LATEST_STATS.get() {
-                        Some(arc) => {
-                            let mut guard = arc.lock().unwrap();
-                            for (key, value) in &stats {
-                                guard.insert(key.to_string(), value.clone());
-                            }
-                        }
-
-                        None => (),
-                    };
+                    let mut guard = LATEST_STATS.lock();
+                    for (key, value) in &stats {
+                        guard.insert(key.to_string(), value.clone());
+                    }
 
                     let mut pipeline = self.client.pipeline();
 
@@ -440,13 +417,6 @@ impl Collector {
     }
 }
 
-pub fn get_stats() -> Option<HashMap<String, i64>> {
-    match LATEST_STATS.get() {
-        Some(arc) => {
-            let guard = arc.lock().unwrap();
-            Some(guard.clone())
-        }
-
-        None => None,
-    }
+pub fn get_stats() -> HashMap<String, i64> {
+    LATEST_STATS.lock().clone()
 }

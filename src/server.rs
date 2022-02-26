@@ -8,9 +8,12 @@ use tokio::net::{
     TcpStream,
 };
 
+use std::collections::HashMap;
+
 use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
+use crate::messages::parse_params;
 use crate::messages::*;
 use crate::stats::Reporter;
 use crate::ClientServerMap;
@@ -406,6 +409,25 @@ impl Server {
     pub fn server_info(&self) -> BytesMut {
         self.server_info.clone()
     }
+
+    // /// Parse params
+    // pub fn params(&self) -> Result<HashMap<String, String>, Error> {
+    //     let mut result = HashMap::new();
+    //     let mut server_info = self.server_info();
+    //     while server_info.has_remaining() {
+    //         let code = server_info.get_u8() as char;
+    //         if code != 'S' {
+    //             error!("{:?} has incorrect parameters", self.address);
+    //             return Err(Error::ProtocolSyncError);
+    //         }
+
+    //         let len = server_info.get_i32();
+    //         let params = parse_params(BytesMut::from(&server_info[..len as usize - 4]))?;
+    //         result.extend(&params);
+    //     }
+
+    //     Ok(result)
+    // }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
