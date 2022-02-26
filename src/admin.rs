@@ -78,7 +78,7 @@ pub async fn show_stats(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
         row_desc.put_i16(-1);
 
         // Type modifier: none that I know
-        row_desc.put_i32(0); //TODO maybe -1?
+        row_desc.put_i32(-1);
 
         // Format being used: text (0), binary (1)
         row_desc.put_i16(0);
