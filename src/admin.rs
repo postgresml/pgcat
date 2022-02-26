@@ -1,8 +1,4 @@
-use tokio::net::{
-    tcp::{OwnedReadHalf, OwnedWriteHalf},
-    TcpStream,
-};
-
+use tokio::net::tcp::OwnedWriteHalf;
 use bytes::{Buf, BufMut, BytesMut};
 use log::trace;
 
