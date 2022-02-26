@@ -20,3 +20,9 @@ pub const AUTHENTICATION_SUCCESSFUL: i32 = 0;
 
 // ErrorResponse: A code identifying the field type; if zero, this is the message terminator and no string follows.
 pub const MESSAGE_TERMINATOR: u8 = 0;
+
+//
+// Data types
+//
+pub const OID_NUMERIC: i32 = 1700;
+pub const OID_TEXT: i32 = 25;

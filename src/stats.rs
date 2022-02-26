@@ -1,11 +1,15 @@
-use log::info;
+use log::{error, info};
+use once_cell::sync::OnceCell;
 use statsd::Client;
 /// Events collector and publisher.
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::config::get_config;
+
+static LATEST_STATS: OnceCell<Arc<Mutex<HashMap<String, i64>>>> = OnceCell::new();
 
 #[derive(Debug, Clone, Copy)]
 enum EventName {
@@ -212,6 +216,13 @@ impl Collector {
     pub async fn collect(&mut self) {
         info!("Events reporter started");
 
+        match LATEST_STATS.set(Arc::new(Mutex::new(HashMap::new()))) {
+            Ok(_) => (),
+            Err(_) => {
+                error!("Latest stats will not be available");
+            }
+        };
+
         let mut stats = HashMap::from([
             ("total_query_count", 0),
             ("total_xact_count", 0),
@@ -352,6 +363,17 @@ impl Collector {
 
                     info!("{:?}", stats);
 
+                    match LATEST_STATS.get() {
+                        Some(arc) => {
+                            let mut guard = arc.lock().unwrap();
+                            for (key, value) in &stats {
+                                guard.insert(key.to_string(), value.clone());
+                            }
+                        }
+
+                        None => (),
+                    };
+
                     let mut pipeline = self.client.pipeline();
 
                     for (key, value) in stats.iter_mut() {
@@ -363,5 +385,16 @@ impl Collector {
                 }
             };
         }
+    }
+}
+
+pub fn get_stats() -> Option<HashMap<String, i64>> {
+    match LATEST_STATS.get() {
+        Some(arc) => {
+            let guard = arc.lock().unwrap();
+            Some(guard.clone())
+        }
+
+        None => None,
     }
 }
