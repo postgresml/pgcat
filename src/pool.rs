@@ -8,7 +8,6 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
-use crate::messages::parse_params;
 use crate::server::Server;
 use crate::stats::Reporter;
 
