@@ -114,7 +114,7 @@ pub fn parse_params(mut bytes: BytesMut) -> Result<HashMap<String, String>, Erro
 
     // Expect pairs of name and value
     // and at least one pair to be present.
-    if buf.len() % 2 != 0 && buf.len() >= 2 {
+    if buf.len() % 2 != 0 || buf.len() < 2 {
         return Err(Error::ClientBadStartup);
     }
 
