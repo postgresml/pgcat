@@ -1,7 +1,8 @@
 use bytes::{Buf, BufMut, BytesMut};
-use log::trace;
+use log::{info, trace};
 use tokio::net::tcp::OwnedWriteHalf;
 
+use crate::config::{get_config, parse};
 use crate::constants::{OID_NUMERIC, OID_TEXT};
 use crate::errors::Error;
 use crate::messages::write_all_half;
@@ -23,9 +24,41 @@ pub async fn handle_admin(stream: &mut OwnedWriteHalf, mut query: BytesMut) -> R
     if query.starts_with("SHOW STATS") {
         trace!("SHOW STATS");
         show_stats(stream).await
+    } else if query.starts_with("RELOAD") {
+        trace!("RELOAD");
+        reload(stream).await
     } else {
         Err(Error::ProtocolSyncError)
     }
+}
+
+/// RELOAD
+pub async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+    info!("Reloading config");
+
+    let config = get_config();
+    let path = config.path.clone().unwrap();
+
+    parse(&path).await?;
+
+    let config = get_config();
+
+    config.show();
+
+    let mut res = BytesMut::new();
+
+    // CommandComplete
+    let command_complete = BytesMut::from(&"RELOAD\0"[..]);
+    res.put_u8(b'C');
+    res.put_i32(command_complete.len() as i32 + 4);
+    res.put(command_complete);
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
 }
 
 /// SHOW STATS

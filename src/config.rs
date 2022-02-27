@@ -134,6 +134,7 @@ impl Default for QueryRouter {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
+    pub path: Option<String>,
     pub general: General,
     pub user: User,
     pub shards: HashMap<String, Shard>,
@@ -143,6 +144,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            path: Some(String::from("pgcat.toml")),
             general: General::default(),
             user: User::default(),
             shards: HashMap::from([(String::from("1"), Shard::default())]),
@@ -189,7 +191,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
-    let config: Config = match toml::from_str(&contents) {
+    let mut config: Config = match toml::from_str(&contents) {
         Ok(config) => config,
         Err(err) => {
             error!("Could not parse config file: {}", err.to_string());
@@ -279,6 +281,8 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
+    config.path = Some(path.to_string());
+
     CONFIG.store(Arc::new(config.clone()));
 
     Ok(())
@@ -296,5 +300,6 @@ mod test {
         assert_eq!(get_config().shards["1"].servers[0].0, "127.0.0.1");
         assert_eq!(get_config().shards["0"].servers[0].2, "primary");
         assert_eq!(get_config().query_router.default_role, "any");
+        assert_eq!(get_config().path, Some("pgcat.toml".to_string()));
     }
 }
