@@ -153,6 +153,52 @@ impl Default for Config {
     }
 }
 
+impl From<&Config> for std::collections::HashMap<String, String> {
+    fn from(config: &Config) -> HashMap<String, String> {
+        HashMap::from([
+            ("host".to_string(), config.general.host.to_string()),
+            ("port".to_string(), config.general.port.to_string()),
+            (
+                "pool_size".to_string(),
+                config.general.pool_size.to_string(),
+            ),
+            (
+                "pool_mode".to_string(),
+                config.general.pool_mode.to_string(),
+            ),
+            (
+                "connect_timeout".to_string(),
+                config.general.connect_timeout.to_string(),
+            ),
+            (
+                "healthcheck_timeout".to_string(),
+                config.general.healthcheck_timeout.to_string(),
+            ),
+            ("ban_time".to_string(), config.general.ban_time.to_string()),
+            (
+                "statsd_address".to_string(),
+                config.general.statsd_address.to_string(),
+            ),
+            (
+                "default_role".to_string(),
+                config.query_router.default_role.to_string(),
+            ),
+            (
+                "query_parser_enabled".to_string(),
+                config.query_router.query_parser_enabled.to_string(),
+            ),
+            (
+                "primary_reads_enabled".to_string(),
+                config.query_router.primary_reads_enabled.to_string(),
+            ),
+            (
+                "sharding_function".to_string(),
+                config.query_router.sharding_function.to_string(),
+            ),
+        ])
+    }
+}
+
 impl Config {
     pub fn show(&self) {
         info!("Pool size: {}", self.general.pool_size);

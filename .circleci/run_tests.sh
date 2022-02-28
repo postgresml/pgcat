@@ -59,6 +59,8 @@ cd ../..
 
 # Admin tests
 psql -e -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW STATS' > /dev/null
+psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD' > /dev/null
+psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW CONFIG' > /dev/null
 (! psql -e -h 127.0.0.1 -p 6432 -d random_db -c 'SHOW STATS' > /dev/null)
 
 # Start PgCat in debug to demonstrate failover better
@@ -85,9 +87,6 @@ sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 
 # Reload config test
 kill -SIGHUP $(pgrep pgcat)
-
-# Reload again with the admin database
-psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD' > /dev/null
 
 # Prepared statements that will only work in session mode
 pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
