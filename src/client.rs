@@ -238,7 +238,7 @@ impl Client {
             // Handle admin database real quick
             if self.admin {
                 trace!("Handling admin command");
-                handle_admin(&mut self.write, message).await?;
+                handle_admin(&mut self.write, message, pool.clone()).await?;
                 continue;
             }
 

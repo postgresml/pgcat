@@ -26,3 +26,5 @@ pub const MESSAGE_TERMINATOR: u8 = 0;
 //
 pub const OID_NUMERIC: i32 = 1700;
 pub const OID_TEXT: i32 = 25;
+pub const OID_INT4: i32 = 23; // int
+pub const _OID_INT8: i32 = 20; // bigint
