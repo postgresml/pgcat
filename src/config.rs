@@ -19,6 +19,15 @@ pub enum Role {
     Replica,
 }
 
+impl ToString for Role {
+    fn to_string(&self) -> String {
+        match *self {
+            Role::Primary => "primary".to_string(),
+            Role::Replica => "replica".to_string(),
+        }
+    }
+}
+
 impl PartialEq<Option<Role>> for Role {
     fn eq(&self, other: &Option<Role>) -> bool {
         match other {
