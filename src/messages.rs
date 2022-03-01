@@ -8,9 +8,26 @@ use tokio::net::{
     TcpStream,
 };
 
+use crate::errors::Error;
 use std::collections::HashMap;
 
-use crate::errors::Error;
+/// Postgres data type mappings
+/// used in RowDescription ('T') message.
+pub enum DataType {
+    Text,
+    Int4,
+    Numeric,
+}
+
+impl From<&DataType> for i32 {
+    fn from(data_type: &DataType) -> i32 {
+        match data_type {
+            DataType::Text => 25,
+            DataType::Int4 => 23,
+            DataType::Numeric => 1700,
+        }
+    }
+}
 
 /// Tell the client that authentication handshake completed successfully.
 pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
@@ -259,68 +276,17 @@ pub async fn show_response(
     // 3. CommandComplete
     // 4. ReadyForQuery
 
-    // RowDescription
-    let mut row_desc = BytesMut::new();
-
-    // Number of columns: 1
-    row_desc.put_i16(1);
-
-    // Column name
-    row_desc.put_slice(&format!("{}\0", name).as_bytes());
-
-    // Doesn't belong to any table
-    row_desc.put_i32(0);
-
-    // Doesn't belong to any table
-    row_desc.put_i16(0);
-
-    // Text
-    row_desc.put_i32(25);
-
-    // Text size = variable (-1)
-    row_desc.put_i16(-1);
-
-    // Type modifier: none that I know
-    row_desc.put_i32(-1);
-
-    // Format being used: text (0), binary (1)
-    row_desc.put_i16(0);
-
-    // DataRow
-    let mut data_row = BytesMut::new();
-
-    // Number of columns
-    data_row.put_i16(1);
-
-    // Size of the column content (length of the string really)
-    data_row.put_i32(value.len() as i32);
-
-    // The content
-    data_row.put_slice(value.as_bytes());
-
-    // CommandComplete
-    let mut command_complete = BytesMut::new();
-
-    // Number of rows returned (just one)
-    command_complete.put_slice(&b"SELECT 1\0"[..]);
-
     // The final messages sent to the client
     let mut res = BytesMut::new();
 
     // RowDescription
-    res.put_u8(b'T');
-    res.put_i32(row_desc.len() as i32 + 4);
-    res.put(row_desc);
+    res.put(row_description(&vec![(name, DataType::Text)]));
 
     // DataRow
-    res.put_u8(b'D');
-    res.put_i32(data_row.len() as i32 + 4);
-    res.put(data_row);
+    res.put(data_row(&vec![value.to_string()]));
 
     // CommandComplete
-    res.put_u8(b'C');
-    res.put_i32(command_complete.len() as i32 + 4);
-    res.put(command_complete);
+    res.put(command_complete("SELECT 1"));
 
     // ReadyForQuery
     res.put_u8(b'Z');
@@ -328,6 +294,77 @@ pub async fn show_response(
     res.put_u8(b'I');
 
     write_all_half(stream, res).await
+}
+
+pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
+    let mut res = BytesMut::new();
+    let mut row_desc = BytesMut::new();
+
+    // how many colums we are storing
+    row_desc.put_i16(columns.len() as i16);
+
+    for (name, data_type) in columns {
+        // Column name
+        row_desc.put_slice(&format!("{}\0", name).as_bytes());
+
+        // Doesn't belong to any table
+        row_desc.put_i32(0);
+
+        // Doesn't belong to any table
+        row_desc.put_i16(0);
+
+        // Text
+        row_desc.put_i32(data_type.into());
+
+        // Text size = variable (-1)
+        let type_size = match data_type {
+            DataType::Text => -1,
+            DataType::Int4 => 4,
+            DataType::Numeric => -1,
+        };
+
+        row_desc.put_i16(type_size);
+
+        // Type modifier: none that I know
+        row_desc.put_i32(-1);
+
+        // Format being used: text (0), binary (1)
+        row_desc.put_i16(0);
+    }
+
+    res.put_u8(b'T');
+    res.put_i32(row_desc.len() as i32 + 4);
+    res.put(row_desc);
+
+    res
+}
+
+pub fn data_row(row: &Vec<String>) -> BytesMut {
+    let mut res = BytesMut::new();
+    let mut data_row = BytesMut::new();
+
+    data_row.put_i16(row.len() as i16);
+
+    for column in row {
+        let column = column.as_bytes();
+        data_row.put_i32(column.len() as i32);
+        data_row.put_slice(&column);
+    }
+
+    res.put_u8(b'D');
+    res.put_i32(data_row.len() as i32 + 4);
+    res.put(data_row);
+
+    res
+}
+
+pub fn command_complete(command: &str) -> BytesMut {
+    let cmd = BytesMut::from(format!("{}\0", command).as_bytes());
+    let mut res = BytesMut::new();
+    res.put_u8(b'C');
+    res.put_i32(cmd.len() as i32 + 4);
+    res.put(cmd);
+    res
 }
 
 /// Write all data in the buffer to the TcpStream.
