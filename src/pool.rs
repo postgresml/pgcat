@@ -337,7 +337,7 @@ impl ConnectionPool {
         self.addresses[shard].len()
     }
 
-    pub fn connections(&self, shard: usize, server: usize) -> bb8::State {
+    pub fn pool_state(&self, shard: usize, server: usize) -> bb8::State {
         self.databases[shard][server].state()
     }
 
