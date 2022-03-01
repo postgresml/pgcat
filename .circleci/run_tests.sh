@@ -61,6 +61,7 @@ cd ../..
 psql -e -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW STATS' > /dev/null
 psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD' > /dev/null
 psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW CONFIG' > /dev/null
+psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW DATABASES' > /dev/null
 (! psql -e -h 127.0.0.1 -p 6432 -d random_db -c 'SHOW STATS' > /dev/null)
 
 # Start PgCat in debug to demonstrate failover better
