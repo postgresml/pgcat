@@ -4,7 +4,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 
 use std::collections::HashMap;
 
-use crate::config::{get_config, parse};
+use crate::config::{get_config, parse, Role};
 use crate::constants::{OID_INT4, OID_NUMERIC, OID_TEXT};
 use crate::errors::Error;
 use crate::messages::{custom_protocol_response_ok, error_response, write_all_half};
@@ -154,7 +154,9 @@ async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> R
             res.put_i32(data_row.len() as i32 + 4);
             res.put(data_row);
 
-            replica_count += 1;
+            if address.role == Role::Replica {
+                replica_count += 1;
+            }
         }
     }
 
