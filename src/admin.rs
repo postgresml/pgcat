@@ -41,12 +41,106 @@ pub async fn handle_admin(
     } else if query.starts_with("SHOW DATABASES") {
         trace!("SHOW DATABASES");
         show_databases(stream, &pool).await
+    } else if query.starts_with("SHOW POOLS") {
+        trace!("SHOW POOLS");
+        show_pools(stream, &pool).await
+    } else if query.starts_with("SHOW VERSION") {
+        trace!("SHOW VERSION");
+        show_version(stream).await
     } else if query.starts_with("SET ") {
         trace!("SET");
         ignore_set(stream).await
     } else {
         error_response(stream, "Unsupported query against the admin database").await
     }
+}
+
+/// SHOW LISTS
+async fn show_lists(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+    let columns = vec![
+        ("list", DataType::Text),
+        ("items", DataType::Int4),
+    ];
+
+    let items = [
+        "databases",    
+        "users",        
+        "pools",        
+        "free_clients", 
+        "used_clients", 
+        "login_clients",
+        "free_servers", 
+        "used_servers", 
+        "dns_names",    
+        "dns_zones",    
+        "dns_queries",  
+        "dns_pending",  
+    ];
+
+    // let mut res = BytesMut::new();
+    // res.put(row_description(&columns));
+    // res.put(data_row(&vec!["databases".to_string(), ]))
+    Ok(())
+}
+
+/// SHOW VERSION
+async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+    let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![("version", DataType::Text)]));
+    res.put(data_row(&vec!["PgCat 0.1.0".to_string()]));
+    res.put(command_complete("SHOW"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
+}
+
+/// SHOW POOLS
+async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+    let stats = get_stats();
+    let guard = get_config();
+    let config = &*guard.clone();
+    drop(guard);
+
+    let columns = vec![
+        ("database", DataType::Text),
+        ("user", DataType::Text),
+        ("cl_active", DataType::Numeric),
+        ("cl_waiting", DataType::Numeric),
+        ("cl_cancel_req", DataType::Numeric),
+        ("sv_active", DataType::Numeric),
+        ("sv_idle", DataType::Numeric),
+        ("sv_used", DataType::Numeric),
+        ("sv_tested", DataType::Numeric),
+        ("sv_login", DataType::Numeric),
+        ("maxwait", DataType::Numeric),
+        ("maxwait_us", DataType::Numeric),
+        ("pool_mode", DataType::Text),
+    ];
+
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    let mut row = vec![String::from("all"), config.user.name.clone()];
+
+    for column in &columns[2..columns.len() - 1] {
+        let value = stats.get(column.0).unwrap_or(&0).to_string();
+        row.push(value);
+    }
+
+    row.push(config.general.pool_mode.to_string());
+
+    res.put(data_row(&row));
+    res.put(command_complete("SHOW"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
 }
 
 /// SHOW DATABASES
@@ -83,19 +177,10 @@ async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> R
 
         for server in 0..pool.servers(shard) {
             let address = pool.address(shard, server);
-            let name = match address.role {
-                Role::Primary => format!("shard_{}_primary", shard),
-
-                Role::Replica => {
-                    let name = format!("shard_{}_replica_{}", shard, replica_count);
-                    replica_count += 1;
-                    name
-                }
-            };
             let pool_state = pool.pool_state(shard, server);
 
             res.put(data_row(&vec![
-                name,                                 // name
+                address.name(),                       // name
                 address.host.to_string(),             // host
                 address.port.to_string(),             // port
                 database_name.to_string(),            // database
@@ -222,7 +307,7 @@ async fn show_stats(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     res.put(row_description(&columns));
 
     let mut row = vec![
-        String::from("all shards"), // TODO: per-database stats,
+        String::from("all"), // TODO: per-database stats,
     ];
 
     for column in &columns[1..] {
