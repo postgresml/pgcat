@@ -4,7 +4,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 
 use std::collections::HashMap;
 
-use crate::config::{get_config, parse, Role};
+use crate::config::{get_config, parse};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ConnectionPool;
@@ -44,6 +44,9 @@ pub async fn handle_admin(
     } else if query.starts_with("SHOW POOLS") {
         trace!("SHOW POOLS");
         show_pools(stream, &pool).await
+    } else if query.starts_with("SHOW LISTS") {
+        trace!("SHOW LISTS");
+        show_lists(stream, &pool).await
     } else if query.starts_with("SHOW VERSION") {
         trace!("SHOW VERSION");
         show_version(stream).await
@@ -56,31 +59,54 @@ pub async fn handle_admin(
 }
 
 /// SHOW LISTS
-async fn show_lists(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
-    let columns = vec![
-        ("list", DataType::Text),
-        ("items", DataType::Int4),
-    ];
+async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+    let stats = get_stats();
 
-    let items = [
-        "databases",    
-        "users",        
-        "pools",        
-        "free_clients", 
-        "used_clients", 
-        "login_clients",
-        "free_servers", 
-        "used_servers", 
-        "dns_names",    
-        "dns_zones",    
-        "dns_queries",  
-        "dns_pending",  
-    ];
+    let columns = vec![("list", DataType::Text), ("items", DataType::Int4)];
 
-    // let mut res = BytesMut::new();
-    // res.put(row_description(&columns));
-    // res.put(data_row(&vec!["databases".to_string(), ]))
-    Ok(())
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+    res.put(data_row(&vec![
+        "databases".to_string(),
+        pool.databases().to_string(),
+    ]));
+    res.put(data_row(&vec!["users".to_string(), "1".to_string()]));
+    res.put(data_row(&vec![
+        "pools".to_string(),
+        pool.databases().to_string(),
+    ]));
+    res.put(data_row(&vec![
+        "free_clients".to_string(),
+        stats["cl_idle"].to_string(),
+    ]));
+    res.put(data_row(&vec![
+        "used_clients".to_string(),
+        stats["cl_active"].to_string(),
+    ]));
+    res.put(data_row(&vec![
+        "login_clients".to_string(),
+        "0".to_string(),
+    ]));
+    res.put(data_row(&vec![
+        "free_servers".to_string(),
+        stats["sv_idle"].to_string(),
+    ]));
+    res.put(data_row(&vec![
+        "used_servers".to_string(),
+        stats["sv_active"].to_string(),
+    ]));
+    res.put(data_row(&vec!["dns_names".to_string(), "0".to_string()]));
+    res.put(data_row(&vec!["dns_zones".to_string(), "0".to_string()]));
+    res.put(data_row(&vec!["dns_queries".to_string(), "0".to_string()]));
+    res.put(data_row(&vec!["dns_pending".to_string(), "0".to_string()]));
+
+    res.put(command_complete("SHOW"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
 }
 
 /// SHOW VERSION
@@ -99,11 +125,12 @@ async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// SHOW POOLS
-async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+async fn show_pools(stream: &mut OwnedWriteHalf, _pool: &ConnectionPool) -> Result<(), Error> {
     let stats = get_stats();
-    let guard = get_config();
-    let config = &*guard.clone();
-    drop(guard);
+    let config = {
+        let guard = get_config();
+        &*guard.clone()
+    };
 
     let columns = vec![
         ("database", DataType::Text),
@@ -173,7 +200,6 @@ async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> R
 
     for shard in 0..pool.shards() {
         let database_name = &config.shards[&shard.to_string()].database;
-        let mut replica_count = 0;
 
         for server in 0..pool.servers(shard) {
             let address = pool.address(shard, server);
