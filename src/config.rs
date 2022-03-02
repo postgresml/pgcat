@@ -52,6 +52,7 @@ pub struct Address {
     pub port: String,
     pub shard: usize,
     pub role: Role,
+    pub replica_number: usize,
 }
 
 impl Default for Address {
@@ -60,7 +61,18 @@ impl Default for Address {
             host: String::from("127.0.0.1"),
             port: String::from("5432"),
             shard: 0,
+            replica_number: 0,
             role: Role::Replica,
+        }
+    }
+}
+
+impl Address {
+    pub fn name(&self) -> String {
+        match self.role {
+            Role::Primary => format!("shard_{}_primary", self.shard),
+
+            Role::Replica => format!("shard_{}_replica_{}", self.shard, self.replica_number),
         }
     }
 }

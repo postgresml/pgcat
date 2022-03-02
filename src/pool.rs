@@ -49,7 +49,8 @@ impl ConnectionPool {
         for shard_idx in shard_ids {
             let shard = &config.shards[&shard_idx];
             let mut pools = Vec::new();
-            let mut replica_addresses = Vec::new();
+            let mut servers = Vec::new();
+            let mut replica_number = 0;
 
             for server in shard.servers.iter() {
                 let role = match server.2.as_ref() {
@@ -65,8 +66,13 @@ impl ConnectionPool {
                     host: server.0.clone(),
                     port: server.1.to_string(),
                     role: role,
+                    replica_number,
                     shard: shard_idx.parse::<usize>().unwrap(),
                 };
+
+                if role == Role::Replica {
+                    replica_number += 1;
+                }
 
                 let manager = ServerPool::new(
                     address.clone(),
@@ -87,11 +93,11 @@ impl ConnectionPool {
                     .unwrap();
 
                 pools.push(pool);
-                replica_addresses.push(address);
+                servers.push(address);
             }
 
             shards.push(pools);
-            addresses.push(replica_addresses);
+            addresses.push(servers);
             banlist.push(HashMap::new());
         }
 
@@ -335,6 +341,14 @@ impl ConnectionPool {
 
     pub fn servers(&self, shard: usize) -> usize {
         self.addresses[shard].len()
+    }
+
+    pub fn databases(&self) -> usize {
+        let mut databases = 0;
+        for shard in 0..self.shards() {
+            databases += self.servers(shard);
+        }
+        databases
     }
 
     pub fn pool_state(&self, shard: usize, server: usize) -> bb8::State {
