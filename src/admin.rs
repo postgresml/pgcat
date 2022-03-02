@@ -68,13 +68,13 @@ async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
     res.put(row_description(&columns));
     res.put(data_row(&vec![
         "databases".to_string(),
-        pool.databases().to_string(),
+        (pool.databases() + 1).to_string(), // see comment below
     ]));
     res.put(data_row(&vec!["users".to_string(), "1".to_string()]));
     res.put(data_row(&vec![
         "pools".to_string(),
-        pool.databases().to_string(),
-    ]));
+        (pool.databases() + 1).to_string(), // +1 for the pgbouncer admin db pool which isn't real
+    ])); // but admin tools that work with pgbouncer want this
     res.put(data_row(&vec![
         "free_clients".to_string(),
         stats["cl_idle"].to_string(),
