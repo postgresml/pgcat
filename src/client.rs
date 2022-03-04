@@ -58,6 +58,12 @@ pub struct Client {
 
     // Clients want to talk to admin
     admin: bool,
+
+    // Last server the client talked to
+    last_address_id: Option<usize>,
+
+    //
+    last_server_id: Option<i32>,
 }
 
 impl Client {
@@ -147,6 +153,8 @@ impl Client {
                         parameters: parameters,
                         stats: stats,
                         admin: admin,
+                        last_address_id: None,
+                        last_server_id: None,
                     });
                 }
 
@@ -169,6 +177,8 @@ impl Client {
                         parameters: HashMap::new(),
                         stats: stats,
                         admin: false,
+                        last_address_id: None,
+                        last_server_id: None,
                     });
                 }
 
@@ -289,12 +299,13 @@ impl Client {
                 continue;
             }
 
-            self.stats.client_disconnecting(self.process_id, 0);
-
             debug!("Waiting for connection from pool");
 
             // Grab a server from the pool: the client issued a regular query.
-            let connection = match pool.get(query_router.shard(), query_router.role(), self.process_id).await {
+            let connection = match pool
+                .get(query_router.shard(), query_router.role(), self.process_id)
+                .await
+            {
                 Ok(conn) => {
                     debug!("Got connection from pool");
                     conn
@@ -317,6 +328,8 @@ impl Client {
             // Client active & server active
             self.stats.client_active(self.process_id, address.id);
             self.stats.server_active(server.process_id(), address.id);
+            self.last_address_id = Some(address.id);
+            self.last_server_id = Some(server.process_id());
 
             debug!(
                 "Client {:?} talking to server {:?}",
@@ -541,5 +554,19 @@ impl Client {
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        // Disconnect the client
+        if let Some(address_id) = self.last_address_id {
+            self.stats.client_disconnecting(self.process_id, address_id);
+
+            // The server is now idle
+            if let Some(process_id) = self.last_server_id {
+                self.stats.server_idle(process_id, address_id);
+            }
+        }
     }
 }

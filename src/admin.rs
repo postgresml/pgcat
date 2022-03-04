@@ -350,9 +350,7 @@ async fn show_stats(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
                 None => HashMap::new(),
             };
 
-            let mut row = vec![
-                address.name(),
-            ];
+            let mut row = vec![address.name()];
 
             for column in &columns[1..] {
                 row.push(stats.get(column.0).unwrap_or(&0).to_string());
@@ -361,7 +359,7 @@ async fn show_stats(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
             res.put(data_row(&row));
         }
     }
-    
+
     res.put(command_complete("SHOW"));
 
     res.put_u8(b'Z');

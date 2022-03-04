@@ -12,7 +12,7 @@ use sqlparser::parser::Parser;
 
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
     r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *;? *$",
-    r"(?i)^ *SET SHARD TO '?([0-9]+)'? *;? *$",
+    r"(?i)^ *SET SHARD TO '?([0-9]+|ANY)'? *;? *$",
     r"(?i)^ *SHOW SHARD *;? *$",
     r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)' *;? *$",
     r"(?i)^ *SHOW SERVER ROLE *;? *$",
@@ -192,7 +192,10 @@ impl QueryRouter {
             }
 
             Command::SetShard => {
-                self.active_shard = Some(value.parse::<usize>().unwrap());
+                self.active_shard = match value.as_ref() {
+                    "any" => Some(rand::random::<usize>() % self.shards),
+                    _ => Some(value.parse::<usize>().unwrap()),
+                };
             }
 
             Command::SetServerRole => {

@@ -470,7 +470,8 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
-        self.stats.server_disconnecting(self.process_id(), self.address.id);
+        self.stats
+            .server_disconnecting(self.process_id(), self.address.id);
 
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');

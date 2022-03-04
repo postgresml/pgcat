@@ -1,16 +1,13 @@
-use log::{debug, info};
+use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use statsd::Client;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use std::collections::HashMap;
 
-use crate::config::get_config;
-
-
 // Stats used in SHOW STATS
-static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 static STAT_PERIOD: u64 = 15000; //15 seconds
 
 #[derive(Debug, Clone, Copy)]
@@ -29,7 +26,8 @@ enum EventName {
     ServerTested,
     ServerLogin,
     ServerDisconnecting,
-    FlushStatsToStatsD,
+    UpdateStats,
+    UpdateAverages,
 }
 
 #[derive(Debug)]
@@ -208,16 +206,11 @@ impl Reporter {
 pub struct Collector {
     rx: Receiver<Event>,
     tx: Sender<Event>,
-    client: Client,
 }
 
 impl Collector {
     pub fn new(rx: Receiver<Event>, tx: Sender<Event>) -> Collector {
-        Collector {
-            rx,
-            tx,
-            client: Client::new(&get_config().general.statsd_address, "pgcat").unwrap(),
-        }
+        Collector { rx, tx }
     }
 
     pub async fn collect(&mut self, addresses: usize) {
@@ -260,12 +253,29 @@ impl Collector {
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
             let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD / 15));
+            loop {
+                interval.tick().await;
+                for address_id in 0..addresses {
+                    let _ = tx.try_send(Event {
+                        name: EventName::UpdateStats,
+                        value: 0,
+                        process_id: None,
+                        address_id: Some(address_id),
+                    });
+                }
+            }
+        });
+
+        let tx = self.tx.clone();
+        tokio::task::spawn(async move {
+            let mut interval =
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
             loop {
                 interval.tick().await;
-                for address_id in 0..addresses+1 {
+                for address_id in 0..addresses {
                     let _ = tx.try_send(Event {
-                        name: EventName::FlushStatsToStatsD,
+                        name: EventName::UpdateAverages,
                         value: 0,
                         process_id: None,
                         address_id: Some(address_id),
@@ -284,17 +294,17 @@ impl Collector {
                 }
             };
 
-            let mut stats = match stat.address_id {
+            let stats = match stat.address_id {
                 Some(id) => stats.entry(id).or_insert(stats_template.clone()),
                 None => stats.entry(0).or_insert(stats_template.clone()),
             };
 
-            let mut client_server_states = match stat.address_id {
+            let client_server_states = match stat.address_id {
                 Some(id) => client_server_states.entry(id).or_insert(HashMap::new()),
                 None => client_server_states.entry(0).or_insert(HashMap::new()),
             };
 
-            let mut old_stats = match stat.address_id {
+            let old_stats = match stat.address_id {
                 Some(id) => old_stats.entry(id).or_insert(HashMap::new()),
                 None => old_stats.entry(0).or_insert(HashMap::new()),
             };
@@ -355,7 +365,7 @@ impl Collector {
                     client_server_states.remove(&stat.process_id.unwrap());
                 }
 
-                EventName::FlushStatsToStatsD => {
+                EventName::UpdateStats => {
                     // Calculate connection states
                     for (_, state) in client_server_states.iter() {
                         match state {
@@ -395,36 +405,13 @@ impl Collector {
                         };
                     }
 
-                    // Calculate averages
-                    for stat in &[
-                        "avg_query_count",
-                        "avgxact_count",
-                        "avg_sent",
-                        "avg_received",
-                        "avg_wait_time",
-                    ] {
-                        let total_name = stat.replace("avg_", "total_");
-                        let old_value = old_stats.entry(total_name.clone()).or_insert(0);
-                        let new_value = stats.get(total_name.as_str()).unwrap_or(&0).to_owned();
-                        let avg = (new_value - *old_value) / (STAT_PERIOD as i64 / 1_000); // Avg / second
-
-                        stats.insert(stat, avg);
-                        *old_value = new_value;
-                    }
-
-                    debug!("{:?}", stats);
-
                     // Update latest stats used in SHOW STATS
                     let mut guard = LATEST_STATS.lock();
                     for (key, value) in stats.iter() {
-                        let entry = guard.entry(stat.address_id.unwrap()).or_insert(HashMap::new());
+                        let entry = guard
+                            .entry(stat.address_id.unwrap())
+                            .or_insert(HashMap::new());
                         entry.insert(key.to_string(), value.clone());
-                    }
-
-                    let mut pipeline = self.client.pipeline();
-
-                    for (key, value) in stats.iter() {
-                        pipeline.gauge(key, *value as f64);
                     }
 
                     // These are re-calculated every iteration of the loop, so we don't want to add values
@@ -441,8 +428,25 @@ impl Collector {
                     ] {
                         stats.insert(stat, 0);
                     }
+                }
 
-                    pipeline.send(&self.client);
+                EventName::UpdateAverages => {
+                    // Calculate averages
+                    for stat in &[
+                        "avg_query_count",
+                        "avgxact_count",
+                        "avg_sent",
+                        "avg_received",
+                        "avg_wait_time",
+                    ] {
+                        let total_name = stat.replace("avg_", "total_");
+                        let old_value = old_stats.entry(total_name.clone()).or_insert(0);
+                        let new_value = stats.get(total_name.as_str()).unwrap_or(&0).to_owned();
+                        let avg = (new_value - *old_value) / (STAT_PERIOD as i64 / 1_000); // Avg / second
+
+                        stats.insert(stat, avg);
+                        *old_value = new_value;
+                    }
                 }
             };
         }

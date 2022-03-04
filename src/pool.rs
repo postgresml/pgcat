@@ -38,7 +38,7 @@ impl ConnectionPool {
         let mut shards = Vec::new();
         let mut addresses = Vec::new();
         let mut banlist = Vec::new();
-        let mut address_id = 1;
+        let mut address_id = 0;
         let mut shard_ids = config
             .shards
             .clone()
@@ -230,7 +230,8 @@ impl ConnectionPool {
                     error!("Banning replica {}, error: {:?}", index, err);
                     self.ban(address, shard);
                     self.stats.client_disconnecting(process_id, address.id);
-                    self.stats.checkout_time(now.elapsed().as_micros(), address.id);
+                    self.stats
+                        .checkout_time(now.elapsed().as_micros(), address.id);
                     continue;
                 }
             };
@@ -250,7 +251,8 @@ impl ConnectionPool {
                 // Check if health check succeeded
                 Ok(res) => match res {
                     Ok(_) => {
-                        self.stats.checkout_time(now.elapsed().as_micros(), address.id);
+                        self.stats
+                            .checkout_time(now.elapsed().as_micros(), address.id);
                         self.stats.server_idle(conn.process_id(), address.id);
                         return Ok((conn, address.clone()));
                     }
@@ -261,7 +263,8 @@ impl ConnectionPool {
 
                         self.ban(address, shard);
                         self.stats.client_disconnecting(process_id, address.id);
-                        self.stats.checkout_time(now.elapsed().as_micros(), address.id);
+                        self.stats
+                            .checkout_time(now.elapsed().as_micros(), address.id);
                         continue;
                     }
                 },
@@ -273,7 +276,8 @@ impl ConnectionPool {
 
                     self.ban(address, shard);
                     self.stats.client_disconnecting(process_id, address.id);
-                    self.stats.checkout_time(now.elapsed().as_micros(), address.id);
+                    self.stats
+                        .checkout_time(now.elapsed().as_micros(), address.id);
                     continue;
                 }
             }
@@ -411,7 +415,8 @@ impl ManageConnection for ServerPool {
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         info!(
             "Creating a new connection to {:?} using user {:?}",
-            self.address.name(), self.user.name
+            self.address.name(),
+            self.user.name
         );
 
         // Put a temporary process_id into the stats

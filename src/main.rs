@@ -31,7 +31,6 @@ extern crate once_cell;
 extern crate serde;
 extern crate serde_derive;
 extern crate sqlparser;
-extern crate statsd;
 extern crate tokio;
 extern crate toml;
 
