@@ -46,11 +46,9 @@ md5(concat(md5(concat(password, username)), random-salt)))
 5. check username hash combo against file
 6. AuthenticationOk or ErrorResponse
  **/
-pub async fn start_auth(stream: &mut TcpStream, user_name: &String) -> Result<(), Error> {
-    let mut rng = rand::thread_rng();
-
+pub async fn start_auth(stream: &mut TcpStream, user: &str) -> Result<(), Error> {
     //Generate random 4 byte salt
-    let salt = rng.gen::<u32>();
+    let salt = rand::random::<u32>();
 
     // Send AuthenticationMD5Password request
     send_md5_request(stream, salt).await?;
@@ -63,7 +61,7 @@ pub async fn start_auth(stream: &mut TcpStream, user_name: &String) -> Result<()
     match code {
         // Password response
         'p' => {
-            fetch_password_and_authenticate(stream, &user_name, &salt).await?;
+            fetch_password_and_authenticate(stream, user, &salt).await?;
             Ok(auth_ok(stream).await?)
         }
         _ => {
@@ -84,7 +82,7 @@ pub async fn send_md5_request(stream: &mut TcpStream, salt: u32) -> Result<(), E
     Ok(write_all(stream, authentication_md5password).await?)
 }
 
-pub async fn fetch_password_and_authenticate(stream: &mut TcpStream, user_name: &String, salt: &u32) -> Result<(), Error> {
+pub async fn fetch_password_and_authenticate(stream: &mut TcpStream, user: &str, salt: &u32) -> Result<(), Error> {
     /**
     1. How do I store the lists of users and paswords? clear text or hash?? wtf
     2. Add auth to tests
@@ -104,18 +102,17 @@ pub async fn fetch_password_and_authenticate(stream: &mut TcpStream, user_name: 
     };
 
     let user_list = get_user_list();
-    let mut password: String = String::new();
-    match user_list.get(&user_name) {
-        Some(&p) => password = p,
+    let mut password = match user_list.get(user) {
+        Some(p) => p,
         None => return Err(Error::AuthenticationError),
-    }
+    };
 
     let mut md5 = Md5::new();
 
     //    concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
     // First pass
     md5.update(&password.as_bytes());
-    md5.update(&user_name.as_bytes());
+    md5.update(&user.as_bytes());
     let output = md5.finalize_reset();
     // Second pass
     md5.update(format!("{:x}", output));
