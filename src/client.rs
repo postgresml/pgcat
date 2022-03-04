@@ -108,15 +108,18 @@ impl Client {
                 // Regular startup message.
                 PROTOCOL_VERSION_NUMBER => {
                     trace!("Got StartupMessage");
-
-                    // TODO: perform actual auth.
                     let parameters = parse_startup(bytes.clone())?;
+                    let mut user_name: String = String::new();
+                    match parameters.get(&"user") {
+                        Some(&user) => user_name = user,
+                        None => return Err(Error::ClientBadStartup),
+                    }
+                    start_auth(&mut stream, &user_name).await?;
 
                     // Generate random backend ID and secret key
                     let process_id: i32 = rand::random();
                     let secret_key: i32 = rand::random();
 
-                    auth_ok(&mut stream).await?;
                     write_all(&mut stream, server_info).await?;
                     backend_key_data(&mut stream, process_id, secret_key).await?;
                     ready_for_query(&mut stream).await?;

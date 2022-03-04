@@ -1,5 +1,7 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
+
+
 use bytes::{Buf, BufMut, BytesMut};
 use md5::{Digest, Md5};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -7,9 +9,15 @@ use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
 };
+use log::{error};
 
 use crate::errors::Error;
 use std::collections::HashMap;
+
+use rand::Rng;
+
+use crate::userlist::get_user_list;
+
 
 /// Postgres data type mappings
 /// used in RowDescription ('T') message.
@@ -26,6 +34,98 @@ impl From<&DataType> for i32 {
             DataType::Int4 => 23,
             DataType::Numeric => 1700,
         }
+    }
+}
+
+/**
+1. Generate salt (4 bytes of random data)
+md5(concat(md5(concat(password, username)), random-salt)))
+2. Send md5 auth request
+3. recieve PasswordMessage with salt.
+4. refactor md5_password function to be reusable
+5. check username hash combo against file
+6. AuthenticationOk or ErrorResponse
+ **/
+pub async fn start_auth(stream: &mut TcpStream, user_name: &String) -> Result<(), Error> {
+    let mut rng = rand::thread_rng();
+
+    //Generate random 4 byte salt
+    let salt = rng.gen::<u32>();
+
+    // Send AuthenticationMD5Password request
+    send_md5_request(stream, salt).await?;
+
+    let code = match stream.read_u8().await {
+        Ok(code) => code as char,
+        Err(_) => return Err(Error::AuthenticationError),
+    };
+
+    match code {
+        // Password response
+        'p' => {
+            fetch_password_and_authenticate(stream, &user_name, &salt).await?;
+            Ok(auth_ok(stream).await?)
+        }
+        _ => {
+            error!("Unknown code: {}", code);
+            return Err(Error::AuthenticationError);
+        }
+    }
+}
+
+pub async fn send_md5_request(stream: &mut TcpStream, salt: u32) -> Result<(), Error> {
+    let mut authentication_md5password = BytesMut::with_capacity(12);
+    authentication_md5password.put_u8(b'R');
+    authentication_md5password.put_i32(12);
+    authentication_md5password.put_i32(5);
+    authentication_md5password.put_u32(salt);
+
+    // Send AuthenticationMD5Password request
+    Ok(write_all(stream, authentication_md5password).await?)
+}
+
+pub async fn fetch_password_and_authenticate(stream: &mut TcpStream, user_name: &String, salt: &u32) -> Result<(), Error> {
+    /**
+    1. How do I store the lists of users and paswords? clear text or hash?? wtf
+    2. Add auth to tests
+    **/
+
+    let len = match stream.read_i32().await {
+        Ok(len) => len,
+        Err(_) => return Err(Error::AuthenticationError),
+    };
+
+    // Read whatever is left.
+    let mut password_hash = vec![0u8; len as usize - 4];
+
+    match stream.read_exact(&mut password_hash).await {
+        Ok(_) => (),
+        Err(_) => return Err(Error::AuthenticationError),
+    };
+
+    let user_list = get_user_list();
+    let mut password: String = String::new();
+    match user_list.get(&user_name) {
+        Some(&p) => password = p,
+        None => return Err(Error::AuthenticationError),
+    }
+
+    let mut md5 = Md5::new();
+
+    //    concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
+    // First pass
+    md5.update(&password.as_bytes());
+    md5.update(&user_name.as_bytes());
+    let output = md5.finalize_reset();
+    // Second pass
+    md5.update(format!("{:x}", output));
+    md5.update(salt.to_be_bytes().to_vec());
+
+
+    let password_string: String = String::from_utf8(password_hash).expect("Could not get password hash");
+    match format!("md5{:x}", md5.finalize()) == password_string {
+        true => Ok(()),
+        _ => Err(Error::AuthenticationError)
     }
 }
 

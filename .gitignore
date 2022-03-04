@@ -1,2 +1,5 @@
 /target
 *.deb
+.idea/*
+tests/ruby/.bundle/*
+tests/ruby/vendor/*

@@ -48,8 +48,8 @@ password = "sharding_user"
 
 # [ host, port, role ]
 servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    ["127.0.0.1", 5432, "primary"],
+    ["localhost", 5432, "replica"],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 # Database name (e.g. "postgres")
@@ -58,8 +58,8 @@ database = "shard0"
 [shards.1]
 # [ host, port, role ]
 servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    ["127.0.0.1", 5432, "primary"],
+    ["localhost", 5432, "replica"],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 database = "shard1"
@@ -67,8 +67,8 @@ database = "shard1"
 [shards.2]
 # [ host, port, role ]
 servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    ["127.0.0.1", 5432, "primary"],
+    ["localhost", 5432, "replica"],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 database = "shard2"

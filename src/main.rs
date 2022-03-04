@@ -50,6 +50,7 @@ use std::sync::Arc;
 mod admin;
 mod client;
 mod config;
+mod userlist;
 mod constants;
 mod errors;
 mod messages;
@@ -90,6 +91,15 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Config parse error: {:?}", err);
+            return;
+        }
+    };
+
+    // Prepare user list
+    match userlist::parse("userlist.json").await {
+        Ok(_) => (),
+        Err(err) => {
+            error!("Userlist parse error: {:?}", err);
             return;
         }
     };
