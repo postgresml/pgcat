@@ -113,15 +113,19 @@ async fn main() {
 
     // Collect statistics and send them to StatsD
     let (tx, rx) = mpsc::channel(100);
-    let collector_tx = tx.clone();
-    tokio::task::spawn(async move {
-        let mut stats_collector = Collector::new(rx, collector_tx);
-        stats_collector.collect().await;
-    });
 
+    // Connection pool for all shards and replicas
     let mut pool =
         ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await;
 
+    let collector_tx = tx.clone();
+    let addresses = pool.databases();
+    tokio::task::spawn(async move {
+        let mut stats_collector = Collector::new(rx, collector_tx);
+        stats_collector.collect(addresses).await;
+    });
+
+    // Connect to all servers and validate their versions.
     let server_info = match pool.validate().await {
         Ok(info) => info,
         Err(err) => {

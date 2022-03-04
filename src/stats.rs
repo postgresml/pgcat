@@ -8,8 +8,9 @@ use std::collections::HashMap;
 
 use crate::config::get_config;
 
+
 // Stats used in SHOW STATS
-static LATEST_STATS: Lazy<Mutex<HashMap<String, i64>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 static STAT_PERIOD: u64 = 15000; //15 seconds
 
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +37,7 @@ pub struct Event {
     name: EventName,
     value: i64,
     process_id: Option<i32>,
+    address_id: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -48,141 +50,155 @@ impl Reporter {
         Reporter { tx: tx }
     }
 
-    pub fn query(&self) {
+    pub fn query(&self, address_id: usize) {
         let event = Event {
             name: EventName::Query,
             value: 1,
             process_id: None,
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn transaction(&self) {
+    pub fn transaction(&self, address_id: usize) {
         let event = Event {
             name: EventName::Transaction,
             value: 1,
             process_id: None,
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn data_sent(&self, amount: usize) {
+    pub fn data_sent(&self, amount: usize, address_id: usize) {
         let event = Event {
             name: EventName::DataSent,
             value: amount as i64,
             process_id: None,
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn data_received(&self, amount: usize) {
+    pub fn data_received(&self, amount: usize, address_id: usize) {
         let event = Event {
             name: EventName::DataReceived,
             value: amount as i64,
             process_id: None,
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn checkout_time(&self, ms: u128) {
+    pub fn checkout_time(&self, ms: u128, address_id: usize) {
         let event = Event {
             name: EventName::CheckoutTime,
             value: ms as i64,
             process_id: None,
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn client_waiting(&self, process_id: i32) {
+    pub fn client_waiting(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientWaiting,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn client_active(&self, process_id: i32) {
+    pub fn client_active(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientActive,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn client_idle(&self, process_id: i32) {
+    pub fn client_idle(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientIdle,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn client_disconnecting(&self, process_id: i32) {
+    pub fn client_disconnecting(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientDisconnecting,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn server_active(&self, process_id: i32) {
+    pub fn server_active(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerActive,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn server_idle(&self, process_id: i32) {
+    pub fn server_idle(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerIdle,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn server_login(&self, process_id: i32) {
+    pub fn server_login(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerLogin,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn server_tested(&self, process_id: i32) {
+    pub fn server_tested(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerTested,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn server_disconnecting(&self, process_id: i32) {
+    pub fn server_disconnecting(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerDisconnecting,
             value: 1,
             process_id: Some(process_id),
+            address_id: Some(address_id),
         };
 
         let _ = self.tx.try_send(event);
@@ -204,10 +220,10 @@ impl Collector {
         }
     }
 
-    pub async fn collect(&mut self) {
+    pub async fn collect(&mut self, addresses: usize) {
         info!("Events reporter started");
 
-        let mut stats = HashMap::from([
+        let stats_template = HashMap::from([
             ("total_query_count", 0),
             ("total_xact_count", 0),
             ("total_sent", 0),
@@ -225,19 +241,20 @@ impl Collector {
             ("maxwait", 0),
             ("cl_waiting", 0),
             ("cl_active", 0),
-            ("cl_idle", 0),
             ("sv_idle", 0),
             ("sv_active", 0),
             ("sv_login", 0),
             ("sv_tested", 0),
         ]);
 
+        let mut stats = HashMap::new();
+
         // Stats saved after each iteration of the flush event. Used in calculation
         // of averages in the last flush period.
-        let mut old_stats: HashMap<String, i64> = HashMap::new();
+        let mut old_stats: HashMap<usize, HashMap<String, i64>> = HashMap::new();
 
         // Track which state the client and server are at any given time.
-        let mut client_server_states: HashMap<i32, EventName> = HashMap::new();
+        let mut client_server_states: HashMap<usize, HashMap<i32, EventName>> = HashMap::new();
 
         // Flush stats to StatsD and calculate averages every 15 seconds.
         let tx = self.tx.clone();
@@ -246,11 +263,14 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
             loop {
                 interval.tick().await;
-                let _ = tx.try_send(Event {
-                    name: EventName::FlushStatsToStatsD,
-                    value: 0,
-                    process_id: None,
-                });
+                for address_id in 0..addresses+1 {
+                    let _ = tx.try_send(Event {
+                        name: EventName::FlushStatsToStatsD,
+                        value: 0,
+                        process_id: None,
+                        address_id: Some(address_id),
+                    });
+                }
             }
         });
 
@@ -262,6 +282,21 @@ impl Collector {
                     info!("Events collector is shutting down");
                     return;
                 }
+            };
+
+            let mut stats = match stat.address_id {
+                Some(id) => stats.entry(id).or_insert(stats_template.clone()),
+                None => stats.entry(0).or_insert(stats_template.clone()),
+            };
+
+            let mut client_server_states = match stat.address_id {
+                Some(id) => client_server_states.entry(id).or_insert(HashMap::new()),
+                None => client_server_states.entry(0).or_insert(HashMap::new()),
+            };
+
+            let mut old_stats = match stat.address_id {
+                Some(id) => old_stats.entry(id).or_insert(HashMap::new()),
+                None => old_stats.entry(0).or_insert(HashMap::new()),
             };
 
             // Some are counters, some are gauges...
@@ -322,7 +357,7 @@ impl Collector {
 
                 EventName::FlushStatsToStatsD => {
                     // Calculate connection states
-                    for (_, state) in &client_server_states {
+                    for (_, state) in client_server_states.iter() {
                         match state {
                             EventName::ClientActive => {
                                 let counter = stats.entry("cl_active").or_insert(0);
@@ -331,11 +366,6 @@ impl Collector {
 
                             EventName::ClientWaiting => {
                                 let counter = stats.entry("cl_waiting").or_insert(0);
-                                *counter += 1;
-                            }
-
-                            EventName::ClientIdle => {
-                                let counter = stats.entry("cl_idle").or_insert(0);
                                 *counter += 1;
                             }
 
@@ -358,6 +388,8 @@ impl Collector {
                                 let counter = stats.entry("sv_login").or_insert(0);
                                 *counter += 1;
                             }
+
+                            EventName::ClientIdle => (),
 
                             _ => unreachable!(),
                         };
@@ -384,8 +416,9 @@ impl Collector {
 
                     // Update latest stats used in SHOW STATS
                     let mut guard = LATEST_STATS.lock();
-                    for (key, value) in &stats {
-                        guard.insert(key.to_string(), value.clone());
+                    for (key, value) in stats.iter() {
+                        let entry = guard.entry(stat.address_id.unwrap()).or_insert(HashMap::new());
+                        entry.insert(key.to_string(), value.clone());
                     }
 
                     let mut pipeline = self.client.pipeline();
@@ -399,7 +432,6 @@ impl Collector {
                     for stat in &[
                         "cl_active",
                         "cl_waiting",
-                        "cl_idle",
                         "sv_idle",
                         "sv_active",
                         "sv_tested",
@@ -417,6 +449,6 @@ impl Collector {
     }
 }
 
-pub fn get_stats() -> HashMap<String, i64> {
+pub fn get_stats() -> HashMap<usize, HashMap<String, i64>> {
     LATEST_STATS.lock().clone()
 }

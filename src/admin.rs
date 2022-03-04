@@ -31,7 +31,7 @@ pub async fn handle_admin(
 
     if query.starts_with("SHOW STATS") {
         trace!("SHOW STATS");
-        show_stats(stream).await
+        show_stats(stream, &pool).await
     } else if query.starts_with("RELOAD") {
         trace!("RELOAD");
         reload(stream).await
@@ -60,7 +60,7 @@ pub async fn handle_admin(
 
 /// SHOW LISTS
 async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
-    let stats = get_stats();
+    let stats = &get_stats()[&0];
 
     let columns = vec![("list", DataType::Text), ("items", DataType::Int4)];
 
@@ -125,7 +125,7 @@ async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// SHOW POOLS
-async fn show_pools(stream: &mut OwnedWriteHalf, _pool: &ConnectionPool) -> Result<(), Error> {
+async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let stats = get_stats();
     let config = {
         let guard = get_config();
@@ -151,16 +151,26 @@ async fn show_pools(stream: &mut OwnedWriteHalf, _pool: &ConnectionPool) -> Resu
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    let mut row = vec![String::from("all"), config.user.name.clone()];
+    for shard in 0..pool.shards() {
+        for server in 0..pool.servers(shard) {
+            let address = pool.address(shard, server);
+            let stats = match stats.get(&address.id) {
+                Some(stats) => stats.clone(),
+                None => HashMap::new(),
+            };
 
-    for column in &columns[2..columns.len() - 1] {
-        let value = stats.get(column.0).unwrap_or(&0).to_string();
-        row.push(value);
+            let mut row = vec![address.name(), config.user.name.clone()];
+
+            for column in &columns[2..columns.len() - 1] {
+                let value = stats.get(column.0).unwrap_or(&0).to_string();
+                row.push(value);
+            }
+
+            row.push(config.general.pool_mode.to_string());
+            res.put(data_row(&row));
+        }
     }
 
-    row.push(config.general.pool_mode.to_string());
-
-    res.put(data_row(&row));
     res.put(command_complete("SHOW"));
 
     res.put_u8(b'Z');
@@ -309,7 +319,7 @@ async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// SHOW STATS
-async fn show_stats(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+async fn show_stats(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let columns = vec![
         ("database", DataType::Text),
         ("total_xact_count", DataType::Numeric),
@@ -332,15 +342,26 @@ async fn show_stats(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    let mut row = vec![
-        String::from("all"), // TODO: per-database stats,
-    ];
+    for shard in 0..pool.shards() {
+        for server in 0..pool.servers(shard) {
+            let address = pool.address(shard, server);
+            let stats = match stats.get(&address.id) {
+                Some(stats) => stats.clone(),
+                None => HashMap::new(),
+            };
 
-    for column in &columns[1..] {
-        row.push(stats.get(column.0).unwrap_or(&0).to_string());
+            let mut row = vec![
+                address.name(),
+            ];
+
+            for column in &columns[1..] {
+                row.push(stats.get(column.0).unwrap_or(&0).to_string());
+            }
+
+            res.put(data_row(&row));
+        }
     }
-
-    res.put(data_row(&row));
+    
     res.put(command_complete("SHOW"));
 
     res.put_u8(b'Z');

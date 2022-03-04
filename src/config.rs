@@ -48,6 +48,7 @@ impl PartialEq<Role> for Option<Role> {
 
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
+    pub id: usize,
     pub host: String,
     pub port: String,
     pub shard: usize,
@@ -58,6 +59,7 @@ pub struct Address {
 impl Default for Address {
     fn default() -> Address {
         Address {
+            id: 0,
             host: String::from("127.0.0.1"),
             port: String::from("5432"),
             shard: 0,

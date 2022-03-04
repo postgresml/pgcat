@@ -219,9 +219,6 @@ impl Client {
         loop {
             trace!("Client idle, waiting for message");
 
-            // Client idle, waiting for messages.
-            self.stats.client_idle(self.process_id);
-
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
             // We can parse it here before grabbing a server from the pool,
@@ -292,13 +289,12 @@ impl Client {
                 continue;
             }
 
-            // Waiting for server connection.
-            self.stats.client_waiting(self.process_id);
+            self.stats.client_disconnecting(self.process_id, 0);
 
             debug!("Waiting for connection from pool");
 
             // Grab a server from the pool: the client issued a regular query.
-            let connection = match pool.get(query_router.shard(), query_router.role()).await {
+            let connection = match pool.get(query_router.shard(), query_router.role(), self.process_id).await {
                 Ok(conn) => {
                     debug!("Got connection from pool");
                     conn
@@ -312,15 +308,15 @@ impl Client {
             };
 
             let mut reference = connection.0;
-            let _address = connection.1;
+            let address = connection.1;
             let server = &mut *reference;
 
             // Claim this server as mine for query cancellation.
             server.claim(self.process_id, self.secret_key);
 
             // Client active & server active
-            self.stats.client_active(self.process_id);
-            self.stats.server_active(server.process_id());
+            self.stats.client_active(self.process_id, address.id);
+            self.stats.server_active(server.process_id(), address.id);
 
             debug!(
                 "Client {:?} talking to server {:?}",
@@ -392,17 +388,17 @@ impl Client {
                         }
 
                         // Report query executed statistics.
-                        self.stats.query();
+                        self.stats.query(address.id);
 
                         // The transaction is over, we can release the connection back to the pool.
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
-                            self.stats.transaction();
+                            self.stats.transaction(address.id);
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
-                                self.stats.server_idle(server.process_id());
+                                self.stats.server_idle(server.process_id(), address.id);
                                 break;
                             }
                         }
@@ -478,15 +474,15 @@ impl Client {
                         }
 
                         // Report query executed statistics.
-                        self.stats.query();
+                        self.stats.query(address.id);
 
                         // Release server back to the pool if we are in transaction mode.
                         // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
-                            self.stats.transaction();
+                            self.stats.transaction(address.id);
 
                             if self.transaction_mode {
-                                self.stats.server_idle(server.process_id());
+                                self.stats.server_idle(server.process_id(), address.id);
                                 break;
                             }
                         }
@@ -517,10 +513,10 @@ impl Client {
                         // Release server back to the pool if we are in transaction mode.
                         // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
-                            self.stats.transaction();
+                            self.stats.transaction(address.id);
 
                             if self.transaction_mode {
-                                self.stats.server_idle(server.process_id());
+                                self.stats.server_idle(server.process_id(), address.id);
                                 break;
                             }
                         }
@@ -537,6 +533,7 @@ impl Client {
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
             self.release();
+            self.stats.client_idle(self.process_id, address.id);
         }
     }
 
@@ -544,11 +541,5 @@ impl Client {
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
-    }
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        self.stats.client_disconnecting(self.process_id);
     }
 }

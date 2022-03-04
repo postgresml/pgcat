@@ -38,6 +38,7 @@ impl ConnectionPool {
         let mut shards = Vec::new();
         let mut addresses = Vec::new();
         let mut banlist = Vec::new();
+        let mut address_id = 1;
         let mut shard_ids = config
             .shards
             .clone()
@@ -63,12 +64,15 @@ impl ConnectionPool {
                 };
 
                 let address = Address {
+                    id: address_id,
                     host: server.0.clone(),
                     port: server.1.to_string(),
                     role: role,
                     replica_number,
                     shard: shard_idx.parse::<usize>().unwrap(),
                 };
+
+                address_id += 1;
 
                 if role == Role::Replica {
                     replica_number += 1;
@@ -121,9 +125,10 @@ impl ConnectionPool {
     pub async fn validate(&mut self) -> Result<BytesMut, Error> {
         let mut server_infos = Vec::new();
 
+        let stats = self.stats.clone();
         for shard in 0..self.shards() {
             for _ in 0..self.servers(shard) {
-                let connection = match self.get(shard, None).await {
+                let connection = match self.get(shard, None, 0).await {
                     Ok(conn) => conn,
                     Err(err) => {
                         error!("Shard {} down or misconfigured: {:?}", shard, err);
@@ -136,6 +141,8 @@ impl ConnectionPool {
                 let server = &mut *proxy;
 
                 let server_info = server.server_info();
+
+                stats.client_disconnecting(0, address.id);
 
                 if server_infos.len() > 0 {
                     // Compare against the last server checked.
@@ -165,6 +172,7 @@ impl ConnectionPool {
         &mut self,
         shard: usize,
         role: Option<Role>,
+        process_id: i32,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
         let addresses = &self.addresses[shard];
@@ -200,6 +208,8 @@ impl ConnectionPool {
             let index = self.round_robin % addresses.len();
             let address = &addresses[index];
 
+            self.stats.client_waiting(process_id, address.id);
+
             // Make sure you're getting a primary or a replica
             // as per request. If no specific role is requested, the first
             // available will be chosen.
@@ -219,6 +229,8 @@ impl ConnectionPool {
                 Err(err) => {
                     error!("Banning replica {}, error: {:?}", index, err);
                     self.ban(address, shard);
+                    self.stats.client_disconnecting(process_id, address.id);
+                    self.stats.checkout_time(now.elapsed().as_micros(), address.id);
                     continue;
                 }
             };
@@ -227,7 +239,7 @@ impl ConnectionPool {
             let server = &mut *conn;
             let healthcheck_timeout = get_config().general.healthcheck_timeout;
 
-            self.stats.server_tested(server.process_id());
+            self.stats.server_tested(server.process_id(), address.id);
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
@@ -238,8 +250,8 @@ impl ConnectionPool {
                 // Check if health check succeeded
                 Ok(res) => match res {
                     Ok(_) => {
-                        self.stats.checkout_time(now.elapsed().as_micros());
-                        self.stats.server_idle(conn.process_id());
+                        self.stats.checkout_time(now.elapsed().as_micros(), address.id);
+                        self.stats.server_idle(conn.process_id(), address.id);
                         return Ok((conn, address.clone()));
                     }
                     Err(_) => {
@@ -248,6 +260,8 @@ impl ConnectionPool {
                         server.mark_bad();
 
                         self.ban(address, shard);
+                        self.stats.client_disconnecting(process_id, address.id);
+                        self.stats.checkout_time(now.elapsed().as_micros(), address.id);
                         continue;
                     }
                 },
@@ -258,6 +272,8 @@ impl ConnectionPool {
                     server.mark_bad();
 
                     self.ban(address, shard);
+                    self.stats.client_disconnecting(process_id, address.id);
+                    self.stats.checkout_time(now.elapsed().as_micros(), address.id);
                     continue;
                 }
             }
@@ -395,13 +411,13 @@ impl ManageConnection for ServerPool {
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         info!(
             "Creating a new connection to {:?} using user {:?}",
-            self.address, self.user.name
+            self.address.name(), self.user.name
         );
 
         // Put a temporary process_id into the stats
         // for server login.
         let process_id = rand::random::<i32>();
-        self.stats.server_login(process_id);
+        self.stats.server_login(process_id, self.address.id);
 
         match Server::startup(
             &self.address,
@@ -414,12 +430,12 @@ impl ManageConnection for ServerPool {
         {
             Ok(conn) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id);
+                self.stats.server_disconnecting(process_id, self.address.id);
                 Ok(conn)
             }
             Err(err) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id);
+                self.stats.server_disconnecting(process_id, self.address.id);
                 Err(err)
             }
         }
