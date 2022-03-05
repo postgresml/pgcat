@@ -325,6 +325,12 @@ impl Client {
             // Claim this server as mine for query cancellation.
             server.claim(self.process_id, self.secret_key);
 
+            // "disconnect" from the previous server stats-wise
+            if let Some(last_address_id) = self.last_address_id {
+                self.stats
+                    .client_disconnecting(self.process_id, last_address_id);
+            }
+
             // Client active & server active
             self.stats.client_active(self.process_id, address.id);
             self.stats.server_active(server.process_id(), address.id);

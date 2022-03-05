@@ -60,7 +60,7 @@ pub async fn handle_admin(
 
 /// SHOW LISTS
 async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
-    let stats = &get_stats()[&0];
+    let stats = get_stats();
 
     let columns = vec![("list", DataType::Text), ("items", DataType::Int4)];
 
@@ -77,11 +77,19 @@ async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
     ])); // but admin tools that work with pgbouncer want this
     res.put(data_row(&vec![
         "free_clients".to_string(),
-        stats["cl_idle"].to_string(),
+        stats
+            .keys()
+            .map(|address_id| stats[&address_id]["cl_idle"])
+            .sum::<i64>()
+            .to_string(),
     ]));
     res.put(data_row(&vec![
         "used_clients".to_string(),
-        stats["cl_active"].to_string(),
+        stats
+            .keys()
+            .map(|address_id| stats[&address_id]["cl_active"])
+            .sum::<i64>()
+            .to_string(),
     ]));
     res.put(data_row(&vec![
         "login_clients".to_string(),
@@ -89,11 +97,19 @@ async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
     ]));
     res.put(data_row(&vec![
         "free_servers".to_string(),
-        stats["sv_idle"].to_string(),
+        stats
+            .keys()
+            .map(|address_id| stats[&address_id]["sv_idle"])
+            .sum::<i64>()
+            .to_string(),
     ]));
     res.put(data_row(&vec![
         "used_servers".to_string(),
-        stats["sv_active"].to_string(),
+        stats
+            .keys()
+            .map(|address_id| stats[&address_id]["sv_active"])
+            .sum::<i64>()
+            .to_string(),
     ]));
     res.put(data_row(&vec!["dns_names".to_string(), "0".to_string()]));
     res.put(data_row(&vec!["dns_zones".to_string(), "0".to_string()]));

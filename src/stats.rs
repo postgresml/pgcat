@@ -234,6 +234,7 @@ impl Collector {
             ("maxwait", 0),
             ("cl_waiting", 0),
             ("cl_active", 0),
+            ("cl_idle", 0),
             ("sv_idle", 0),
             ("sv_active", 0),
             ("sv_login", 0),
@@ -392,7 +393,10 @@ impl Collector {
                                 *counter += 1;
                             }
 
-                            EventName::ClientIdle => (),
+                            EventName::ClientIdle => {
+                                let counter = stats.entry("cl_idle").or_insert(0);
+                                *counter += 1;
+                            }
 
                             _ => unreachable!(),
                         };
@@ -410,6 +414,7 @@ impl Collector {
                     for stat in &[
                         "cl_active",
                         "cl_waiting",
+                        "cl_idle",
                         "sv_idle",
                         "sv_active",
                         "sv_tested",
