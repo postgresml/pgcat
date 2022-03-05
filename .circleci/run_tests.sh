@@ -32,7 +32,7 @@ start_pgcat "info"
 
 # pgbench test
 pgbench -i -h 127.0.0.1 -p 6432 && \
-    pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/set_shard.sql && \
+    pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/simple.sql && \
     pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
 
 # COPY TO STDOUT test
