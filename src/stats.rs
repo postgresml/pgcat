@@ -35,7 +35,7 @@ pub struct Event {
     name: EventName,
     value: i64,
     process_id: Option<i32>,
-    address_id: Option<usize>,
+    address_id: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -53,7 +53,7 @@ impl Reporter {
             name: EventName::Query,
             value: 1,
             process_id: None,
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -64,7 +64,7 @@ impl Reporter {
             name: EventName::Transaction,
             value: 1,
             process_id: None,
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -75,7 +75,7 @@ impl Reporter {
             name: EventName::DataSent,
             value: amount as i64,
             process_id: None,
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -86,7 +86,7 @@ impl Reporter {
             name: EventName::DataReceived,
             value: amount as i64,
             process_id: None,
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -97,7 +97,7 @@ impl Reporter {
             name: EventName::CheckoutTime,
             value: ms as i64,
             process_id: None,
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -108,7 +108,7 @@ impl Reporter {
             name: EventName::ClientWaiting,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -119,7 +119,7 @@ impl Reporter {
             name: EventName::ClientActive,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -130,7 +130,7 @@ impl Reporter {
             name: EventName::ClientIdle,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -141,7 +141,7 @@ impl Reporter {
             name: EventName::ClientDisconnecting,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -152,7 +152,7 @@ impl Reporter {
             name: EventName::ServerActive,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -163,7 +163,7 @@ impl Reporter {
             name: EventName::ServerIdle,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -174,7 +174,7 @@ impl Reporter {
             name: EventName::ServerLogin,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -185,7 +185,7 @@ impl Reporter {
             name: EventName::ServerTested,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -196,7 +196,7 @@ impl Reporter {
             name: EventName::ServerDisconnecting,
             value: 1,
             process_id: Some(process_id),
-            address_id: Some(address_id),
+            address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
@@ -261,7 +261,7 @@ impl Collector {
                         name: EventName::UpdateStats,
                         value: 0,
                         process_id: None,
-                        address_id: Some(address_id),
+                        address_id: address_id,
                     });
                 }
             }
@@ -278,7 +278,7 @@ impl Collector {
                         name: EventName::UpdateAverages,
                         value: 0,
                         process_id: None,
-                        address_id: Some(address_id),
+                        address_id: address_id,
                     });
                 }
             }
@@ -294,20 +294,13 @@ impl Collector {
                 }
             };
 
-            let stats = match stat.address_id {
-                Some(id) => stats.entry(id).or_insert(stats_template.clone()),
-                None => stats.entry(0).or_insert(stats_template.clone()),
-            };
-
-            let client_server_states = match stat.address_id {
-                Some(id) => client_server_states.entry(id).or_insert(HashMap::new()),
-                None => client_server_states.entry(0).or_insert(HashMap::new()),
-            };
-
-            let old_stats = match stat.address_id {
-                Some(id) => old_stats.entry(id).or_insert(HashMap::new()),
-                None => old_stats.entry(0).or_insert(HashMap::new()),
-            };
+            let stats = stats
+                .entry(stat.address_id)
+                .or_insert(stats_template.clone());
+            let client_server_states = client_server_states
+                .entry(stat.address_id)
+                .or_insert(HashMap::new());
+            let old_stats = old_stats.entry(stat.address_id).or_insert(HashMap::new());
 
             // Some are counters, some are gauges...
             match stat.name {
@@ -408,9 +401,7 @@ impl Collector {
                     // Update latest stats used in SHOW STATS
                     let mut guard = LATEST_STATS.lock();
                     for (key, value) in stats.iter() {
-                        let entry = guard
-                            .entry(stat.address_id.unwrap())
-                            .or_insert(HashMap::new());
+                        let entry = guard.entry(stat.address_id).or_insert(HashMap::new());
                         entry.insert(key.to_string(), value.clone());
                     }
 
