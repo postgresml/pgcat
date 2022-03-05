@@ -192,8 +192,8 @@ impl QueryRouter {
             }
 
             Command::SetShard => {
-                self.active_shard = match value.as_ref() {
-                    "any" => Some(rand::random::<usize>() % self.shards),
+                self.active_shard = match value.to_ascii_uppercase().as_ref() {
+                    "ANY" => Some(rand::random::<usize>() % self.shards),
                     _ => Some(value.parse::<usize>().unwrap()),
                 };
             }
