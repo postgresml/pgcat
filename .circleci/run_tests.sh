@@ -31,9 +31,9 @@ toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 start_pgcat "info"
 
 # pgbench test
-pgbench -i -h 127.0.0.1 -p 6432 && \
-    pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/simple.sql && \
-    pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
+pgbench -i -h 127.0.0.1 -p 6432
+pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/simple.sql
+pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
 
 # COPY TO STDOUT test
 psql -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
