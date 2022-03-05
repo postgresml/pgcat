@@ -371,7 +371,6 @@ dependencies = [
  "serde_derive",
  "sha-1",
  "sqlparser",
- "statsd",
  "tokio",
  "toml",
 ]
@@ -540,15 +539,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8f192f29f4aa49e57bebd0aa05858e0a1f32dd270af36efe49edb82cbfffab6"
 dependencies = [
  "log",
-]
-
-[[package]]
-name = "statsd"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df1efceb4bf2c0b5ebec94354285a43bbbed1375605bdf2ebe4132299434a330"
-dependencies = [
- "rand",
 ]
 
 [[package]]

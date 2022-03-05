@@ -13,6 +13,9 @@ function start_pgcat() {
 
 # Setup the database with shards and user
 psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
+PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard0 -i
+PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard1 -i
+PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard2 -i
 
 # Install Toxiproxy to simulate a downed/slow database
 wget -O toxiproxy-2.1.4.deb https://github.com/Shopify/toxiproxy/releases/download/v2.1.4/toxiproxy_2.1.4_amd64.deb
@@ -28,9 +31,9 @@ toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 start_pgcat "info"
 
 # pgbench test
-pgbench -i -h 127.0.0.1 -p 6432 && \
-    pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple && \
-    pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
+pgbench -i -h 127.0.0.1 -p 6432
+pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/simple.sql
+pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
 
 # COPY TO STDOUT test
 psql -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
