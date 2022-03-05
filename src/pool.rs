@@ -128,7 +128,10 @@ impl ConnectionPool {
         let stats = self.stats.clone();
         for shard in 0..self.shards() {
             for _ in 0..self.servers(shard) {
-                let connection = match self.get(shard, None, 0).await {
+                // To keep stats consistent.
+                let fake_process_id = 0;
+
+                let connection = match self.get(shard, None, fake_process_id).await {
                     Ok(conn) => conn,
                     Err(err) => {
                         error!("Shard {} down or misconfigured: {:?}", shard, err);
@@ -142,7 +145,7 @@ impl ConnectionPool {
 
                 let server_info = server.server_info();
 
-                stats.client_disconnecting(0, address.id);
+                stats.client_disconnecting(fake_process_id, address.id);
 
                 if server_infos.len() > 0 {
                     // Compare against the last server checked.
