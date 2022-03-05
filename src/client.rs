@@ -59,10 +59,10 @@ pub struct Client {
     // Clients want to talk to admin
     admin: bool,
 
-    // Last server the client talked to
+    // Last address the client talked to
     last_address_id: Option<usize>,
 
-    //
+    // Last server process id we talked to
     last_server_id: Option<i32>,
 }
 
