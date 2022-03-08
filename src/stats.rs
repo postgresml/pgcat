@@ -1,15 +1,20 @@
+/// Statistics and reporting.
 use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use std::collections::HashMap;
-
-// Stats used in SHOW STATS
+// Latest stats updated every second; used in SHOW STATS and other admin commands.
 static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-static STAT_PERIOD: u64 = 15000; //15 seconds
 
+// Statistics period used for average calculations.
+// 15 seconds.
+static STAT_PERIOD: u64 = 15000;
+
+/// The names for the events reported
+/// to the statistics collector.
 #[derive(Debug, Clone, Copy)]
 enum EventName {
     CheckoutTime,
@@ -30,172 +35,218 @@ enum EventName {
     UpdateAverages,
 }
 
+/// Event data sent to the collector
+/// from clients and servers.
 #[derive(Debug)]
 pub struct Event {
+    /// The name of the event being reported.
     name: EventName,
+
+    /// The value being reported. Meaning differs based on event name.
     value: i64,
-    process_id: Option<i32>,
+
+    /// The client or server connection reporting the event.
+    process_id: i32,
+
+    /// The server the client is connected to.
     address_id: usize,
 }
 
+/// The statistics reporter. An instance is given
+/// to each possible source of statistics,
+/// e.g. clients, servers, connection pool.
 #[derive(Clone, Debug)]
 pub struct Reporter {
     tx: Sender<Event>,
 }
 
 impl Reporter {
+    /// Create a new Reporter instance.
     pub fn new(tx: Sender<Event>) -> Reporter {
         Reporter { tx: tx }
     }
 
-    pub fn query(&self, address_id: usize) {
+    /// Report a query executed by a client against
+    /// a server identified by the `address_id`.
+    pub fn query(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::Query,
             value: 1,
-            process_id: None,
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn transaction(&self, address_id: usize) {
+    /// Report a transaction executed by a client against
+    /// a server identified by the `address_id`.
+    pub fn transaction(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::Transaction,
             value: 1,
-            process_id: None,
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn data_sent(&self, amount: usize, address_id: usize) {
+    /// Report data sent to a server identified by `address_id`.
+    /// The `amount` is measured in bytes.
+    pub fn data_sent(&self, amount: usize, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::DataSent,
             value: amount as i64,
-            process_id: None,
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn data_received(&self, amount: usize, address_id: usize) {
+    /// Report data received from a server identified by `address_id`.
+    /// The `amount` is measured in bytes.
+    pub fn data_received(&self, amount: usize, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::DataReceived,
             value: amount as i64,
-            process_id: None,
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
-    pub fn checkout_time(&self, ms: u128, address_id: usize) {
+    /// Time spent waiting to get a healthy connection from the pool
+    /// for a server identified by `address_id`.
+    /// Measured in milliseconds.
+    pub fn checkout_time(&self, ms: u128, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::CheckoutTime,
             value: ms as i64,
-            process_id: None,
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a client identified by `process_id` waiting for a connection
+    /// to a server identified by `address_id`.
     pub fn client_waiting(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientWaiting,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a client identified by `process_id` is done waiting for a connection
+    /// to a server identified by `address_id` and is about to query the server.
     pub fn client_active(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientActive,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a client identified by `process_id` is done querying the server
+    /// identified by `address_id` and is no longer active.
     pub fn client_idle(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientIdle,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a client identified by `process_id` is disconecting from the pooler.
+    /// The last server it was connected to is identified by `address_id`.
     pub fn client_disconnecting(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientDisconnecting,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a server connection identified by `process_id` for
+    /// a configured server identified by `address_id` is actively used
+    /// by a client.
     pub fn server_active(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerActive,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a server connection identified by `process_id` for
+    /// a configured server identified by `address_id` is no longer
+    /// actively used by a client and is now idle.
     pub fn server_idle(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerIdle,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a server connection identified by `process_id` for
+    /// a configured server identified by `address_id` is attempting
+    /// to login.
     pub fn server_login(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerLogin,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a server connection identified by `process_id` for
+    /// a configured server identified by `address_id` is being
+    /// tested before being given to a client.
     pub fn server_tested(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerTested,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
         let _ = self.tx.try_send(event);
     }
 
+    /// Reports a server connection identified by `process_id` is disconecting from the pooler.
+    /// The configured server it was connected to is identified by `address_id`.
     pub fn server_disconnecting(&self, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ServerDisconnecting,
             value: 1,
-            process_id: Some(process_id),
+            process_id: process_id,
             address_id: address_id,
         };
 
@@ -203,16 +254,26 @@ impl Reporter {
     }
 }
 
+/// The statistics collector which is receiving statistics
+/// from clients, servers, and the connection pool. There is
+/// only one collector (kind of like a singleton).
+/// The collector can trigger events on its own, e.g.
+/// it updates aggregates every second and averages every
+/// 15 seconds.
 pub struct Collector {
     rx: Receiver<Event>,
     tx: Sender<Event>,
 }
 
 impl Collector {
+    /// Create a new collector instance. There should only be one instance
+    /// at a time. This is ensured by mpsc which allows only one receiver.
     pub fn new(rx: Receiver<Event>, tx: Sender<Event>) -> Collector {
         Collector { rx, tx }
     }
 
+    /// The statistics collection handler. It will collect statistics
+    /// for `address_id`s starting at 0 up to `addresses`.
     pub async fn collect(&mut self, addresses: usize) {
         info!("Events reporter started");
 
@@ -261,7 +322,7 @@ impl Collector {
                     let _ = tx.try_send(Event {
                         name: EventName::UpdateStats,
                         value: 0,
-                        process_id: None,
+                        process_id: -1,
                         address_id: address_id,
                     });
                 }
@@ -278,7 +339,7 @@ impl Collector {
                     let _ = tx.try_send(Event {
                         name: EventName::UpdateAverages,
                         value: 0,
-                        process_id: None,
+                        process_id: -1,
                         address_id: address_id,
                     });
                 }
@@ -352,11 +413,11 @@ impl Collector {
                 | EventName::ServerIdle
                 | EventName::ServerTested
                 | EventName::ServerLogin => {
-                    client_server_states.insert(stat.process_id.unwrap(), stat.name);
+                    client_server_states.insert(stat.process_id, stat.name);
                 }
 
                 EventName::ClientDisconnecting | EventName::ServerDisconnecting => {
-                    client_server_states.remove(&stat.process_id.unwrap());
+                    client_server_states.remove(&stat.process_id);
                 }
 
                 EventName::UpdateStats => {
@@ -449,6 +510,8 @@ impl Collector {
     }
 }
 
+/// Get a snapshot of statistics. Updated once a second
+/// by the `Collector`.
 pub fn get_stats() -> HashMap<usize, HashMap<String, i64>> {
     LATEST_STATS.lock().clone()
 }
