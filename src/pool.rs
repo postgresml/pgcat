@@ -234,7 +234,7 @@ impl ConnectionPool {
                     self.ban(address, shard);
                     self.stats.client_disconnecting(process_id, address.id);
                     self.stats
-                        .checkout_time(now.elapsed().as_micros(), address.id);
+                        .checkout_time(now.elapsed().as_micros(), process_id, address.id);
                     continue;
                 }
             };
@@ -255,7 +255,7 @@ impl ConnectionPool {
                 Ok(res) => match res {
                     Ok(_) => {
                         self.stats
-                            .checkout_time(now.elapsed().as_micros(), address.id);
+                            .checkout_time(now.elapsed().as_micros(), process_id, address.id);
                         self.stats.server_idle(conn.process_id(), address.id);
                         return Ok((conn, address.clone()));
                     }
@@ -267,7 +267,7 @@ impl ConnectionPool {
                         self.ban(address, shard);
                         self.stats.client_disconnecting(process_id, address.id);
                         self.stats
-                            .checkout_time(now.elapsed().as_micros(), address.id);
+                            .checkout_time(now.elapsed().as_micros(), process_id, address.id);
                         continue;
                     }
                 },
@@ -280,7 +280,7 @@ impl ConnectionPool {
                     self.ban(address, shard);
                     self.stats.client_disconnecting(process_id, address.id);
                     self.stats
-                        .checkout_time(now.elapsed().as_micros(), address.id);
+                        .checkout_time(now.elapsed().as_micros(), process_id, address.id);
                     continue;
                 }
             }

@@ -268,7 +268,8 @@ impl Server {
 
     /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
-        self.stats.data_sent(messages.len(), self.address.id);
+        self.stats
+            .data_sent(messages.len(), self.process_id, self.address.id);
 
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => Ok(()),
@@ -374,7 +375,8 @@ impl Server {
         let bytes = self.buffer.clone();
 
         // Keep track of how much data we got from the server for stats.
-        self.stats.data_received(bytes.len(), self.address.id);
+        self.stats
+            .data_received(bytes.len(), self.process_id, self.address.id);
 
         // Clear the buffer for next query.
         self.buffer.clear();

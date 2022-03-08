@@ -407,12 +407,12 @@ impl Client {
                         }
 
                         // Report query executed statistics.
-                        self.stats.query(address.id);
+                        self.stats.query(self.process_id, address.id);
 
                         // The transaction is over, we can release the connection back to the pool.
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
-                            self.stats.transaction(address.id);
+                            self.stats.transaction(self.process_id, address.id);
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -493,12 +493,12 @@ impl Client {
                         }
 
                         // Report query executed statistics.
-                        self.stats.query(address.id);
+                        self.stats.query(self.process_id, address.id);
 
                         // Release server back to the pool if we are in transaction mode.
                         // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
-                            self.stats.transaction(address.id);
+                            self.stats.transaction(self.process_id, address.id);
 
                             if self.transaction_mode {
                                 self.stats.server_idle(server.process_id(), address.id);
@@ -532,7 +532,7 @@ impl Client {
                         // Release server back to the pool if we are in transaction mode.
                         // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
-                            self.stats.transaction(address.id);
+                            self.stats.transaction(self.process_id, address.id);
 
                             if self.transaction_mode {
                                 self.stats.server_idle(server.process_id(), address.id);
