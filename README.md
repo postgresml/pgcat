@@ -6,7 +6,7 @@
 
 Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover support.
 
-**Alpha**: looking for alpha testers, see [#35](https://github.com/levkk/pgcat/issues/35).
+**Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
 
 ## Features
 | **Feature**                    | **Status**            | **Comments**                                                                                                                                          |
@@ -24,8 +24,16 @@ Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover su
 
 ## Deployment
 
-See `Dockerfile` for example deployment using Docker. The pooler is configured to spawn 4 workers so 4 CPUs are recommended for optimal performance.
-That setting can be adjusted to spawn as many (or as little) workers as needed.
+See `Dockerfile` for example deployment using Docker. The pooler is configured to spawn 4 workers so 4 CPUs are recommended for optimal performance. That setting can be adjusted to spawn as many (or as little) workers as needed.
+
+For quick local example, use the Docker Compose environment provided:
+
+```bash
+docker-compose up
+
+# In a new terminal:
+psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
+```
 
 ### Config
 
