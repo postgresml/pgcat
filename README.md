@@ -4,7 +4,7 @@
 
 ![PgCat](./pgcat3.png)
 
-Meow. PgBouncer rewritten in Rust, with sharding, load balancing and failover support.
+PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover support.
 
 **Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
 
