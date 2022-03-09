@@ -32,8 +32,8 @@ ban_time = 60 # Seconds
 #
 # User to use for authentication against the server.
 [user]
-name = "sharding_user"
-password = "sharding_user"
+name = "postgres"
+password = "postgres"
 
 
 #
@@ -45,30 +45,30 @@ password = "sharding_user"
 
 # [ host, port, role ]
 servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    [ "postgres", 5432, "primary" ],
+    [ "postgres", 5432, "replica" ],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
 # Database name (e.g. "postgres")
-database = "shard0"
+database = "postgres"
 
 [shards.1]
 # [ host, port, role ]
 servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    [ "postgres", 5432, "primary" ],
+    [ "postgres", 5432, "replica" ],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
-database = "shard1"
+database = "postgres"
 
 [shards.2]
 # [ host, port, role ]
 servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
+    [ "postgres", 5432, "primary" ],
+    [ "postgres", 5432, "replica" ],
     # [ "127.0.1.1", 5432, "replica" ],
 ]
-database = "shard2"
+database = "postgres"
 
 
 # Settings for our query routing layer.

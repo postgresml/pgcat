@@ -103,7 +103,6 @@ pub struct General {
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub ban_time: i64,
-    pub statsd_address: String,
 }
 
 impl Default for General {
@@ -116,7 +115,6 @@ impl Default for General {
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             ban_time: 60,
-            statsd_address: String::from("127.0.0.1:8125"),
         }
     }
 }
@@ -198,10 +196,6 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 config.general.healthcheck_timeout.to_string(),
             ),
             ("ban_time".to_string(), config.general.ban_time.to_string()),
-            (
-                "statsd_address".to_string(),
-                config.general.statsd_address.to_string(),
-            ),
             (
                 "default_role".to_string(),
                 config.query_router.default_role.to_string(),
