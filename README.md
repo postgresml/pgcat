@@ -19,7 +19,7 @@ PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover su
 | Sharding                       | :white_check_mark:    | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
 | Failover                       | :white_check_mark:    | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
 | Statistics reporting           | :white_check_mark:    | Statistics available in the admin database (`pgcat` and `pgbouncer`) with `SHOW STATS`, `SHOW POOLS` and others.                                                                                            |
-| Live configuration reloading   | :construction_worker: | Reload supported settings with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)` or `RELOAD` query issued to the admin database.               |
+| Live configuration reloading   | :white_check_mark: | Reload supported settings with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)` or `RELOAD` query issued to the admin database.               |
 | Client authentication          | :x: :wrench:          | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
 
 ## Deployment
