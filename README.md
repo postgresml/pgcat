@@ -47,7 +47,6 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | `connect_timeout`       | Maximum time to establish a connection to a server (milliseconds). If reached, the server is banned and the next target is attempted.      | `5000`                           |
 | `healthcheck_timeout`   | Maximum time to pass a health check (`SELECT 1`, milliseconds). If reached, the server is banned and the next target is attempted.         | `1000`                           |
 | `ban_time`              | Ban time for a server (seconds). It won't be allowed to serve transactions until the ban expires; failover targets will be used instead.   | `60`                             |
-| `statsd_address`        | StatsD host and port. Statistics will be sent there every 15 seconds.                                                                      | `127.0.0.1:8125`                 |
 |                         |                                                                                                                                            |                                  |
 | **`user`**              |                                                                                                                                            |                                  |
 | `name`                  | The user name.                                                                                                                             | `sharding_user`                  |
