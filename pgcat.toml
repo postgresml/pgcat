@@ -29,9 +29,6 @@ healthcheck_timeout = 1000
 # For how long to ban a server if it fails a health check (seconds).
 ban_time = 60 # Seconds
 
-# Stats will be sent here
-statsd_address = "127.0.0.1:8125"
-
 #
 # User to use for authentication against the server.
 [user]
