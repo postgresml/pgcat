@@ -205,16 +205,14 @@ async fn main() {
         }
     });
 
-    // Setup shut down sequence
-    match signal::ctrl_c().await {
-        Ok(()) => {
-            info!("Shutting down...");
-        }
+    let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
 
-        Err(err) => {
-            error!("Unable to listen for shutdown signal: {}", err);
-        }
+    tokio::select! {
+        _ = signal::ctrl_c() => (),
+        _ = term_signal.recv() => (),
     };
+
+    info!("Shutting down...");
 }
 
 /// Format chrono::Duration to be more human-friendly.

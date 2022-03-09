@@ -1,0 +1,108 @@
+#
+# PgCat config example.
+#
+
+#
+# General pooler settings
+[general]
+
+# What IP to run on, 0.0.0.0 means accessible from everywhere.
+host = "0.0.0.0"
+
+# Port to run on, same as PgBouncer used in this example.
+port = 6432
+
+# How many connections to allocate per server.
+pool_size = 15
+
+# Pool mode (see PgBouncer docs for more).
+# session: one server connection per connected client
+# transaction: one server connection per client transaction
+pool_mode = "transaction"
+
+# How long to wait before aborting a server connection (ms).
+connect_timeout = 5000
+
+# How much time to give `SELECT 1` health check query to return with a result (ms).
+healthcheck_timeout = 1000
+
+# For how long to ban a server if it fails a health check (seconds).
+ban_time = 60 # Seconds
+
+# Stats will be sent here
+statsd_address = "127.0.0.1:8125"
+
+#
+# User to use for authentication against the server.
+[user]
+name = "postgres"
+password = "postgres"
+
+
+#
+# Shards in the cluster
+[shards]
+
+# Shard 0
+[shards.0]
+
+# [ host, port, role ]
+servers = [
+    [ "postgres", 5432, "primary" ],
+    [ "postgres", 5432, "replica" ],
+    # [ "127.0.1.1", 5432, "replica" ],
+]
+# Database name (e.g. "postgres")
+database = "postgres"
+
+[shards.1]
+# [ host, port, role ]
+servers = [
+    [ "postgres", 5432, "primary" ],
+    [ "postgres", 5432, "replica" ],
+    # [ "127.0.1.1", 5432, "replica" ],
+]
+database = "postgres"
+
+[shards.2]
+# [ host, port, role ]
+servers = [
+    [ "postgres", 5432, "primary" ],
+    [ "postgres", 5432, "replica" ],
+    # [ "127.0.1.1", 5432, "replica" ],
+]
+database = "postgres"
+
+
+# Settings for our query routing layer.
+[query_router]
+
+# If the client doesn't specify, route traffic to
+# this role by default.
+#
+# any: round-robin between primary and replicas,
+# replica: round-robin between replicas only without touching the primary,
+# primary: all queries go to the primary unless otherwise specified.
+default_role = "any"
+
+
+# Query parser. If enabled, we'll attempt to parse
+# every incoming query to determine if it's a read or a write.
+# If it's a read query, we'll direct it to a replica. Otherwise, if it's a write,
+# we'll direct it to the primary.
+query_parser_enabled = false
+
+# If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
+# load balancing of read queries. Otherwise, the primary will only be used for write
+# queries. The primary can always be explicitely selected with our custom protocol.
+primary_reads_enabled = true
+
+# So what if you wanted to implement a different hashing function,
+# or you've already built one and you want this pooler to use it?
+#
+# Current options:
+#
+# pg_bigint_hash: PARTITION BY HASH (Postgres hashing function)
+# sha1: A hashing function based on SHA1
+#
+sharding_function = "pg_bigint_hash"
