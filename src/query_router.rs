@@ -1,5 +1,3 @@
-use crate::config::{get_config, Role};
-use crate::sharding::{Sharder, ShardingFunction};
 /// Route queries automatically based on explicitely requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
@@ -10,6 +8,10 @@ use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
+use crate::config::{get_config, Role};
+use crate::sharding::{Sharder, ShardingFunction};
+
+/// Regexes used to parse custom commands.
 const CUSTOM_SQL_REGEXES: [&str; 5] = [
     r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *;? *$",
     r"(?i)^ *SET SHARD TO '?([0-9]+|ANY)'? *;? *$",
@@ -18,6 +20,7 @@ const CUSTOM_SQL_REGEXES: [&str; 5] = [
     r"(?i)^ *SHOW SERVER ROLE *;? *$",
 ];
 
+/// Custom commands.
 #[derive(PartialEq, Debug)]
 pub enum Command {
     SetShardingKey,
@@ -27,37 +30,39 @@ pub enum Command {
     ShowServerRole,
 }
 
-// Quick test
+/// Quickly test for match when a query is received.
 static CUSTOM_SQL_REGEX_SET: OnceCell<RegexSet> = OnceCell::new();
 
-// Capture value
+// Get the value inside the custom command.
 static CUSTOM_SQL_REGEX_LIST: OnceCell<Vec<Regex>> = OnceCell::new();
 
+/// The query router.
 pub struct QueryRouter {
-    // By default, queries go here, unless we have better information
-    // about what the client wants.
+    /// By default, queries go here, unless we have better information
+    /// about what the client wants.
     default_server_role: Option<Role>,
 
-    // Number of shards in the cluster.
+    /// Number of shards in the cluster.
     shards: usize,
 
-    // Which shard we should be talking to right now.
+    /// Which shard we should be talking to right now.
     active_shard: Option<usize>,
 
-    // Should we be talking to a primary or a replica?
+    /// Which server should we be talking to.
     active_role: Option<Role>,
 
-    // Include the primary into the replica pool?
+    /// Include the primary into the replica pool for reads.
     primary_reads_enabled: bool,
 
-    // Should we try to parse queries?
+    /// Should we try to parse queries to route them to replicas or primary automatically.
     query_parser_enabled: bool,
 
-    // Which sharding function are we using?
+    /// Which sharding function we're using.
     sharding_function: ShardingFunction,
 }
 
 impl QueryRouter {
+    /// One-time initialization of regexes.
     pub fn setup() -> bool {
         let set = match RegexSet::new(&CUSTOM_SQL_REGEXES) {
             Ok(rgx) => rgx,
@@ -88,6 +93,7 @@ impl QueryRouter {
         }
     }
 
+    /// Create a new instance of the query router. Each client gets its own.
     pub fn new() -> QueryRouter {
         let config = get_config();
 
@@ -120,6 +126,7 @@ impl QueryRouter {
     pub fn try_execute_command(&mut self, mut buf: BytesMut) -> Option<(Command, String)> {
         let code = buf.get_u8() as char;
 
+        // Only simple protocol supported for commands.
         if code != 'Q' {
             return None;
         }
@@ -158,8 +165,7 @@ impl QueryRouter {
                 // figured out a better way just yet. I think I can write a single Regex
                 // that matches all 5 custom SQL patterns, but maybe that's not very legible?
                 //
-                // I think this is faster than running the Regex engine 5 times, so
-                // this is a strong maybe for me so far.
+                // I think this is faster than running the Regex engine 5 times.
                 match regex_list[matches[0]].captures(&query) {
                     Some(captures) => match captures.get(1) {
                         Some(value) => value.as_str().to_string(),
@@ -221,7 +227,6 @@ impl QueryRouter {
                     }
 
                     "default" => {
-                        // TODO: reset query parser to default here.
                         self.active_role = self.default_server_role;
                         self.query_parser_enabled = get_config().query_router.query_parser_enabled;
                         self.active_role
@@ -243,12 +248,14 @@ impl QueryRouter {
         let len = buf.get_i32() as usize;
 
         let query = match code {
+            // Query
             'Q' => {
                 let query = String::from_utf8_lossy(&buf[..len - 5]).to_string();
                 debug!("Query: '{}'", query);
                 query
             }
 
+            // Parse (prepared statement)
             'P' => {
                 let mut start = 0;
                 let mut end;
@@ -271,6 +278,7 @@ impl QueryRouter {
 
                 query.replace("$", "") // Remove placeholders turning them into "values"
             }
+
             _ => return false,
         };
 
@@ -334,6 +342,7 @@ impl QueryRouter {
         self.query_parser_enabled
     }
 
+    /// Allows to toggle primary reads in tests.
     #[allow(dead_code)]
     pub fn toggle_primary_reads(&mut self, value: bool) {
         self.primary_reads_enabled = value;

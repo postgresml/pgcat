@@ -1,7 +1,6 @@
 /// Various protocol constants, as defined in
-/// https://www.postgresql.org/docs/12/protocol-message-formats.html
+/// <https://www.postgresql.org/docs/12/protocol-message-formats.html>
 /// and elsewhere in the source code.
-/// Also other constants we use elsewhere.
 
 // Used in the StartupMessage to indicate regular handshake.
 pub const PROTOCOL_VERSION_NUMBER: i32 = 196608;
