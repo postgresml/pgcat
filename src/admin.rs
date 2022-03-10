@@ -1,8 +1,8 @@
+/// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{info, trace};
-use tokio::net::tcp::OwnedWriteHalf;
-
 use std::collections::HashMap;
+use tokio::net::tcp::OwnedWriteHalf;
 
 use crate::config::{get_config, parse};
 use crate::errors::Error;
@@ -10,7 +10,7 @@ use crate::messages::*;
 use crate::pool::ConnectionPool;
 use crate::stats::get_stats;
 
-/// Handle admin client
+/// Handle admin client.
 pub async fn handle_admin(
     stream: &mut OwnedWriteHalf,
     mut query: BytesMut,
@@ -58,7 +58,7 @@ pub async fn handle_admin(
     }
 }
 
-/// SHOW LISTS
+/// Column-oriented statistics.
 async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let stats = get_stats();
 
@@ -125,7 +125,7 @@ async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
     write_all_half(stream, res).await
 }
 
-/// SHOW VERSION
+/// Show PgCat version.
 async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     let mut res = BytesMut::new();
 
@@ -140,7 +140,7 @@ async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     write_all_half(stream, res).await
 }
 
-/// SHOW POOLS
+/// Show utilization of connection pools for each shard and replicas.
 async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let stats = get_stats();
     let config = {
@@ -189,6 +189,7 @@ async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
 
     res.put(command_complete("SHOW"));
 
+    // ReadyForQuery
     res.put_u8(b'Z');
     res.put_i32(5);
     res.put_u8(b'I');
@@ -196,7 +197,7 @@ async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
     write_all_half(stream, res).await
 }
 
-/// SHOW DATABASES
+/// Show shards and replicas.
 async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let guard = get_config();
     let config = &*guard.clone();
@@ -221,7 +222,6 @@ async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> R
 
     let mut res = BytesMut::new();
 
-    // RowDescription
     res.put(row_description(&columns));
 
     for shard in 0..pool.shards() {
@@ -265,7 +265,7 @@ async fn ignore_set(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     custom_protocol_response_ok(stream, "SET").await
 }
 
-/// RELOAD
+/// Reload the configuration file without restarting the process.
 async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     info!("Reloading config");
 
@@ -280,7 +280,6 @@ async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 
     let mut res = BytesMut::new();
 
-    // CommandComplete
     res.put(command_complete("RELOAD"));
 
     // ReadyForQuery
@@ -291,13 +290,14 @@ async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     write_all_half(stream, res).await
 }
 
+/// Shows current configuration.
 async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     let guard = get_config();
     let config = &*guard.clone();
     let config: HashMap<String, String> = config.into();
     drop(guard);
 
-    // Configs that cannot be changed dynamically.
+    // Configs that cannot be changed without restarting.
     let immutables = ["host", "port", "connect_timeout"];
 
     // Columns
@@ -327,6 +327,7 @@ async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 
     res.put(command_complete("SHOW"));
 
+    // ReadyForQuery
     res.put_u8(b'Z');
     res.put_i32(5);
     res.put_u8(b'I');
@@ -334,7 +335,7 @@ async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     write_all_half(stream, res).await
 }
 
-/// SHOW STATS
+/// Show shard and replicas statistics.
 async fn show_stats(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let columns = vec![
         ("database", DataType::Text),
@@ -378,6 +379,7 @@ async fn show_stats(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
 
     res.put(command_complete("SHOW"));
 
+    // ReadyForQuery
     res.put_u8(b'Z');
     res.put_i32(5);
     res.put_u8(b'I');

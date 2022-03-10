@@ -1,6 +1,6 @@
+/// Implementation of the PostgreSQL server (database) protocol.
+/// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
-///! Implementation of the PostgreSQL server (database) protocol.
-///! Here we are pretending to the a Postgres client.
 use log::{debug, error, info, trace};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
@@ -17,42 +17,42 @@ use crate::ClientServerMap;
 
 /// Server state.
 pub struct Server {
-    // Server host, e.g. localhost,
-    // port, e.g. 5432, and role, e.g. primary or replica.
+    /// Server host, e.g. localhost,
+    /// port, e.g. 5432, and role, e.g. primary or replica.
     address: Address,
 
-    // Buffered read socket.
+    /// Buffered read socket.
     read: BufReader<OwnedReadHalf>,
 
-    // Unbuffered write socket (our client code buffers).
+    /// Unbuffered write socket (our client code buffers).
     write: OwnedWriteHalf,
 
-    // Our server response buffer. We buffer data before we give it to the client.
+    /// Our server response buffer. We buffer data before we give it to the client.
     buffer: BytesMut,
 
-    // Server information the server sent us over on startup.
+    /// Server information the server sent us over on startup.
     server_info: BytesMut,
 
-    // Backend id and secret key used for query cancellation.
+    /// Backend id and secret key used for query cancellation.
     process_id: i32,
     secret_key: i32,
 
-    // Is the server inside a transaction or idle.
+    /// Is the server inside a transaction or idle.
     in_transaction: bool,
 
-    // Is there more data for the client to read.
+    /// Is there more data for the client to read.
     data_available: bool,
 
-    // Is the server broken? We'll remote it from the pool if so.
+    /// Is the server broken? We'll remote it from the pool if so.
     bad: bool,
 
-    // Mapping of clients and servers used for query cancellation.
+    /// Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
 
-    // Server connected at.
+    /// Server connected at.
     connected_at: chrono::naive::NaiveDateTime,
 
-    // Reports various metrics, e.g. data sent & received.
+    /// Reports various metrics, e.g. data sent & received.
     stats: Reporter,
 }
 
@@ -77,7 +77,7 @@ impl Server {
 
         trace!("Sending StartupMessage");
 
-        // Send the startup packet telling the server we're a normal Postgres client.
+        // StartupMessage
         startup(&mut stream, &user.name, database).await?;
 
         let mut server_info = BytesMut::new();
@@ -187,7 +187,7 @@ impl Server {
                 // BackendKeyData
                 'K' => {
                     // The frontend must save these values if it wishes to be able to issue CancelRequest messages later.
-                    // See: https://www.postgresql.org/docs/12/protocol-message-formats.html
+                    // See: <https://www.postgresql.org/docs/12/protocol-message-formats.html>.
                     process_id = match stream.read_i32().await {
                         Ok(id) => id,
                         Err(_) => return Err(Error::SocketError),
@@ -208,8 +208,6 @@ impl Server {
                         Err(_) => return Err(Error::SocketError),
                     };
 
-                    // This is the last step in the client-server connection setup,
-                    // and indicates the server is ready for to query it.
                     let (read, write) = stream.into_split();
 
                     return Ok(Server {
@@ -342,8 +340,7 @@ impl Server {
                     // More data is available after this message, this is not the end of the reply.
                     self.data_available = true;
 
-                    // Don't flush yet, the more we buffer, the faster this goes...
-                    // up to a limit of course.
+                    // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
                     if self.buffer.len() >= 8196 {
                         break;
                     }
@@ -411,7 +408,7 @@ impl Server {
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
-        error!("Server marked bad");
+        error!("Server {:?} marked bad", self.address);
         self.bad = true;
     }
 
@@ -462,6 +459,7 @@ impl Server {
         self.address.clone()
     }
 
+    /// Get the server's unique identifier.
     pub fn process_id(&self) -> i32 {
         self.process_id
     }
@@ -481,9 +479,10 @@ impl Drop for Server {
 
         match self.write.try_write(&bytes) {
             Ok(_) => (),
-            Err(_) => (),
+            Err(_) => debug!("Dirty shutdown"),
         };
 
+        // Should not matter.
         self.bad = true;
 
         let now = chrono::offset::Utc::now().naive_utc();

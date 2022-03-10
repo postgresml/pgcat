@@ -1,20 +1,27 @@
+/// Implements various sharding functions.
 use sha1::{Digest, Sha1};
 
-// https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/catalog/partition.h#L20
+/// See: <https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/catalog/partition.h#L20>.
 const PARTITION_HASH_SEED: u64 = 0x7A5B22367996DCFD;
 
+/// The sharding functions we support.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ShardingFunction {
     PgBigintHash,
     Sha1,
 }
 
+/// The sharder.
 pub struct Sharder {
+    /// Number of shards in the cluster.
     shards: usize,
+
+    /// The sharding function in use.
     sharding_function: ShardingFunction,
 }
 
 impl Sharder {
+    /// Create new instance of the sharder.
     pub fn new(shards: usize, sharding_function: ShardingFunction) -> Sharder {
         Sharder {
             shards,
@@ -22,6 +29,7 @@ impl Sharder {
         }
     }
 
+    /// Compute the shard given sharding key.
     pub fn shard(&self, key: i64) -> usize {
         match self.sharding_function {
             ShardingFunction::PgBigintHash => self.pg_bigint_hash(key),
@@ -31,7 +39,7 @@ impl Sharder {
 
     /// Hash function used by Postgres to determine which partition
     /// to put the row in when using HASH(column) partitioning.
-    /// Source: https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/common/hashfn.c#L631
+    /// Source: <https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/common/hashfn.c#L631>.
     /// Supports only 1 bigint at the moment, but we can add more later.
     fn pg_bigint_hash(&self, key: i64) -> usize {
         let mut lohalf = key as u32;
@@ -119,6 +127,7 @@ impl Sharder {
         a
     }
 
+    #[inline]
     fn pg_u32_hash(k: u32) -> u64 {
         let mut a: u32 = 0x9e3779b9 as u32 + std::mem::size_of::<u32>() as u32 + 3923095 as u32;
         let mut b = a;

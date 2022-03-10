@@ -1,24 +1,23 @@
-/// Pooling and failover and banlist.
+/// Pooling, failover and banlist.
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
 use parking_lot::{Mutex, RwLock};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
 use crate::server::Server;
 use crate::stats::Reporter;
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Instant;
-
-// Banlist: bad servers go in here.
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
+/// The globally accessible connection pool.
 #[derive(Clone, Debug)]
 pub struct ConnectionPool {
     databases: Vec<Vec<Pool<ServerPool>>>,
@@ -29,7 +28,7 @@ pub struct ConnectionPool {
 }
 
 impl ConnectionPool {
-    /// Construct the connection pool from a config file.
+    /// Construct the connection pool from the configuration.
     pub async fn from_config(
         client_server_map: ClientServerMap,
         stats: Reporter,
@@ -204,10 +203,9 @@ impl ConnectionPool {
         }
 
         while allowed_attempts > 0 {
-            // Round-robin each client's queries.
-            // If a client only sends one query and then disconnects, it doesn't matter
-            // which replica it'll go to.
+            // Round-robin replicas.
             self.round_robin += 1;
+
             let index = self.round_robin % addresses.len();
             let address = &addresses[index];
 
@@ -239,7 +237,7 @@ impl ConnectionPool {
                 }
             };
 
-            // // Check if this server is alive with a health check
+            // // Check if this server is alive with a health check.
             let server = &mut *conn;
             let healthcheck_timeout = get_config().general.healthcheck_timeout;
 
@@ -251,7 +249,7 @@ impl ConnectionPool {
             )
             .await
             {
-                // Check if health check succeeded
+                // Check if health check succeeded.
                 Ok(res) => match res {
                     Ok(_) => {
                         self.stats
@@ -259,8 +257,11 @@ impl ConnectionPool {
                         self.stats.server_idle(conn.process_id(), address.id);
                         return Ok((conn, address.clone()));
                     }
+
+                    // Health check failed.
                     Err(_) => {
                         error!("Banning replica {} because of failed health check", index);
+
                         // Don't leave a bad connection in the pool.
                         server.mark_bad();
 
@@ -271,7 +272,8 @@ impl ConnectionPool {
                         continue;
                     }
                 },
-                // Health check never came back, database is really really down
+
+                // Health check timed out.
                 Err(_) => {
                     error!("Banning replica {} because of health check timeout", index);
                     // Don't leave a bad connection in the pool.
@@ -358,14 +360,18 @@ impl ConnectionPool {
         }
     }
 
+    /// Get the number of configured shards.
     pub fn shards(&self) -> usize {
         self.databases.len()
     }
 
+    /// Get the number of servers (primary and replicas)
+    /// configured for a shard.
     pub fn servers(&self, shard: usize) -> usize {
         self.addresses[shard].len()
     }
 
+    /// Get the total number of servers (databases) we are connected to.
     pub fn databases(&self) -> usize {
         let mut databases = 0;
         for shard in 0..self.shards() {
@@ -374,15 +380,18 @@ impl ConnectionPool {
         databases
     }
 
+    /// Get pool state for a particular shard server as reported by bb8.
     pub fn pool_state(&self, shard: usize, server: usize) -> bb8::State {
         self.databases[shard][server].state()
     }
 
+    /// Get the address information for a shard server.
     pub fn address(&self, shard: usize, server: usize) -> &Address {
         &self.addresses[shard][server]
     }
 }
 
+/// Wrapper for the bb8 connection pool.
 pub struct ServerPool {
     address: Address,
     user: User,
@@ -427,6 +436,7 @@ impl ManageConnection for ServerPool {
         let process_id = rand::random::<i32>();
         self.stats.server_login(process_id, self.address.id);
 
+        // Connect to the PostgreSQL server.
         match Server::startup(
             &self.address,
             &self.user,

@@ -18,9 +18,10 @@ PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover su
 | Load balancing of read queries | :white_check_mark:    | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
 | Sharding                       | :white_check_mark:    | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
 | Failover                       | :white_check_mark:    | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
-| Statistics reporting           | :white_check_mark:    | Statistics available in the admin database (`pgcat` and `pgbouncer`) with `SHOW STATS`, `SHOW POOLS` and others.                                                                                            |
-| Live configuration reloading   | :white_check_mark: | Reload supported settings with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)` or `RELOAD` query issued to the admin database.               |
+| Statistics                     | :white_check_mark:    | Statistics available in the admin database (`pgcat` and `pgbouncer`) with `SHOW STATS`, `SHOW POOLS` and others.                                                                                                                                                                                                          |
+| Live configuration reloading   | :white_check_mark:    | Reload supported settings with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)` or `RELOAD` query issued to the admin database.        |
 | Client authentication          | :x: :wrench:          | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
+| Admin database                 | :white_check_mark:    | The admin database, similar to PgBouncer's, allows to query for statistics and reload the configuration.                                              |
 
 ## Deployment
 
@@ -89,7 +90,7 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 | Load balancing        | :white_check_mark: | :white_check_mark:  | We could test this by emitting statistics for each replica and compare them.                                             |
 | Failover              | :white_check_mark: | :white_check_mark:  | Misconfigure a replica in `pgcat.toml` and watch it forward queries to spares. CI testing is using Toxiproxy.            |
 | Sharding              | :white_check_mark: | :white_check_mark:  | See `tests/sharding` and `tests/ruby` for an Rails/ActiveRecord example.                                                 |
-| Statistics reporting  | :x:                | :white_check_mark:  | Run `nc -l -u 8125` and watch the stats come in every 15 seconds.                                                        |
+| Statistics            | :white_check_mark: | :white_check_mark:  | Query the admin database with `psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW STATS'`.                                  |
 | Live config reloading | :white_check_mark: | :white_check_mark:  | Run `kill -s SIGHUP $(pgrep pgcat)` and watch the config reload.                                                         |
 
 ## Usage
@@ -232,11 +233,15 @@ SELECT * FROM users WHERE email = 'test@example.com'; -- shard setting lasts unt
 
 ### Statistics reporting
 
-Stats are reported using StatsD every 15 seconds. The address is configurable with `statsd_address`, the default is `127.0.0.1:8125`. The stats are very similar to what Pgbouncer reports and the names are kept to be comparable.
+The stats are very similar to what Pgbouncer reports and the names are kept to be comparable. They are accessible by querying the admin database `pgcat`, and `pgbouncer` for compatibility.
+
+```
+psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW DATABASES'
+```
 
 ### Live configuration reloading
 
-The config can be reloaded by sending a `kill -s SIGHUP` to the process. Not all settings are currently supported by live reload:
+The config can be reloaded by sending a `kill -s SIGHUP` to the process or by querying `RELOAD` to the admin database. Not all settings are currently supported by live reload:
 
 | **Config**              | **Requires restart** |
 |-------------------------|----------------------|
@@ -246,7 +251,6 @@ The config can be reloaded by sending a `kill -s SIGHUP` to the process. Not all
 | `connect_timeout`       | yes                  |
 | `healthcheck_timeout`   | no                   |
 | `ban_time`              | no                   |
-| `statsd_address`        | yes                  |
 | `user`                  | yes                  |
 | `shards`                | yes                  |
 | `default_role`          | no                   |

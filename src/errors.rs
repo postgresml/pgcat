@@ -1,12 +1,12 @@
+/// Errors.
+
+/// Various errors.
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SocketError,
-    // ClientDisconnected,
     ClientBadStartup,
     ProtocolSyncError,
     ServerError,
-    // ServerTimeout,
-    // DirtyServer,
     BadConfig,
     AllServersDown,
 }

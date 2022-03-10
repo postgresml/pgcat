@@ -1,18 +1,20 @@
+/// Parse the configuration file.
 use arc_swap::{ArcSwap, Guard};
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
 
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-
 use crate::errors::Error;
 
+/// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
 
+/// Server role: primary or replica.
 #[derive(Clone, PartialEq, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
 pub enum Role {
     Primary,
@@ -46,6 +48,7 @@ impl PartialEq<Role> for Option<Role> {
     }
 }
 
+/// Address identifying a PostgreSQL server uniquely.
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
     pub id: usize,
@@ -70,6 +73,7 @@ impl Default for Address {
 }
 
 impl Address {
+    /// Address name (aka database) used in `SHOW STATS`, `SHOW DATABASES`, and `SHOW POOLS`.
     pub fn name(&self) -> String {
         match self.role {
             Role::Primary => format!("shard_{}_primary", self.shard),
@@ -79,6 +83,7 @@ impl Address {
     }
 }
 
+/// PostgreSQL user.
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Deserialize, Debug)]
 pub struct User {
     pub name: String,
@@ -94,6 +99,7 @@ impl Default for User {
     }
 }
 
+/// General configuration.
 #[derive(Deserialize, Debug, Clone)]
 pub struct General {
     pub host: String,
@@ -119,6 +125,7 @@ impl Default for General {
     }
 }
 
+/// Shard configuration.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Shard {
     pub servers: Vec<(String, u16, String)>,
@@ -134,6 +141,7 @@ impl Default for Shard {
     }
 }
 
+/// Query Router configuration.
 #[derive(Deserialize, Debug, Clone)]
 pub struct QueryRouter {
     pub default_role: String,
@@ -153,6 +161,7 @@ impl Default for QueryRouter {
     }
 }
 
+/// Configuration wrapper.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub path: Option<String>,
@@ -217,6 +226,7 @@ impl From<&Config> for std::collections::HashMap<String, String> {
 }
 
 impl Config {
+    /// Print current configuration.
     pub fn show(&self) {
         info!("Pool size: {}", self.general.pool_size);
         info!("Pool mode: {}", self.general.pool_mode);
@@ -231,11 +241,14 @@ impl Config {
     }
 }
 
+/// Get a read-only instance of the configuration
+/// from anywhere in the app.
+/// ArcSwap makes this cheap and quick.
 pub fn get_config() -> Guard<Arc<Config>> {
     CONFIG.load()
 }
 
-/// Parse the config.
+/// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();
     let mut file = match File::open(path).await {
@@ -346,6 +359,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
 
     config.path = Some(path.to_string());
 
+    // Update the configuration globally.
     CONFIG.store(Arc::new(config.clone()));
 
     Ok(())

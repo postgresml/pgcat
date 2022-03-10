@@ -5,12 +5,12 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-// Latest stats updated every second; used in SHOW STATS and other admin commands.
+/// Latest stats updated every second; used in SHOW STATS and other admin commands.
 static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-// Statistics period used for average calculations.
-// 15 seconds.
+/// Statistics period used for average calculations.
+/// 15 seconds.
 static STAT_PERIOD: u64 = 15000;
 
 /// The names for the events reported

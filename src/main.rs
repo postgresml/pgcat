@@ -58,19 +58,15 @@ mod server;
 mod sharding;
 mod stats;
 
-// Support for query cancellation: this maps our process_ids and
-// secret keys to the backend's.
 use config::get_config;
 use pool::{ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter};
 
-/// Main!
 #[tokio::main(worker_threads = 4)]
 async fn main() {
     env_logger::init();
     info!("Welcome to PgCat! Meow.");
 
-    // Prepare regexes
     if !query_router::QueryRouter::setup() {
         error!("Could not setup query router");
         return;
@@ -84,7 +80,6 @@ async fn main() {
         String::from("pgcat.toml")
     };
 
-    // Prepare the config
     match config::parse(&config_file).await {
         Ok(_) => (),
         Err(err) => {
@@ -94,8 +89,8 @@ async fn main() {
     };
 
     let config = get_config();
-
     let addr = format!("{}:{}", config.general.host, config.general.port);
+
     let listener = match TcpListener::bind(&addr).await {
         Ok(sock) => sock,
         Err(err) => {
@@ -105,18 +100,20 @@ async fn main() {
     };
 
     info!("Running on {}", addr);
+
     config.show();
 
     // Tracks which client is connected to which server for query cancellation.
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
-    // Collect statistics and send them to StatsD
+    // Statistics reporting.
     let (tx, rx) = mpsc::channel(100);
 
-    // Connection pool for all shards and replicas
+    // Connection pool that allows to query all shards and replicas.
     let mut pool =
         ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await;
 
+    // Statistics collector task.
     let collector_tx = tx.clone();
     let addresses = pool.databases();
     tokio::task::spawn(async move {
@@ -135,7 +132,7 @@ async fn main() {
 
     info!("Waiting for clients");
 
-    // Main app runs here.
+    // Client connection loop.
     tokio::task::spawn(async move {
         loop {
             let pool = pool.clone();
@@ -151,7 +148,7 @@ async fn main() {
                 }
             };
 
-            // Client goes to another thread, bye.
+            // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
                 match client::Client::startup(socket, client_server_map, server_info, reporter)
@@ -185,7 +182,7 @@ async fn main() {
         }
     });
 
-    // Reload config
+    // Reload config:
     // kill -SIGHUP $(pgrep pgcat)
     tokio::task::spawn(async move {
         let mut stream = unix_signal(SignalKind::hangup()).unwrap();
@@ -205,6 +202,7 @@ async fn main() {
         }
     });
 
+    // Exit on Ctrl-C (SIGINT) and SIGTERM.
     let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
 
     tokio::select! {

@@ -1,15 +1,12 @@
-/// Implementation of the PostgreSQL client.
-/// We are pretending to the server in this scenario,
-/// and this module implements that.
+/// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, trace};
+use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
 };
-
-use std::collections::HashMap;
 
 use crate::admin::handle_admin;
 use crate::config::get_config;
@@ -23,53 +20,52 @@ use crate::stats::Reporter;
 
 /// The client state. One of these is created per client.
 pub struct Client {
-    // The reads are buffered (8K by default).
+    /// The reads are buffered (8K by default).
     read: BufReader<OwnedReadHalf>,
 
-    // We buffer the writes ourselves because we know the protocol
-    // better than a stock buffer.
+    /// We buffer the writes ourselves because we know the protocol
+    /// better than a stock buffer.
     write: OwnedWriteHalf,
 
-    // Internal buffer, where we place messages until we have to flush
-    // them to the backend.
+    /// Internal buffer, where we place messages until we have to flush
+    /// them to the backend.
     buffer: BytesMut,
 
-    // The client was started with the sole reason to cancel another running query.
+    /// The client was started with the sole reason to cancel another running query.
     cancel_mode: bool,
 
-    // In transaction mode, the connection is released after each transaction.
-    // Session mode has slightly higher throughput per client, but lower capacity.
+    /// In transaction mode, the connection is released after each transaction.
+    /// Session mode has slightly higher throughput per client, but lower capacity.
     transaction_mode: bool,
 
-    // For query cancellation, the client is given a random process ID and secret on startup.
+    /// For query cancellation, the client is given a random process ID and secret on startup.
     process_id: i32,
     secret_key: i32,
 
-    // Clients are mapped to servers while they use them. This allows a client
-    // to connect and cancel a query.
+    /// Clients are mapped to servers while they use them. This allows a client
+    /// to connect and cancel a query.
     client_server_map: ClientServerMap,
 
-    // Client parameters, e.g. user, client_encoding, etc.
+    /// Client parameters, e.g. user, client_encoding, etc.
     #[allow(dead_code)]
     parameters: HashMap<String, String>,
 
-    // Statistics
+    /// Statistics
     stats: Reporter,
 
-    // Clients want to talk to admin
+    /// Clients want to talk to admin database.
     admin: bool,
 
-    // Last address the client talked to
+    /// Last address the client talked to.
     last_address_id: Option<usize>,
 
-    // Last server process id we talked to
+    /// Last server process id we talked to.
     last_server_id: Option<i32>,
 }
 
 impl Client {
-    /// Given a TCP socket, trick the client into thinking we are
-    /// the Postgres server. Perform the authentication and place
-    /// the client in query-ready mode.
+    /// Perform client startup sequence.
+    /// See docs: <https://www.postgresql.org/docs/12/protocol-flow.html#id-1.10.5.7.3>
     pub async fn startup(
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
@@ -82,14 +78,12 @@ impl Client {
         loop {
             trace!("Waiting for StartupMessage");
 
-            // Could be StartupMessage or SSLRequest
-            // which makes this variable length.
+            // Could be StartupMessage, SSLRequest or CancelRequest.
             let len = match stream.read_i32().await {
                 Ok(len) => len,
                 Err(_) => return Err(Error::ClientBadStartup),
             };
 
-            // Read whatever is left.
             let mut startup = vec![0u8; len as usize - 4];
 
             match stream.read_exact(&mut startup).await {
@@ -189,7 +183,7 @@ impl Client {
         }
     }
 
-    /// Client loop. We handle all messages between the client and the database here.
+    /// Handle a connected and authenticated client.
     pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
         // The client wants to cancel a query it has issued previously.
         if self.cancel_mode {
@@ -225,14 +219,14 @@ impl Client {
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
-        // or issue commands for our sharding and server selection protocols.
+        // or issue commands for our sharding and server selection protocol.
         loop {
             trace!("Client idle, waiting for message");
 
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
             // We can parse it here before grabbing a server from the pool,
-            // in case the client is sending some control messages, e.g.
+            // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
             let mut message = read_message(&mut self.read).await?;
 
@@ -242,43 +236,48 @@ impl Client {
                 return Ok(());
             }
 
-            // Handle admin database real quick
+            // Handle admin database queries.
             if self.admin {
                 trace!("Handling admin command");
                 handle_admin(&mut self.write, message, pool.clone()).await?;
                 continue;
             }
 
-            // Handle all custom protocol commands here.
+            // Handle all custom protocol commands, if any.
             match query_router.try_execute_command(message.clone()) {
-                // Normal query
+                // Normal query, not a custom command.
                 None => {
+                    // Attempt to infer which server we want to query, i.e. primary or replica.
                     if query_router.query_parser_enabled() && query_router.role() == None {
                         query_router.infer_role(message.clone());
                     }
                 }
 
+                // SET SHARD TO
                 Some((Command::SetShard, _)) => {
-                    custom_protocol_response_ok(&mut self.write, &format!("SET SHARD")).await?;
+                    custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
                     continue;
                 }
 
+                // SET SHARDING KEY TO
                 Some((Command::SetShardingKey, _)) => {
-                    custom_protocol_response_ok(&mut self.write, &format!("SET SHARDING KEY"))
-                        .await?;
+                    custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
                     continue;
                 }
 
+                // SET SERVER ROLE TO
                 Some((Command::SetServerRole, _)) => {
                     custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
                     continue;
                 }
 
+                // SHOW SERVER ROLE
                 Some((Command::ShowServerRole, value)) => {
                     show_response(&mut self.write, "server role", &value).await?;
                     continue;
                 }
 
+                // SHOW SHARD
                 Some((Command::ShowShard, value)) => {
                     show_response(&mut self.write, "shard", &value).await?;
                     continue;
@@ -290,7 +289,7 @@ impl Client {
                 error_response(
                     &mut self.write,
                     &format!(
-                        "shard '{}' is more than configured '{}'",
+                        "shard {} is more than configured {}",
                         query_router.shard(),
                         pool.shards()
                     ),
@@ -301,7 +300,7 @@ impl Client {
 
             debug!("Waiting for connection from pool");
 
-            // Grab a server from the pool: the client issued a regular query.
+            // Grab a server from the pool.
             let connection = match pool
                 .get(query_router.shard(), query_router.role(), self.process_id)
                 .await
@@ -322,18 +321,18 @@ impl Client {
             let address = connection.1;
             let server = &mut *reference;
 
-            // Claim this server as mine for query cancellation.
+            // Server is assigned to the client in case the client wants to
+            // cancel a query later.
             server.claim(self.process_id, self.secret_key);
 
-            // "disconnect" from the previous server stats-wise
+            // Update statistics.
             if let Some(last_address_id) = self.last_address_id {
                 self.stats
                     .client_disconnecting(self.process_id, last_address_id);
             }
-
-            // Client active & server active
             self.stats.client_active(self.process_id, address.id);
             self.stats.server_active(server.process_id(), address.id);
+
             self.last_address_id = Some(address.id);
             self.last_server_id = Some(server.process_id());
 
@@ -346,6 +345,9 @@ impl Client {
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
             // or until the client disconnects if we are in session mode.
+            //
+            // If the client is in session mode, no more custom protocol
+            // commands will be accepted.
             loop {
                 let mut message = if message.len() == 0 {
                     trace!("Waiting for message inside transaction or in session mode");
@@ -353,10 +355,10 @@ impl Client {
                     match read_message(&mut self.read).await {
                         Ok(message) => message,
                         Err(err) => {
-                            // Client disconnected without warning.
+                            // Client disconnected inside a transaction.
+                            // Clean up the server and re-use it.
+                            // This prevents connection thrashing by bad clients.
                             if server.in_transaction() {
-                                // Client left dirty server. Clean up and proceed
-                                // without thrashing this connection.
                                 server.query("ROLLBACK; DISCARD ALL;").await?;
                             }
 
@@ -383,13 +385,11 @@ impl Client {
                     'Q' => {
                         debug!("Sending query to server");
 
-                        // TODO: implement retries here for read-only transactions.
                         server.send(original).await?;
 
                         // Read all data the server has to offer, which can be multiple messages
                         // buffered in 8196 bytes chunks.
                         loop {
-                            // TODO: implement retries here for read-only transactions.
                             let response = server.recv().await?;
 
                             // Send server reply to the client.
@@ -409,7 +409,6 @@ impl Client {
                         // Report query executed statistics.
                         self.stats.query(self.process_id, address.id);
 
-                        // The transaction is over, we can release the connection back to the pool.
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
                             self.stats.transaction(self.process_id, address.id);
@@ -429,7 +428,6 @@ impl Client {
                         // connection before releasing into the pool.
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
-                        // This pool will protect the database. :salute:
                         if server.in_transaction() {
                             server.query("ROLLBACK; DISCARD ALL;").await?;
                         }
@@ -468,7 +466,6 @@ impl Client {
 
                         self.buffer.put(&original[..]);
 
-                        // TODO: retries for read-only transactions.
                         server.send(self.buffer.clone()).await?;
 
                         self.buffer.clear();
@@ -476,7 +473,6 @@ impl Client {
                         // Read all data the server has to offer, which can be multiple messages
                         // buffered in 8196 bytes chunks.
                         loop {
-                            // TODO: retries for read-only transactions
                             let response = server.recv().await?;
 
                             match write_all_half(&mut self.write, response).await {
@@ -495,11 +491,11 @@ impl Client {
                         // Report query executed statistics.
                         self.stats.query(self.process_id, address.id);
 
-                        // Release server back to the pool if we are in transaction mode.
-                        // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, address.id);
 
+                            // Release server back to the pool if we are in transaction mode.
+                            // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
                                 self.stats.server_idle(server.process_id(), address.id);
                                 break;
@@ -529,11 +525,11 @@ impl Client {
                             }
                         };
 
-                        // Release server back to the pool if we are in transaction mode.
-                        // If we are in session mode, we keep the server until the client disconnects.
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, address.id);
 
+                            // Release server back to the pool if we are in transaction mode.
+                            // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
                                 self.stats.server_idle(server.process_id(), address.id);
                                 break;
@@ -556,7 +552,7 @@ impl Client {
         }
     }
 
-    /// Release the server from being mine. I can't cancel its queries anymore.
+    /// Release the server from the client: it can't cancel its queries anymore.
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
@@ -565,11 +561,10 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        // Disconnect the client
+        // Update statistics.
         if let Some(address_id) = self.last_address_id {
             self.stats.client_disconnecting(self.process_id, address_id);
 
-            // The server is now idle
             if let Some(process_id) = self.last_server_id {
                 self.stats.server_idle(process_id, address_id);
             }

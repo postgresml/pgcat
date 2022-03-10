@@ -222,7 +222,7 @@ pub async fn custom_protocol_response_ok(
 
 /// Send a custom error message to the client.
 /// Tell the client we are ready for the next query and no rollback is necessary.
-/// Docs on error codes: https://www.postgresql.org/docs/12/errcodes-appendix.html
+/// Docs on error codes: <https://www.postgresql.org/docs/12/errcodes-appendix.html>.
 pub async fn error_response(stream: &mut OwnedWriteHalf, message: &str) -> Result<(), Error> {
     let mut error = BytesMut::new();
 
@@ -339,6 +339,7 @@ pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
     res
 }
 
+/// Create a DataRow message.
 pub fn data_row(row: &Vec<String>) -> BytesMut {
     let mut res = BytesMut::new();
     let mut data_row = BytesMut::new();
@@ -358,6 +359,7 @@ pub fn data_row(row: &Vec<String>) -> BytesMut {
     res
 }
 
+/// Create a CommandComplete message.
 pub fn command_complete(command: &str) -> BytesMut {
     let cmd = BytesMut::from(format!("{}\0", command).as_bytes());
     let mut res = BytesMut::new();
