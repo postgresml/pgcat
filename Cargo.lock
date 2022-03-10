@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "pgcat"
-version = "0.1.0"
+version = "0.1.0-beta2"
 dependencies = [
  "arc-swap",
  "async-trait",
