@@ -130,8 +130,6 @@ def poorly_behaved_client
 
   conn.close
   puts 'Bad client ok'
-rescue Exception => e
-  raise e
 end
 
 25.times do
