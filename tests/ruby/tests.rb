@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require 'active_record'
+require 'pg'
+
+$stdout.sync = true
 
 # Uncomment these two to see all queries.
 # ActiveRecord.verbose_query_logs = true
@@ -113,18 +116,7 @@ end
 
 # Test evil clients
 def poorly_behaved_client
-  ActiveRecord::Base.establish_connection(
-    adapter: 'postgresql',
-    host: '127.0.0.1',
-    port: 6432,
-    username: 'sharding_user',
-    password: 'sharding_user',
-    database: 'rails_dev',
-    prepared_statements: false, # Transaction mode
-    advisory_locks: false # Same
-  )
-
-  conn = TestSafeTable.connection.raw_connection
+  conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/rails_dev")
   conn.async_exec 'BEGIN'
   conn.async_exec 'SELECT 1'
 
