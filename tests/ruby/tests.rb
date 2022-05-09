@@ -111,14 +111,29 @@ rescue ActiveRecord::StatementInvalid
   puts 'OK'
 end
 
+# Test evil clients
 def poorly_behaved_client
-  conn = ActiveRecord::Base.establish_connection
+  ActiveRecord::Base.establish_connection(
+    adapter: 'postgresql',
+    host: '127.0.0.1',
+    port: 6432,
+    username: 'sharding_user',
+    password: 'sharding_user',
+    database: 'rails_dev',
+    prepared_statements: false, # Transaction mode
+    advisory_locks: false # Same
+  )
+
+  conn = TestSafeTable.connection.raw_connection
   conn.async_exec 'BEGIN'
   conn.async_exec 'SELECT 1'
+
   conn.close
   puts 'Bad client ok'
 rescue Exception => e
-  puts "Encountered #{e}"
+  raise e
 end
 
-poorly_behaved_client
+25.times do
+  poorly_behaved_client
+end
