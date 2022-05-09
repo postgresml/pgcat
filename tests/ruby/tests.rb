@@ -110,3 +110,14 @@ begin
 rescue ActiveRecord::StatementInvalid
   puts 'OK'
 end
+
+def poorly_behaved_client
+  conn = ActiveRecord::Base.establish_connection
+  conn.async_exec "BEGIN"
+  conn.async_exec "SELECT 1"
+  conn.close
+rescue Exception => e
+    puts "Encountered #{e}"
+end
+
+poorly_behaved_client
