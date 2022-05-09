@@ -359,7 +359,8 @@ impl Client {
                             // Clean up the server and re-use it.
                             // This prevents connection thrashing by bad clients.
                             if server.in_transaction() {
-                                server.query("ROLLBACK; DISCARD ALL;").await?;
+                                server.query("ROLLBACK").await?;
+                                server.query("DISCARD ALL").await?;
                             }
 
                             return Err(err);
@@ -429,7 +430,8 @@ impl Client {
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
                         if server.in_transaction() {
-                            server.query("ROLLBACK; DISCARD ALL;").await?;
+                            server.query("ROLLBACK").await?;
+                            server.query("DISCARD ALL").await?;
                         }
 
                         return Ok(());
