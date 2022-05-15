@@ -215,12 +215,14 @@ impl ConnectionPool {
             // as per request. If no specific role is requested, the first
             // available will be chosen.
             if address.role != role {
+                self.stats.client_disconnecting(process_id, address.id);
                 continue;
             }
 
             allowed_attempts -= 1;
 
             if self.is_banned(address, shard, role) {
+                self.stats.client_disconnecting(process_id, address.id);
                 continue;
             }
 
