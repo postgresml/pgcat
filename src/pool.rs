@@ -209,22 +209,21 @@ impl ConnectionPool {
             let index = self.round_robin % addresses.len();
             let address = &addresses[index];
 
-            self.stats.client_waiting(process_id, address.id);
-
             // Make sure you're getting a primary or a replica
             // as per request. If no specific role is requested, the first
             // available will be chosen.
             if address.role != role {
-                self.stats.client_disconnecting(process_id, address.id);
                 continue;
             }
 
             allowed_attempts -= 1;
 
             if self.is_banned(address, shard, role) {
-                self.stats.client_disconnecting(process_id, address.id);
                 continue;
             }
+
+            // Indicate we're waiting on a server connection from a pool.
+            self.stats.client_waiting(process_id, address.id);
 
             // Check if we can connect
             let mut conn = match self.databases[shard][index].get().await {
