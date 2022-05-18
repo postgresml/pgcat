@@ -434,6 +434,8 @@ impl Client {
                             server.query("DISCARD ALL").await?;
                         }
 
+                        self.release();
+
                         return Ok(());
                     }
 
