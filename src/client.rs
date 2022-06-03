@@ -345,7 +345,9 @@ impl Client {
             // Set application_name if any.
             // TODO: investigate other parameters and set them too.
             if self.parameters.contains_key("application_name") {
-                server.set_name(&self.parameters["application_name"]).await?;
+                server
+                    .set_name(&self.parameters["application_name"])
+                    .await?;
             }
 
             // Transaction loop. Multiple queries can be issued by the client here.
