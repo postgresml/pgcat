@@ -342,6 +342,12 @@ impl Client {
                 server.address()
             );
 
+            // Set application_name if any.
+            // TODO: investigate other parameters and set them too.
+            if self.parameters.contains_key("application_name") {
+                server.set_name(&self.parameters["application_name"]).await?;
+            }
+
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
             // or until the client disconnects if we are in session mode.
