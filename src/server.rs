@@ -54,6 +54,9 @@ pub struct Server {
 
     /// Reports various metrics, e.g. data sent & received.
     stats: Reporter,
+
+    /// Application name using the server at the moment.
+    application_name: String,
 }
 
 impl Server {
@@ -210,7 +213,7 @@ impl Server {
 
                     let (read, write) = stream.into_split();
 
-                    return Ok(Server {
+                    let mut server = Server {
                         address: address.clone(),
                         read: BufReader::new(read),
                         write: write,
@@ -224,7 +227,12 @@ impl Server {
                         client_server_map: client_server_map,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
-                    });
+                        application_name: String::new(),
+                    };
+
+                    server.set_name("pgcat").await?;
+
+                    return Ok(server);
                 }
 
                 // We have an unexpected message from the server during this exchange.
@@ -448,9 +456,14 @@ impl Server {
     /// A shorthand for `SET application_name = $1`.
     #[allow(dead_code)]
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
-        Ok(self
-            .query(&format!("SET application_name = '{}'", name))
-            .await?)
+        if self.application_name != name {
+            self.application_name = name.to_string();
+            Ok(self
+                .query(&format!("SET application_name = '{}'", name))
+                .await?)
+        } else {
+            Ok(())
+        }
     }
 
     /// Get the servers address.
