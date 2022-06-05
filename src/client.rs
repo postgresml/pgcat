@@ -369,6 +369,7 @@ impl Client {
                             if server.in_transaction() {
                                 server.query("ROLLBACK").await?;
                                 server.query("DISCARD ALL").await?;
+                                server.set_name("pgcat").await?;
                             }
 
                             return Err(err);
@@ -440,6 +441,7 @@ impl Client {
                         if server.in_transaction() {
                             server.query("ROLLBACK").await?;
                             server.query("DISCARD ALL").await?;
+                            server.set_name("pgcat").await?;
                         }
 
                         self.release();

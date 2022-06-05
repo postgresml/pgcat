@@ -213,7 +213,7 @@ impl Server {
 
                     let (read, write) = stream.into_split();
 
-                    return Ok(Server {
+                    let mut server = Server {
                         address: address.clone(),
                         read: BufReader::new(read),
                         write: write,
@@ -227,8 +227,12 @@ impl Server {
                         client_server_map: client_server_map,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
-                        application_name: String::from("pgcat"),
-                    });
+                        application_name: String::new(),
+                    };
+
+                    server.set_name("pgcat").await?;
+
+                    return Ok(server);
                 }
 
                 // We have an unexpected message from the server during this exchange.
