@@ -54,6 +54,9 @@ pub struct Server {
 
     /// Reports various metrics, e.g. data sent & received.
     stats: Reporter,
+
+    /// Application name using the server at the moment.
+    application_name: String,
 }
 
 impl Server {
@@ -224,6 +227,7 @@ impl Server {
                         client_server_map: client_server_map,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
+                        application_name: String::from("pgcat"),
                     });
                 }
 
@@ -448,9 +452,14 @@ impl Server {
     /// A shorthand for `SET application_name = $1`.
     #[allow(dead_code)]
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
-        Ok(self
-            .query(&format!("SET application_name = '{}'", name))
-            .await?)
+        if self.application_name != name {
+            self.application_name = name.to_string();
+            Ok(self
+                .query(&format!("SET application_name = '{}'", name))
+                .await?)
+        } else {
+            Ok(())
+        }
     }
 
     /// Get the servers address.
