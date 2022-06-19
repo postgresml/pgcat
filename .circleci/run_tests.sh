@@ -12,7 +12,7 @@ function start_pgcat() {
 }
 
 # Setup the database with shards and user
-psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
+PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard0 -i
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard1 -i
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard2 -i
@@ -72,7 +72,7 @@ psql -h 127.0.0.1 -p 6432 -d pgbouncer -c "SET client_encoding TO 'utf8'" > /dev
 (! psql -e -h 127.0.0.1 -p 6432 -d random_db -c 'SHOW STATS' > /dev/null)
 
 # Start PgCat in debug to demonstrate failover better
-start_pgcat "debug"
+start_pgcat "trace"
 
 # Add latency to the replica at port 5433 slightly above the healthcheck timeout
 toxiproxy-cli toxic add -t latency -a latency=300 postgres_replica

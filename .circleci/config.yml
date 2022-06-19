@@ -12,13 +12,15 @@ jobs:
       - image: cimg/rust:1.58.1
         environment:
           RUST_LOG: info
-      - image: cimg/postgres:14.0
-        auth:
-          username: mydockerhub-user
-          password: $DOCKERHUB_PASSWORD
+      - image: postgres:14
+        # auth:
+        #   username: mydockerhub-user
+        #   password: $DOCKERHUB_PASSWORD
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:

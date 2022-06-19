@@ -54,6 +54,7 @@ mod errors;
 mod messages;
 mod pool;
 mod query_router;
+mod scram;
 mod server;
 mod sharding;
 mod stats;
