@@ -14,6 +14,13 @@ pub const CANCEL_REQUEST_CODE: i32 = 80877102;
 // AuthenticationMD5Password
 pub const MD5_ENCRYPTED_PASSWORD: i32 = 5;
 
+// SASL
+pub const SASL: i32 = 10;
+pub const SASL_CONTINUE: i32 = 11;
+pub const SASL_FINAL: i32 = 12;
+pub const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
+pub const NONCE_LENGTH: usize = 24;
+
 // AuthenticationOk
 pub const AUTHENTICATION_SUCCESSFUL: i32 = 0;
 

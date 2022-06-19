@@ -12,6 +12,7 @@ use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
+use crate::scram::ScramSha256;
 use crate::stats::Reporter;
 use crate::ClientServerMap;
 
@@ -89,6 +90,8 @@ impl Server {
 
         // We'll be handling multiple packets, but they will all be structured the same.
         // We'll loop here until this exchange is complete.
+        let mut scram = ScramSha256::new(&user.password);
+
         loop {
             let code = match stream.read_u8().await {
                 Ok(code) => code as char,
@@ -129,6 +132,83 @@ impl Server {
                         }
 
                         AUTHENTICATION_SUCCESSFUL => (),
+
+                        SASL => {
+                            debug!("Starting SASL authentication");
+                            let sasl_len = (len - 8) as usize;
+                            let mut sasl_auth = vec![0u8; sasl_len];
+                            match stream.read_exact(&mut sasl_auth).await {
+                                Ok(_) => (),
+                                Err(_) => return Err(Error::SocketError),
+                            };
+
+                            let sasl_type = String::from_utf8_lossy(&sasl_auth[..sasl_len - 2]);
+
+                            if sasl_type == SCRAM_SHA_256 {
+                                debug!("Using {}", SCRAM_SHA_256);
+
+                                // Send client message
+                                let sasl_response = scram.message();
+                                let mut res = BytesMut::new();
+                                res.put_u8(b'p');
+                                res.put_i32(
+                                    4 + SCRAM_SHA_256.len() as i32
+                                        + 1
+                                        + sasl_response.len() as i32
+                                        + 4,
+                                );
+                                res.put_slice(&format!("{}\0", SCRAM_SHA_256).as_bytes()[..]);
+                                res.put_i32(sasl_response.len() as i32);
+                                res.put(sasl_response);
+
+                                write_all(&mut stream, res).await?;
+                            } else {
+                                error!("Unsupported SCRAM version: {}", sasl_type);
+                                return Err(Error::ServerError);
+                            }
+                        }
+
+                        SASL_CONTINUE => {
+                            trace!("Continuing SASL");
+
+                            let mut sasl_data = vec![0u8; (len - 8) as usize];
+
+                            match stream.read_exact(&mut sasl_data).await {
+                                Ok(_) => (),
+                                Err(_) => return Err(Error::SocketError),
+                            };
+
+                            let msg = BytesMut::from(&sasl_data[..]);
+                            let sasl_response = scram.update(&msg)?;
+
+                            let mut res = BytesMut::new();
+                            res.put_u8(b'p');
+                            res.put_i32(4 + sasl_response.len() as i32);
+                            res.put(sasl_response);
+
+                            write_all(&mut stream, res).await?;
+                        }
+
+                        SASL_FINAL => {
+                            trace!("Final SASL");
+
+                            let mut sasl_final = vec![0u8; len as usize - 8];
+                            match stream.read_exact(&mut sasl_final).await {
+                                Ok(_) => (),
+                                Err(_) => return Err(Error::SocketError),
+                            };
+
+                            match scram.finish(&BytesMut::from(&sasl_final[..])) {
+                                Ok(_) => {
+                                    debug!("SASL authentication successful");
+                                }
+
+                                Err(err) => {
+                                    debug!("SASL authentication failed");
+                                    return Err(err);
+                                }
+                            };
+                        }
 
                         _ => {
                             error!("Unsupported authentication mechanism: {}", auth_code);
