@@ -12,7 +12,7 @@ jobs:
       - image: cimg/rust:1.58.1
         environment:
           RUST_LOG: info
-      - image: cimg/postgres:14.0
+      - image: postgres:14
         auth:
           username: mydockerhub-user
           password: $DOCKERHUB_PASSWORD
