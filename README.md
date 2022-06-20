@@ -9,19 +9,19 @@ PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover su
 **Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
 
 ## Features
-| **Feature**                    | **Status**            | **Comments**                                                                                                                                          |
-|--------------------------------|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Transaction pooling            | :white_check_mark:    | Identical to PgBouncer.                                                                                                                               |
-| Session pooling                | :white_check_mark:    | Identical to PgBouncer.                                                                                                                               |
-| `COPY` support                 | :white_check_mark:    | Both `COPY TO` and `COPY FROM` are supported.                                                                                                         |
-| Query cancellation             | :white_check_mark:    | Supported both in transaction and session pooling modes.                                                                                              |
-| Load balancing of read queries | :white_check_mark:    | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
-| Sharding                       | :white_check_mark:    | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
-| Failover                       | :white_check_mark:    | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
-| Statistics                     | :white_check_mark:    | Statistics available in the admin database (`pgcat` and `pgbouncer`) with `SHOW STATS`, `SHOW POOLS` and others.                                                                                                                                                                                                          |
-| Live configuration reloading   | :white_check_mark:    | Reload supported settings with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)` or `RELOAD` query issued to the admin database.        |
-| Client authentication          | :x: :wrench:          | On the roadmap; currently all clients are allowed to connect and one user is used to connect to Postgres.                                             |
-| Admin database                 | :white_check_mark:    | The admin database, similar to PgBouncer's, allows to query for statistics and reload the configuration.                                              |
+| **Feature**                    | **Status**                  | **Comments**                                                                                                                                          |
+|--------------------------------|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Transaction pooling            | :white_check_mark:          | Identical to PgBouncer.                                                                                                                               |
+| Session pooling                | :white_check_mark:          | Identical to PgBouncer.                                                                                                                               |
+| `COPY` support                 | :white_check_mark:          | Both `COPY TO` and `COPY FROM` are supported.                                                                                                         |
+| Query cancellation             | :white_check_mark:          | Supported both in transaction and session pooling modes.                                                                                              |
+| Load balancing of read queries | :white_check_mark:          | Using round-robin between replicas. Primary is included when `primary_reads_enabled` is enabled (default).                                            |
+| Sharding                       | :white_check_mark:          | Transactions are sharded using `SET SHARD TO` and `SET SHARDING KEY TO` syntax extensions; see examples below.                                        |
+| Failover                       | :white_check_mark:          | Replicas are tested with a health check. If a health check fails, remaining replicas are attempted; see below for algorithm description and examples. |
+| Statistics                     | :white_check_mark:          | Statistics available in the admin database (`pgcat` and `pgbouncer`) with `SHOW STATS`, `SHOW POOLS` and others.                                      |
+| Live configuration reloading   | :white_check_mark:          | Reload supported settings with a `SIGHUP` to the process, e.g. `kill -s SIGHUP $(pgrep pgcat)` or `RELOAD` query issued to the admin database.        |
+| Client authentication          | :white_check_mark: :wrench: | MD5 password authentication is supported, SCRAM is on the roadmap; one user is used to connect to Postgres with both SCRAM and MD5 supported.         |
+| Admin database                 | :white_check_mark:          | The admin database, similar to PgBouncer's, allows to query for statistics and reload the configuration.                                              |
 
 ## Deployment
 
