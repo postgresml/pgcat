@@ -100,7 +100,7 @@ sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
 kill -SIGHUP $(pgrep pgcat)
 
 # Prepared statements that will only work in session mode
-pgbench -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
+pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
 
 # Attempt clean shut down
 killall pgcat -s SIGINT
