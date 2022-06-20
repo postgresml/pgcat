@@ -40,6 +40,26 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
     Ok(write_all(stream, auth_ok).await?)
 }
 
+/// Generate md5 password challenge.
+pub async fn md5_challenge(stream: &mut TcpStream) -> Result<[u8; 4], Error> {
+    // let mut rng = rand::thread_rng();
+    let salt: [u8; 4] = [
+        rand::random(),
+        rand::random(),
+        rand::random(),
+        rand::random(),
+    ];
+
+    let mut res = BytesMut::new();
+    res.put_u8(b'R');
+    res.put_i32(12);
+    res.put_i32(5); // MD5
+    res.put_slice(&salt[..]);
+
+    write_all(stream, res).await?;
+    Ok(salt)
+}
+
 /// Give the client the process_id and secret we generated
 /// used in query cancellation.
 pub async fn backend_key_data(
@@ -160,14 +180,8 @@ pub fn parse_startup(bytes: BytesMut) -> Result<HashMap<String, String>, Error> 
     Ok(result)
 }
 
-/// Send password challenge response to the server.
-/// This is the MD5 challenge.
-pub async fn md5_password(
-    stream: &mut TcpStream,
-    user: &str,
-    password: &str,
-    salt: &[u8],
-) -> Result<(), Error> {
+/// Create md5 password hash given a salt.
+pub fn md5_hash_password(user: &str, password: &str, salt: &[u8]) -> Vec<u8> {
     let mut md5 = Md5::new();
 
     // First pass
@@ -185,6 +199,19 @@ pub async fn md5_password(
         .map(|x| x as u8)
         .collect::<Vec<u8>>();
     password.push(0);
+
+    password
+}
+
+/// Send password challenge response to the server.
+/// This is the MD5 challenge.
+pub async fn md5_password(
+    stream: &mut TcpStream,
+    user: &str,
+    password: &str,
+    salt: &[u8],
+) -> Result<(), Error> {
+    let password = md5_hash_password(user, password, salt);
 
     let mut message = BytesMut::with_capacity(password.len() as usize + 5);
 
@@ -262,6 +289,39 @@ pub async fn error_response(stream: &mut OwnedWriteHalf, message: &str) -> Resul
     res.put(ready_for_query);
 
     Ok(write_all_half(stream, res).await?)
+}
+
+pub async fn wrong_password(stream: &mut TcpStream, user: &str) -> Result<(), Error> {
+    let mut error = BytesMut::new();
+
+    // Error level
+    error.put_u8(b'S');
+    error.put_slice(&b"FATAL\0"[..]);
+
+    // Error level (non-translatable)
+    error.put_u8(b'V');
+    error.put_slice(&b"FATAL\0"[..]);
+
+    // Error code: not sure how much this matters.
+    error.put_u8(b'C');
+    error.put_slice(&b"28P01\0"[..]); // system_error, see Appendix A.
+
+    // The short error message.
+    error.put_u8(b'M');
+    error.put_slice(&format!("password authentication failed for user \"{}\"\0", user).as_bytes());
+
+    // No more fields follow.
+    error.put_u8(0);
+
+    // Compose the two message reply.
+    let mut res = BytesMut::new();
+
+    res.put_u8(b'E');
+    res.put_i32(error.len() as i32 + 4);
+
+    res.put(error);
+
+    write_all(stream, res).await
 }
 
 /// Respond to a SHOW SHARD command.

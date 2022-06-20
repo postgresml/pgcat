@@ -72,9 +72,9 @@ impl Client {
         server_info: BytesMut,
         stats: Reporter,
     ) -> Result<Client, Error> {
-        let config = get_config();
+        let config = get_config().clone();
         let transaction_mode = config.general.pool_mode.starts_with("t");
-        drop(config);
+        // drop(config);
         loop {
             trace!("Waiting for StartupMessage");
 
@@ -108,13 +108,50 @@ impl Client {
                 // Regular startup message.
                 PROTOCOL_VERSION_NUMBER => {
                     trace!("Got StartupMessage");
-
-                    // TODO: perform actual auth.
                     let parameters = parse_startup(bytes.clone())?;
 
                     // Generate random backend ID and secret key
                     let process_id: i32 = rand::random();
                     let secret_key: i32 = rand::random();
+
+                    // Perform MD5 authentication.
+                    // TODO: Add SASL support.
+                    let salt = md5_challenge(&mut stream).await?;
+
+                    let code = match stream.read_u8().await {
+                        Ok(p) => p,
+                        Err(_) => return Err(Error::SocketError),
+                    };
+
+                    // PasswordMessage
+                    if code as char != 'p' {
+                        debug!("Expected p, got {}", code as char);
+                        return Err(Error::ProtocolSyncError);
+                    }
+
+                    let len = match stream.read_i32().await {
+                        Ok(len) => len,
+                        Err(_) => return Err(Error::SocketError),
+                    };
+
+                    let mut password_response = vec![0u8; (len - 4) as usize];
+
+                    match stream.read_exact(&mut password_response).await {
+                        Ok(_) => (),
+                        Err(_) => return Err(Error::SocketError),
+                    };
+
+                    // Compare server and client hashes.
+                    let password_hash =
+                        md5_hash_password(&config.user.name, &config.user.password, &salt);
+
+                    if password_hash != password_response {
+                        debug!("Password authentication failed");
+                        wrong_password(&mut stream, &config.user.name).await?;
+                        return Err(Error::ClientError);
+                    }
+
+                    debug!("Password authentication successful");
 
                     auth_ok(&mut stream).await?;
                     write_all(&mut stream, server_info).await?;
