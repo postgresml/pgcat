@@ -137,6 +137,7 @@ impl Server {
                             debug!("Starting SASL authentication");
                             let sasl_len = (len - 8) as usize;
                             let mut sasl_auth = vec![0u8; sasl_len];
+
                             match stream.read_exact(&mut sasl_auth).await {
                                 Ok(_) => (),
                                 Err(_) => return Err(Error::SocketError),
@@ -147,16 +148,22 @@ impl Server {
                             if sasl_type == SCRAM_SHA_256 {
                                 debug!("Using {}", SCRAM_SHA_256);
 
-                                // Send client message
+                                // Generate client message.
                                 let sasl_response = scram.message();
+
+                                // SASLInitialResponse (F)
                                 let mut res = BytesMut::new();
                                 res.put_u8(b'p');
+
+                                // length + String length + length + length of sasl response
                                 res.put_i32(
-                                    4 + SCRAM_SHA_256.len() as i32
-                                        + 1
-                                        + sasl_response.len() as i32
-                                        + 4,
+                                    4 // i32 size
+                                        + SCRAM_SHA_256.len() as i32 // length of SASL version string,
+                                        + 1 // Null terminator for the SASL version string,
+                                        + 4 // i32 size
+                                        + sasl_response.len() as i32, // length of SASL response
                                 );
+
                                 res.put_slice(&format!("{}\0", SCRAM_SHA_256).as_bytes()[..]);
                                 res.put_i32(sasl_response.len() as i32);
                                 res.put(sasl_response);
@@ -181,6 +188,7 @@ impl Server {
                             let msg = BytesMut::from(&sasl_data[..]);
                             let sasl_response = scram.update(&msg)?;
 
+                            // SASLResponse
                             let mut res = BytesMut::new();
                             res.put_u8(b'p');
                             res.put_i32(4 + sasl_response.len() as i32);

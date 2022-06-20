@@ -9,4 +9,5 @@ pub enum Error {
     ServerError,
     BadConfig,
     AllServersDown,
+    ClientError,
 }
