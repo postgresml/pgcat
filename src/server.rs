@@ -565,6 +565,10 @@ impl Server {
             .await
     }
 
+    pub fn search_path(&self) -> &String {
+        &self.search_path
+    }
+
     /// Get the servers address.
     #[allow(dead_code)]
     pub fn address(&self) -> Address {

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::config::{get_config, Address, Role, User};
+use crate::constants::DEFAULT_SEARCH_PATH;
 use crate::errors::Error;
 use crate::server::Server;
 use crate::stats::Reporter;
@@ -255,7 +256,9 @@ impl ConnectionPool {
                 Ok(res) => match res {
                     Ok(_) => {
                         // Set search path
-                        server.reset_search_path().await?;
+                        if server.search_path() != DEFAULT_SEARCH_PATH {
+                            server.reset_search_path().await?;
+                        }
 
                         self.stats
                             .checkout_time(now.elapsed().as_micros(), process_id, address.id);
