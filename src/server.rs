@@ -558,6 +558,7 @@ impl Server {
         }
     }
 
+    /// Set the search_path to what it's configured in pgcat.toml.
     pub async fn reset_search_path(&mut self) -> Result<(), Error> {
         debug!("Setting search_path to '{}'", self.search_path);
         self.query(&format!("SET search_path TO {}", self.search_path))
