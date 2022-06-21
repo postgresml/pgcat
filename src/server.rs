@@ -565,6 +565,7 @@ impl Server {
             .await
     }
 
+    /// Get configured search path.
     pub fn search_path(&self) -> &String {
         &self.search_path
     }
