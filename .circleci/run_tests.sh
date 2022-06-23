@@ -45,6 +45,12 @@ psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accou
 (psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
 killall psql -s SIGINT
 
+# Reload pool (closing unused server connections)
+psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'RELOAD'
+
+(psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+killall psql -s SIGINT
+
 # Sharding insert
 psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_insert.sql
 
