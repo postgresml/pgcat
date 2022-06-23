@@ -355,6 +355,12 @@ impl QueryRouter {
     pub fn set_shard(&mut self, shard: usize) {
         self.active_shard = Some(shard);
     }
+
+    /// Should we attempt to parse queries?
+    #[allow(dead_code)]
+    pub fn query_parser_enabled(&self) -> bool {
+        self.query_parser_enabled
+    }
 }
 
 #[cfg(test)]
