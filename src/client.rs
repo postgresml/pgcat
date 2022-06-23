@@ -13,7 +13,7 @@ use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{ClientServerMap};
+use crate::pool::ClientServerMap;
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::Reporter;
