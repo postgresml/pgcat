@@ -60,8 +60,8 @@ mod sharding;
 mod stats;
 
 use config::get_config;
-use pool::{ClientServerMap, ConnectionPool, POOL};
-use stats::{Collector, Reporter, REPORTER};
+use pool::{ClientServerMap, ConnectionPool};
+use stats::{get_reporter, Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
@@ -200,7 +200,7 @@ async fn main() {
             info!("Reloading config");
             match config::parse("pgcat.toml").await {
                 Ok(_) => {
-                    let reporter = (*(*REPORTER.load())).clone();
+                    let reporter = get_reporter();
                     let config = get_config();
                     ConnectionPool::from_config(reload_client_server_map.clone(), reporter).await;
                     config.show();

@@ -479,3 +479,8 @@ impl ManageConnection for ServerPool {
         conn.is_bad()
     }
 }
+
+/// Get the connection pool
+pub fn get_pool() -> ConnectionPool {
+    (*(*POOL.load())).clone()
+}

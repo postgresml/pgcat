@@ -13,12 +13,10 @@ use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::ClientServerMap;
+use crate::pool::{get_pool, ClientServerMap};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::Reporter;
-
-use crate::POOL;
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -268,7 +266,7 @@ impl Client {
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
             let mut message = read_message(&mut self.read).await?;
-            let mut pool = (*(*POOL.load())).clone();
+            let mut pool = get_pool();
 
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {
@@ -349,6 +347,11 @@ impl Client {
                 // SHOW SHARD
                 Some((Command::ShowShard, value)) => {
                     show_response(&mut self.write, "shard", &value).await?;
+                    continue;
+                }
+
+                Some((Command::ShowPrimaryReads, value)) => {
+                    show_response(&mut self.write, "primary reads", &value).await?;
                     continue;
                 }
             };

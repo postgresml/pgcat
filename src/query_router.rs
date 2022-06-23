@@ -12,13 +12,14 @@ use crate::config::{get_config, Role};
 use crate::sharding::{Sharder, ShardingFunction};
 
 /// Regexes used to parse custom commands.
-const CUSTOM_SQL_REGEXES: [&str; 6] = [
+const CUSTOM_SQL_REGEXES: [&str; 7] = [
     r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *;? *$",
     r"(?i)^ *SET SHARD TO '?([0-9]+|ANY)'? *;? *$",
     r"(?i)^ *SHOW SHARD *;? *$",
     r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)' *;? *$",
     r"(?i)^ *SHOW SERVER ROLE *;? *$",
-    r"(?i)^ *SET PRIMARY READS TO '?(on|off)'? *;? *$",
+    r"(?i)^ *SET PRIMARY READS TO '?(on|off|default)'? *;? *$",
+    r"(?i)^ *SHOW PRIMARY READS *; *$",
 ];
 
 /// Custom commands.
@@ -30,6 +31,7 @@ pub enum Command {
     SetServerRole,
     ShowServerRole,
     TogglePrimaryReads,
+    ShowPrimaryReads,
 }
 
 /// Quickly test for match when a query is received.
@@ -147,6 +149,7 @@ impl QueryRouter {
             3 => Command::SetServerRole,
             4 => Command::ShowServerRole,
             5 => Command::TogglePrimaryReads,
+            6 => Command::ShowPrimaryReads,
             _ => unreachable!(),
         };
 
@@ -180,6 +183,11 @@ impl QueryRouter {
                         String::from("any")
                     }
                 }
+            },
+
+            Command::ShowPrimaryReads => match self.primary_reads_enabled {
+                true => String::from("on"),
+                false => String::from("off"),
             },
         };
 
@@ -232,9 +240,14 @@ impl QueryRouter {
 
             Command::TogglePrimaryReads => {
                 if value == "on" {
+                    debug!("Setting primary reads to on");
                     self.primary_reads_enabled = true;
-                } else {
+                } else if value == "off" {
+                    debug!("Setting primary reads to off");
                     self.primary_reads_enabled = false;
+                } else if value == "default" {
+                    debug!("Setting primary reads to default");
+                    self.primary_reads_enabled = config.query_router.primary_reads_enabled;
                 }
             }
 

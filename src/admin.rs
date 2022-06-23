@@ -8,9 +8,9 @@ use crate::config::{get_config, parse};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ConnectionPool;
+use crate::stats::get_reporter;
 use crate::stats::get_stats;
 use crate::ClientServerMap;
-use crate::REPORTER;
 
 /// Handle admin client.
 pub async fn handle_admin(
@@ -281,7 +281,7 @@ async fn reload(
     parse(&path).await?;
 
     let config = get_config();
-    ConnectionPool::from_config(client_server_map, (*(*REPORTER.load())).clone()).await;
+    ConnectionPool::from_config(client_server_map, get_reporter()).await;
 
     config.show();
 
