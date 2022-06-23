@@ -46,7 +46,7 @@ psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accou
 killall psql -s SIGINT
 
 # Reload pool (closing unused server connections)
-psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'RELOAD'
+psql -U sharding_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD'
 
 (psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
 killall psql -s SIGINT
