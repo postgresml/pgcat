@@ -237,6 +237,8 @@ impl Config {
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
         info!("Sharding function: {}", self.query_router.sharding_function);
+        info!("Primary reads: {}", self.query_router.primary_reads_enabled);
+        info!("Query router: {}", self.query_router.query_parser_enabled);
         info!("Number of shards: {}", self.shards.len());
     }
 }

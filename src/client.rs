@@ -255,6 +255,7 @@ impl Client {
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
+        let mut round_robin = 0;
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
@@ -364,7 +365,12 @@ impl Client {
 
             // Grab a server from the pool.
             let connection = match pool
-                .get(query_router.shard(), query_router.role(), self.process_id)
+                .get(
+                    query_router.shard(),
+                    query_router.role(),
+                    self.process_id,
+                    round_robin,
+                )
                 .await
             {
                 Ok(conn) => {
@@ -382,6 +388,8 @@ impl Client {
             let mut reference = connection.0;
             let address = connection.1;
             let server = &mut *reference;
+
+            round_robin += 1;
 
             // Server is assigned to the client in case the client wants to
             // cancel a query later.

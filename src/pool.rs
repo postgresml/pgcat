@@ -27,7 +27,6 @@ pub static POOL: Lazy<ArcSwap<ConnectionPool>> =
 pub struct ConnectionPool {
     databases: Vec<Vec<Pool<ServerPool>>>,
     addresses: Vec<Vec<Address>>,
-    round_robin: usize,
     banlist: BanList,
     stats: Reporter,
 }
@@ -110,12 +109,10 @@ impl ConnectionPool {
         }
 
         assert_eq!(shards.len(), addresses.len());
-        let address_len = addresses.len();
 
         let pool = ConnectionPool {
             databases: shards,
             addresses: addresses,
-            round_robin: rand::random::<usize>() % address_len, // Start at a random replica
             banlist: Arc::new(RwLock::new(banlist)),
             stats: stats,
         };
@@ -135,11 +132,13 @@ impl ConnectionPool {
 
         let stats = self.stats.clone();
         for shard in 0..self.shards() {
+            let mut round_robin = 0;
+
             for _ in 0..self.servers(shard) {
                 // To keep stats consistent.
                 let fake_process_id = 0;
 
-                let connection = match self.get(shard, None, fake_process_id).await {
+                let connection = match self.get(shard, None, fake_process_id, round_robin).await {
                     Ok(conn) => conn,
                     Err(err) => {
                         error!("Shard {} down or misconfigured: {:?}", shard, err);
@@ -150,6 +149,7 @@ impl ConnectionPool {
                 let mut proxy = connection.0;
                 let address = connection.1;
                 let server = &mut *proxy;
+                round_robin += 1;
 
                 let server_info = server.server_info();
 
@@ -184,6 +184,7 @@ impl ConnectionPool {
         shard: usize,
         role: Option<Role>,
         process_id: i32,
+        mut round_robin: usize,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
         let addresses = &self.addresses[shard];
@@ -213,9 +214,9 @@ impl ConnectionPool {
 
         while allowed_attempts > 0 {
             // Round-robin replicas.
-            self.round_robin += 1;
+            round_robin += 1;
 
-            let index = self.round_robin % addresses.len();
+            let index = round_robin % addresses.len();
             let address = &addresses[index];
 
             // Make sure you're getting a primary or a replica
