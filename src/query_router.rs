@@ -19,7 +19,7 @@ const CUSTOM_SQL_REGEXES: [&str; 7] = [
     r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)' *;? *$",
     r"(?i)^ *SHOW SERVER ROLE *;? *$",
     r"(?i)^ *SET PRIMARY READS TO '?(on|off|default)'? *;? *$",
-    r"(?i)^ *SHOW PRIMARY READS *; *$",
+    r"(?i)^ *SHOW PRIMARY READS *;? *$",
 ];
 
 /// Custom commands.
@@ -30,7 +30,7 @@ pub enum Command {
     ShowShard,
     SetServerRole,
     ShowServerRole,
-    TogglePrimaryReads,
+    SetPrimaryReads,
     ShowPrimaryReads,
 }
 
@@ -123,8 +123,14 @@ impl QueryRouter {
 
         let matches: Vec<_> = regex_set.matches(&query).into_iter().collect();
 
+        // This is not a custom query, try to infer which
+        // server it'll go to if the query parser is enabled.
         if matches.len() != 1 {
-            return None;
+            debug!("Regular query");
+            if self.query_parser_enabled && self.role() == None {
+                debug!("Inferring role");
+                self.infer_role(buf.clone());
+            }
         }
 
         let config = get_config().clone();
@@ -148,7 +154,7 @@ impl QueryRouter {
             2 => Command::ShowShard,
             3 => Command::SetServerRole,
             4 => Command::ShowServerRole,
-            5 => Command::TogglePrimaryReads,
+            5 => Command::SetPrimaryReads,
             6 => Command::ShowPrimaryReads,
             _ => unreachable!(),
         };
@@ -157,7 +163,7 @@ impl QueryRouter {
             Command::SetShardingKey
             | Command::SetShard
             | Command::SetServerRole
-            | Command::TogglePrimaryReads => {
+            | Command::SetPrimaryReads => {
                 // Capture value. I know this re-runs the regex engine, but I haven't
                 // figured out a better way just yet. I think I can write a single Regex
                 // that matches all 5 custom SQL patterns, but maybe that's not very legible?
@@ -238,7 +244,7 @@ impl QueryRouter {
                 };
             }
 
-            Command::TogglePrimaryReads => {
+            Command::SetPrimaryReads => {
                 if value == "on" {
                     debug!("Setting primary reads to on");
                     self.primary_reads_enabled = true;
@@ -457,6 +463,10 @@ mod test {
             "SET SERVER ROLE TO 'any'",
             "SET SERVER ROLE TO 'auto'",
             "SHOW SERVER ROLE",
+            "SET PRIMARY READS TO 'on'",
+            "SET PRIMARY READS TO 'off'",
+            "SET PRIMARY READS TO 'default'",
+            "SHOW PRIMARY READS",
             // Lower case
             "set sharding key to '1'",
             "set shard to '1'",
@@ -466,9 +476,13 @@ mod test {
             "set server role to 'any'",
             "set server role to 'auto'",
             "show server role",
+            "set primary reads to 'on'",
+            "set primary reads to 'OFF'",
+            "set primary reads to 'deFaUlt'",
             // No quotes
             "SET SHARDING KEY TO 11235",
             "SET SHARD TO 15",
+            "SET PRIMARY READS TO off",
             // Spaces and semicolon
             "  SET SHARDING KEY TO 11235  ; ",
             "  SET SHARD TO 15;   ",
@@ -476,18 +490,23 @@ mod test {
             " SET SERVER ROLE TO 'primary';   ",
             "    SET SERVER ROLE TO 'primary'  ; ",
             "  SET SERVER ROLE TO 'primary'  ;",
+            "  SET PRIMARY READS TO 'off'    ;",
         ];
 
         // Which regexes it'll match to in the list
         let matches = [
-            0, 1, 2, 3, 3, 3, 3, 4, 0, 1, 2, 3, 3, 3, 3, 4, 0, 1, 0, 1, 0, 3, 3, 3,
+            0, 1, 2, 3, 3, 3, 3, 4, 5, 5, 5, 6, 0, 1, 2, 3, 3, 3, 3, 4, 5, 5, 5, 0, 1, 5, 0, 1, 0,
+            3, 3, 3, 5,
         ];
 
         let list = CUSTOM_SQL_REGEX_LIST.get().unwrap();
         let set = CUSTOM_SQL_REGEX_SET.get().unwrap();
 
         for (i, test) in tests.iter().enumerate() {
-            assert!(list[matches[i]].is_match(test));
+            if !list[matches[i]].is_match(test) {
+                println!("{} does not match {}", test, list[matches[i]]);
+                assert!(false);
+            }
             assert_eq!(set.matches(test).into_iter().collect::<Vec<_>>().len(), 1);
         }
 
@@ -554,6 +573,26 @@ mod test {
             assert_eq!(
                 qr.try_execute_command(query),
                 Some((Command::ShowServerRole, String::from(*role)))
+            );
+        }
+
+        let primary_reads = ["on", "off", "default"];
+        let primary_reads_enabled = ["on", "off", "on"];
+
+        for (idx, primary_reads) in primary_reads.iter().enumerate() {
+            assert_eq!(
+                qr.try_execute_command(simple_query(&format!(
+                    "SET PRIMARY READS TO {}",
+                    primary_reads
+                ))),
+                Some((Command::SetPrimaryReads, String::from(*primary_reads)))
+            );
+            assert_eq!(
+                qr.try_execute_command(simple_query("SHOW PRIMARY READS")),
+                Some((
+                    Command::ShowPrimaryReads,
+                    String::from(primary_reads_enabled[idx])
+                ))
             );
         }
     }

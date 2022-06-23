@@ -252,6 +252,8 @@ impl Client {
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
+        // The query router determines where the query is going to go,
+        // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
 
         // Our custom protocol loop.
@@ -266,17 +268,21 @@ impl Client {
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
             let mut message = read_message(&mut self.read).await?;
+
+            // Get a pool instance referenced by the most up-to-date
+            // pointer. This ensures we always read the latest config
+            // when starting a query.
             let mut pool = get_pool();
 
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {
-                trace!("Client disconnecting");
+                debug!("Client disconnecting");
                 return Ok(());
             }
 
             // Handle admin database queries.
             if self.admin {
-                trace!("Handling admin command");
+                debug!("Handling admin command");
                 handle_admin(
                     &mut self.write,
                     message,
@@ -292,15 +298,11 @@ impl Client {
             // Handle all custom protocol commands, if any.
             match query_router.try_execute_command(message.clone()) {
                 // Normal query, not a custom command.
-                None => {
-                    // Attempt to infer which server we want to query, i.e. primary or replica.
-                    if query_router.query_parser_enabled() && query_router.role() == None {
-                        query_router.infer_role(message.clone());
-                    }
-                }
+                None => (),
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
+                    // Selected shard is not configured.
                     if query_router.shard() >= pool.shards() {
                         // Set the shard back to what it was.
                         query_router.set_shard(current_shard);
@@ -321,7 +323,8 @@ impl Client {
                     continue;
                 }
 
-                Some((Command::TogglePrimaryReads, _)) => {
+                // SET PRIMARY READS TO
+                Some((Command::SetPrimaryReads, _)) => {
                     custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
                     continue;
                 }
@@ -350,6 +353,7 @@ impl Client {
                     continue;
                 }
 
+                // SHOW PRIMARY READS
                 Some((Command::ShowPrimaryReads, value)) => {
                     show_response(&mut self.write, "primary reads", &value).await?;
                     continue;
