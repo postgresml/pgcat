@@ -138,6 +138,8 @@ async fn main() {
 
     info!("Waiting for clients");
 
+    drop(pool);
+
     // Client connection loop.
     tokio::task::spawn(async move {
         loop {
