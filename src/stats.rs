@@ -1,9 +1,13 @@
+use arc_swap::ArcSwap;
 /// Statistics and reporting.
 use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+pub static REPORTER: Lazy<ArcSwap<Reporter>> =
+    Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
 
 /// Latest stats updated every second; used in SHOW STATS and other admin commands.
 static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
@@ -58,6 +62,13 @@ pub struct Event {
 #[derive(Clone, Debug)]
 pub struct Reporter {
     tx: Sender<Event>,
+}
+
+impl Default for Reporter {
+    fn default() -> Reporter {
+        let (tx, _rx) = channel(5);
+        Reporter { tx }
+    }
 }
 
 impl Reporter {

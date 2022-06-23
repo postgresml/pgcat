@@ -60,8 +60,8 @@ mod sharding;
 mod stats;
 
 use config::get_config;
-use pool::{ClientServerMap, ConnectionPool};
-use stats::{Collector, Reporter};
+use pool::{ClientServerMap, ConnectionPool, POOL};
+use stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
@@ -109,6 +109,7 @@ async fn main() {
 
     // Statistics reporting.
     let (tx, rx) = mpsc::channel(100);
+    REPORTER.store(Arc::new(Reporter::new(tx.clone())));
 
     // Connection pool that allows to query all shards and replicas.
     let mut pool =
@@ -116,6 +117,10 @@ async fn main() {
 
     // Statistics collector task.
     let collector_tx = tx.clone();
+
+    // Save these for reloading
+    let reload_client_server_map = client_server_map.clone();
+
     let addresses = pool.databases();
     tokio::task::spawn(async move {
         let mut stats_collector = Collector::new(rx, collector_tx);
@@ -136,7 +141,6 @@ async fn main() {
     // Client connection loop.
     tokio::task::spawn(async move {
         loop {
-            let pool = pool.clone();
             let client_server_map = client_server_map.clone();
             let server_info = server_info.clone();
             let reporter = Reporter::new(tx.clone());
@@ -157,7 +161,8 @@ async fn main() {
                 {
                     Ok(mut client) => {
                         info!("Client {:?} connected", addr);
-                        match client.handle(pool).await {
+
+                        match client.handle().await {
                             Ok(()) => {
                                 let duration = chrono::offset::Utc::now().naive_utc() - start;
 
@@ -193,7 +198,10 @@ async fn main() {
             info!("Reloading config");
             match config::parse("pgcat.toml").await {
                 Ok(_) => {
-                    get_config().show();
+                    let reporter = (*(*REPORTER.load())).clone();
+                    let config = get_config();
+                    ConnectionPool::from_config(reload_client_server_map.clone(), reporter).await;
+                    config.show();
                 }
                 Err(err) => {
                     error!("{:?}", err);

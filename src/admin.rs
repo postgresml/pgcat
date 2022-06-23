@@ -9,12 +9,15 @@ use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ConnectionPool;
 use crate::stats::get_stats;
+use crate::ClientServerMap;
+use crate::REPORTER;
 
 /// Handle admin client.
 pub async fn handle_admin(
     stream: &mut OwnedWriteHalf,
     mut query: BytesMut,
     pool: ConnectionPool,
+    client_server_map: ClientServerMap,
 ) -> Result<(), Error> {
     let code = query.get_u8() as char;
 
@@ -34,7 +37,7 @@ pub async fn handle_admin(
         show_stats(stream, &pool).await
     } else if query.starts_with("RELOAD") {
         trace!("RELOAD");
-        reload(stream).await
+        reload(stream, client_server_map).await
     } else if query.starts_with("SHOW CONFIG") {
         trace!("SHOW CONFIG");
         show_config(stream).await
@@ -266,7 +269,10 @@ async fn ignore_set(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// Reload the configuration file without restarting the process.
-async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+async fn reload(
+    stream: &mut OwnedWriteHalf,
+    client_server_map: ClientServerMap,
+) -> Result<(), Error> {
     info!("Reloading config");
 
     let config = get_config();
@@ -275,6 +281,7 @@ async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
     parse(&path).await?;
 
     let config = get_config();
+    ConnectionPool::from_config(client_server_map, (*(*REPORTER.load())).clone()).await;
 
     config.show();
 

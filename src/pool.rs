@@ -1,9 +1,11 @@
+use arc_swap::ArcSwap;
 /// Pooling, failover and banlist.
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
+use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,8 +19,11 @@ use crate::stats::Reporter;
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
+pub static POOL: Lazy<ArcSwap<ConnectionPool>> =
+    Lazy::new(|| ArcSwap::from_pointee(ConnectionPool::default()));
+
 /// The globally accessible connection pool.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ConnectionPool {
     databases: Vec<Vec<Pool<ServerPool>>>,
     addresses: Vec<Vec<Address>>,
@@ -107,13 +112,17 @@ impl ConnectionPool {
         assert_eq!(shards.len(), addresses.len());
         let address_len = addresses.len();
 
-        ConnectionPool {
+        let pool = ConnectionPool {
             databases: shards,
             addresses: addresses,
             round_robin: rand::random::<usize>() % address_len, // Start at a random replica
             banlist: Arc::new(RwLock::new(banlist)),
             stats: stats,
-        }
+        };
+
+        POOL.store(Arc::new(pool.clone()));
+
+        pool
     }
 
     /// Connect to all shards and grab server information.
@@ -204,7 +213,7 @@ impl ConnectionPool {
 
         while allowed_attempts > 0 {
             // Round-robin replicas.
-            self.round_robin += 1;
+            // self.round_robin += 1;
 
             let index = self.round_robin % addresses.len();
             let address = &addresses[index];

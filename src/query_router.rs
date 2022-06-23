@@ -330,6 +330,10 @@ impl QueryRouter {
         }
     }
 
+    pub fn set_shard(&mut self, shard: usize) {
+        self.active_shard = Some(shard);
+    }
+
     /// Reset the router back to defaults.
     /// This must be called at the end of every transaction in transaction mode.
     pub fn _reset(&mut self) {

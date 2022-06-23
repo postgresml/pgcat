@@ -13,10 +13,12 @@ use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{ClientServerMap, ConnectionPool};
+use crate::pool::{ClientServerMap};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::Reporter;
+
+use crate::POOL;
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -221,7 +223,7 @@ impl Client {
     }
 
     /// Handle a connected and authenticated client.
-    pub async fn handle(&mut self, mut pool: ConnectionPool) -> Result<(), Error> {
+    pub async fn handle(&mut self) -> Result<(), Error> {
         // The client wants to cancel a query it has issued previously.
         if self.cancel_mode {
             trace!("Sending CancelRequest");
@@ -266,6 +268,7 @@ impl Client {
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
             let mut message = read_message(&mut self.read).await?;
+            let mut pool = (*(*POOL.load())).clone();
 
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {
@@ -276,9 +279,17 @@ impl Client {
             // Handle admin database queries.
             if self.admin {
                 trace!("Handling admin command");
-                handle_admin(&mut self.write, message, pool.clone()).await?;
+                handle_admin(
+                    &mut self.write,
+                    message,
+                    pool.clone(),
+                    self.client_server_map.clone(),
+                )
+                .await?;
                 continue;
             }
+
+            let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
             match query_router.try_execute_command(message.clone()) {
@@ -292,7 +303,23 @@ impl Client {
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
+                    if query_router.shard() >= pool.shards() {
+                        // Set the shard back to what it was.
+                        query_router.set_shard(current_shard);
+
+                        error_response(
+                            &mut self.write,
+                            &format!(
+                                "shard {} is more than configured {}, staying on shard {}",
+                                query_router.shard(),
+                                pool.shards(),
+                                current_shard,
+                            ),
+                        )
+                        .await?;
+                    } else {
+                        custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
+                    }
                     continue;
                 }
 
@@ -320,20 +347,6 @@ impl Client {
                     continue;
                 }
             };
-
-            // Make sure we selected a valid shard.
-            if query_router.shard() >= pool.shards() {
-                error_response(
-                    &mut self.write,
-                    &format!(
-                        "shard {} is more than configured {}",
-                        query_router.shard(),
-                        pool.shards()
-                    ),
-                )
-                .await?;
-                continue;
-            }
 
             debug!("Waiting for connection from pool");
 
