@@ -131,6 +131,7 @@ impl QueryRouter {
                 debug!("Inferring role");
                 self.infer_role(buf.clone());
             }
+            return None;
         }
 
         let config = get_config().clone();
