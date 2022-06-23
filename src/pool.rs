@@ -213,7 +213,7 @@ impl ConnectionPool {
 
         while allowed_attempts > 0 {
             // Round-robin replicas.
-            // self.round_robin += 1;
+            self.round_robin += 1;
 
             let index = self.round_robin % addresses.len();
             let address = &addresses[index];
