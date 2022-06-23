@@ -323,6 +323,11 @@ impl Client {
                     continue;
                 }
 
+                Some((Command::TogglePrimaryReads, _)) => {
+                    custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
+                    continue;
+                }
+
                 // SET SHARDING KEY TO
                 Some((Command::SetShardingKey, _)) => {
                     custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;

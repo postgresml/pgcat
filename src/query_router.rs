@@ -12,12 +12,13 @@ use crate::config::{get_config, Role};
 use crate::sharding::{Sharder, ShardingFunction};
 
 /// Regexes used to parse custom commands.
-const CUSTOM_SQL_REGEXES: [&str; 5] = [
+const CUSTOM_SQL_REGEXES: [&str; 6] = [
     r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *;? *$",
     r"(?i)^ *SET SHARD TO '?([0-9]+|ANY)'? *;? *$",
     r"(?i)^ *SHOW SHARD *;? *$",
     r"(?i)^ *SET SERVER ROLE TO '(PRIMARY|REPLICA|ANY|AUTO|DEFAULT)' *;? *$",
     r"(?i)^ *SHOW SERVER ROLE *;? *$",
+    r"(?i)^ *SET PRIMARY READS TO '?(on|off)'? *;? *$",
 ];
 
 /// Custom commands.
@@ -28,6 +29,7 @@ pub enum Command {
     ShowShard,
     SetServerRole,
     ShowServerRole,
+    TogglePrimaryReads,
 }
 
 /// Quickly test for match when a query is received.
@@ -38,27 +40,17 @@ static CUSTOM_SQL_REGEX_LIST: OnceCell<Vec<Regex>> = OnceCell::new();
 
 /// The query router.
 pub struct QueryRouter {
-    /// By default, queries go here, unless we have better information
-    /// about what the client wants.
-    default_server_role: Option<Role>,
-
-    /// Number of shards in the cluster.
-    shards: usize,
-
     /// Which shard we should be talking to right now.
     active_shard: Option<usize>,
 
     /// Which server should we be talking to.
     active_role: Option<Role>,
 
-    /// Include the primary into the replica pool for reads.
-    primary_reads_enabled: bool,
-
-    /// Should we try to parse queries to route them to replicas or primary automatically.
+    /// Should we try to parse queries to route them to replicas or primary automatically
     query_parser_enabled: bool,
 
-    /// Which sharding function we're using.
-    sharding_function: ShardingFunction,
+    /// Include the primary into the replica pool for reads.
+    primary_reads_enabled: bool,
 }
 
 impl QueryRouter {
@@ -97,28 +89,11 @@ impl QueryRouter {
     pub fn new() -> QueryRouter {
         let config = get_config();
 
-        let default_server_role = match config.query_router.default_role.as_ref() {
-            "any" => None,
-            "primary" => Some(Role::Primary),
-            "replica" => Some(Role::Replica),
-            _ => unreachable!(),
-        };
-
-        let sharding_function = match config.query_router.sharding_function.as_ref() {
-            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
-            "sha1" => ShardingFunction::Sha1,
-            _ => unreachable!(),
-        };
-
         QueryRouter {
-            default_server_role: default_server_role,
-            shards: config.shards.len(),
-
-            active_role: default_server_role,
             active_shard: None,
-            primary_reads_enabled: config.query_router.primary_reads_enabled,
+            active_role: None,
             query_parser_enabled: config.query_router.query_parser_enabled,
-            sharding_function,
+            primary_reads_enabled: config.query_router.primary_reads_enabled,
         }
     }
 
@@ -150,17 +125,36 @@ impl QueryRouter {
             return None;
         }
 
+        let config = get_config().clone();
+
+        let sharding_function = match config.query_router.sharding_function.as_ref() {
+            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
+            "sha1" => ShardingFunction::Sha1,
+            _ => unreachable!(),
+        };
+
+        let default_server_role = match config.query_router.default_role.as_ref() {
+            "any" => None,
+            "primary" => Some(Role::Primary),
+            "replica" => Some(Role::Replica),
+            _ => unreachable!(),
+        };
+
         let command = match matches[0] {
             0 => Command::SetShardingKey,
             1 => Command::SetShard,
             2 => Command::ShowShard,
             3 => Command::SetServerRole,
             4 => Command::ShowServerRole,
+            5 => Command::TogglePrimaryReads,
             _ => unreachable!(),
         };
 
         let mut value = match command {
-            Command::SetShardingKey | Command::SetShard | Command::SetServerRole => {
+            Command::SetShardingKey
+            | Command::SetShard
+            | Command::SetServerRole
+            | Command::TogglePrimaryReads => {
                 // Capture value. I know this re-runs the regex engine, but I haven't
                 // figured out a better way just yet. I think I can write a single Regex
                 // that matches all 5 custom SQL patterns, but maybe that's not very legible?
@@ -191,7 +185,7 @@ impl QueryRouter {
 
         match command {
             Command::SetShardingKey => {
-                let sharder = Sharder::new(self.shards, self.sharding_function);
+                let sharder = Sharder::new(config.shards.len(), sharding_function);
                 let shard = sharder.shard(value.parse::<i64>().unwrap());
                 self.active_shard = Some(shard);
                 value = shard.to_string();
@@ -199,7 +193,7 @@ impl QueryRouter {
 
             Command::SetShard => {
                 self.active_shard = match value.to_ascii_uppercase().as_ref() {
-                    "ANY" => Some(rand::random::<usize>() % self.shards),
+                    "ANY" => Some(rand::random::<usize>() % config.shards.len()),
                     _ => Some(value.parse::<usize>().unwrap()),
                 };
             }
@@ -227,13 +221,21 @@ impl QueryRouter {
                     }
 
                     "default" => {
-                        self.active_role = self.default_server_role;
-                        self.query_parser_enabled = get_config().query_router.query_parser_enabled;
+                        self.active_role = default_server_role;
+                        self.query_parser_enabled = config.query_router.query_parser_enabled;
                         self.active_role
                     }
 
                     _ => unreachable!(),
                 };
+            }
+
+            Command::TogglePrimaryReads => {
+                if value == "on" {
+                    self.primary_reads_enabled = true;
+                } else {
+                    self.primary_reads_enabled = false;
+                }
             }
 
             _ => (),
@@ -334,22 +336,9 @@ impl QueryRouter {
         self.active_shard = Some(shard);
     }
 
-    /// Reset the router back to defaults.
-    /// This must be called at the end of every transaction in transaction mode.
-    pub fn _reset(&mut self) {
-        self.active_role = self.default_server_role;
-        self.active_shard = None;
-    }
-
     /// Should we attempt to parse queries?
     pub fn query_parser_enabled(&self) -> bool {
         self.query_parser_enabled
-    }
-
-    /// Allows to toggle primary reads in tests.
-    #[allow(dead_code)]
-    pub fn toggle_primary_reads(&mut self, value: bool) {
-        self.primary_reads_enabled = value;
     }
 }
 
@@ -373,7 +362,8 @@ mod test {
         let mut qr = QueryRouter::new();
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
         assert_eq!(qr.query_parser_enabled(), true);
-        qr.toggle_primary_reads(false);
+
+        assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
         let queries = vec![
             simple_query("SELECT * FROM items WHERE id = 5"),
@@ -414,7 +404,7 @@ mod test {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         let query = simple_query("SELECT * FROM items WHERE id = 5");
-        qr.toggle_primary_reads(true);
+        assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO on")) != None);
 
         assert!(qr.infer_role(query));
         assert_eq!(qr.role(), None);
@@ -425,7 +415,7 @@ mod test {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'"));
-        qr.toggle_primary_reads(false);
+        assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
         let prepared_stmt = BytesMut::from(
             &b"WITH t AS (SELECT * FROM items WHERE name = $1) SELECT * FROM t WHERE id = $2\0"[..],
@@ -560,7 +550,7 @@ mod test {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         let query = simple_query("SET SERVER ROLE TO 'auto'");
-        qr.toggle_primary_reads(false);
+        assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
         assert!(qr.try_execute_command(query) != None);
         assert!(qr.query_parser_enabled());
