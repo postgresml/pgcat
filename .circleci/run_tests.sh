@@ -43,12 +43,14 @@ psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accou
 
 # Query cancellation test
 (psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+sleep 1
 killall psql -s SIGINT
 
 # Reload pool (closing unused server connections)
 psql -U sharding_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD'
 
 (psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+sleep 1
 killall psql -s SIGINT
 
 # Sharding insert
