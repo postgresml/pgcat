@@ -16,7 +16,7 @@ use crate::messages::*;
 use crate::pool::{get_pool, ClientServerMap};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
-use crate::stats::Reporter;
+use crate::stats::{get_reporter, Reporter};
 
 /// The client state. One of these is created per client.
 pub struct Client {
@@ -69,11 +69,10 @@ impl Client {
     pub async fn startup(
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
-        server_info: BytesMut,
-        stats: Reporter,
     ) -> Result<Client, Error> {
         let config = get_config().clone();
         let transaction_mode = config.general.pool_mode.starts_with("t");
+        let stats = get_reporter();
         // drop(config);
         loop {
             trace!("Waiting for StartupMessage");
@@ -154,7 +153,7 @@ impl Client {
                     debug!("Password authentication successful");
 
                     auth_ok(&mut stream).await?;
-                    write_all(&mut stream, server_info).await?;
+                    write_all(&mut stream, get_pool().server_info()).await?;
                     backend_key_data(&mut stream, process_id, secret_key).await?;
                     ready_for_query(&mut stream).await?;
                     trace!("Startup OK");

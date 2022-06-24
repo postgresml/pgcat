@@ -146,10 +146,7 @@ async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 /// Show utilization of connection pools for each shard and replicas.
 async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let stats = get_stats();
-    let config = {
-        let guard = get_config();
-        &*guard.clone()
-    };
+    let config = get_config();
 
     let columns = vec![
         ("database", DataType::Text),
@@ -202,9 +199,7 @@ async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
 
 /// Show shards and replicas.
 async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
-    let guard = get_config();
-    let config = &*guard.clone();
-    drop(guard);
+    let config = get_config();
 
     // Columns
     let columns = vec![
@@ -276,7 +271,7 @@ async fn reload(
     info!("Reloading config");
 
     let config = get_config();
-    let path = config.path.clone().unwrap();
+    let path = config.path.clone();
 
     parse(&path).await?;
 
@@ -299,10 +294,8 @@ async fn reload(
 
 /// Shows current configuration.
 async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
-    let guard = get_config();
-    let config = &*guard.clone();
+    let config = &get_config();
     let config: HashMap<String, String> = config.into();
-    drop(guard);
 
     // Configs that cannot be changed without restarting.
     let immutables = ["host", "port", "connect_timeout"];

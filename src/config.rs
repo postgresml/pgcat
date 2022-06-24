@@ -1,5 +1,5 @@
 /// Parse the configuration file.
-use arc_swap::{ArcSwap, Guard};
+use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
@@ -161,10 +161,16 @@ impl Default for QueryRouter {
     }
 }
 
+fn default_path() -> String {
+    String::from("pgcat.toml")
+}
+
 /// Configuration wrapper.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    pub path: Option<String>,
+    #[serde(default = "default_path")]
+    pub path: String,
+
     pub general: General,
     pub user: User,
     pub shards: HashMap<String, Shard>,
@@ -174,7 +180,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            path: Some(String::from("pgcat.toml")),
+            path: String::from("pgcat.toml"),
             general: General::default(),
             user: User::default(),
             shards: HashMap::from([(String::from("1"), Shard::default())]),
@@ -246,8 +252,8 @@ impl Config {
 /// Get a read-only instance of the configuration
 /// from anywhere in the app.
 /// ArcSwap makes this cheap and quick.
-pub fn get_config() -> Guard<Arc<Config>> {
-    CONFIG.load()
+pub fn get_config() -> Config {
+    (*(*CONFIG.load())).clone()
 }
 
 /// Parse the configuration file located at the path.
@@ -359,7 +365,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
-    config.path = Some(path.to_string());
+    config.path = path.to_string();
 
     // Update the configuration globally.
     CONFIG.store(Arc::new(config.clone()));
@@ -379,6 +385,6 @@ mod test {
         assert_eq!(get_config().shards["1"].servers[0].0, "127.0.0.1");
         assert_eq!(get_config().shards["0"].servers[0].2, "primary");
         assert_eq!(get_config().query_router.default_role, "any");
-        assert_eq!(get_config().path, Some("pgcat.toml".to_string()));
+        assert_eq!(get_config().path, "pgcat.toml".to_string());
     }
 }

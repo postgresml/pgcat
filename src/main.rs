@@ -128,8 +128,8 @@ async fn main() {
     });
 
     // Connect to all servers and validate their versions.
-    let server_info = match pool.validate().await {
-        Ok(info) => info,
+    match pool.validate().await {
+        Ok(_) => (),
         Err(err) => {
             error!("Could not validate connection pool: {:?}", err);
             return;
@@ -144,8 +144,6 @@ async fn main() {
     tokio::task::spawn(async move {
         loop {
             let client_server_map = client_server_map.clone();
-            let server_info = server_info.clone();
-            let reporter = Reporter::new(tx.clone());
 
             let (socket, addr) = match listener.accept().await {
                 Ok((socket, addr)) => (socket, addr),
@@ -158,9 +156,7 @@ async fn main() {
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
-                match client::Client::startup(socket, client_server_map, server_info, reporter)
-                    .await
-                {
+                match client::Client::startup(socket, client_server_map).await {
                     Ok(mut client) => {
                         info!("Client {:?} connected", addr);
 
@@ -198,7 +194,7 @@ async fn main() {
         loop {
             stream.recv().await;
             info!("Reloading config");
-            match config::parse("pgcat.toml").await {
+            match config::parse(&get_config().path).await {
                 Ok(_) => {
                     let reporter = get_reporter();
                     let config = get_config();

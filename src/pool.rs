@@ -29,6 +29,7 @@ pub struct ConnectionPool {
     addresses: Vec<Vec<Address>>,
     banlist: BanList,
     stats: Reporter,
+    server_info: BytesMut,
 }
 
 impl ConnectionPool {
@@ -115,6 +116,7 @@ impl ConnectionPool {
             addresses: addresses,
             banlist: Arc::new(RwLock::new(banlist)),
             stats: stats,
+            server_info: BytesMut::new(),
         };
 
         POOL.store(Arc::new(pool.clone()));
@@ -175,7 +177,8 @@ impl ConnectionPool {
             return Err(Error::AllServersDown);
         }
 
-        Ok(server_infos[0].clone())
+        self.server_info = server_infos[0].clone();
+        Ok(self.server_info.clone())
     }
 
     /// Get a connection from the pool.
@@ -399,6 +402,10 @@ impl ConnectionPool {
     /// Get the address information for a shard server.
     pub fn address(&self, shard: usize, server: usize) -> &Address {
         &self.addresses[shard][server]
+    }
+
+    pub fn server_info(&self) -> BytesMut {
+        self.server_info.clone()
     }
 }
 
