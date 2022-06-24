@@ -262,6 +262,8 @@ impl QueryRouter {
 
     /// Try to infer which server to connect to based on the contents of the query.
     pub fn infer_role(&mut self, mut buf: BytesMut) -> bool {
+        debug!("Inferring role");
+
         let code = buf.get_u8() as char;
         let len = buf.get_i32() as usize;
 

@@ -302,7 +302,11 @@ impl Client {
             // Handle all custom protocol commands, if any.
             match query_router.try_execute_command(message.clone()) {
                 // Normal query, not a custom command.
-                None => (),
+                None => {
+                    if query_router.query_parser_enabled() {
+                        query_router.infer_role(message.clone());
+                    }
+                }
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
@@ -363,11 +367,6 @@ impl Client {
                     continue;
                 }
             };
-
-            if query_router.query_parser_enabled() && query_router.role() == None {
-                debug!("Inferring role");
-                query_router.infer_role(message.clone());
-            }
 
             debug!("Waiting for connection from pool");
 
