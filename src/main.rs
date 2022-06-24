@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Lev Kokotov <lev@levthe.dev>
+// Copyright (c) 2022 Lev Kokotov <hi@levthe.dev>
 
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -177,7 +177,7 @@ async fn main() {
                     }
 
                     Err(err) => {
-                        error!("Client failed to login: {:?}", err);
+                        debug!("Client failed to login: {:?}", err);
                     }
                 };
             });

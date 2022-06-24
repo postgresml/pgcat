@@ -175,11 +175,9 @@ impl ConnectionPool {
                     }
                 };
 
-                let mut proxy = connection.0;
+                let proxy = connection.0;
                 let address = connection.1;
-                let server = &mut *proxy;
-                round_robin += 1;
-
+                let server = &*proxy;
                 let server_info = server.server_info();
 
                 stats.client_disconnecting(fake_process_id, address.id);
@@ -195,6 +193,7 @@ impl ConnectionPool {
                 }
 
                 server_infos.push(server_info);
+                round_robin += 1;
             }
         }
 
@@ -259,6 +258,7 @@ impl ConnectionPool {
 
             allowed_attempts -= 1;
 
+            // Don't attempt to connect to banned servers.
             if self.is_banned(address, shard, role) {
                 continue;
             }
