@@ -126,11 +126,7 @@ impl QueryRouter {
         // This is not a custom query, try to infer which
         // server it'll go to if the query parser is enabled.
         if matches.len() != 1 {
-            debug!("Regular query");
-            if self.query_parser_enabled && self.role() == None {
-                debug!("Inferring role");
-                self.infer_role(buf.clone());
-            }
+            debug!("Regular query, not a command");
             return None;
         }
 
@@ -266,6 +262,8 @@ impl QueryRouter {
 
     /// Try to infer which server to connect to based on the contents of the query.
     pub fn infer_role(&mut self, mut buf: BytesMut) -> bool {
+        debug!("Inferring role");
+
         let code = buf.get_u8() as char;
         let len = buf.get_i32() as usize;
 

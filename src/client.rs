@@ -302,7 +302,11 @@ impl Client {
             // Handle all custom protocol commands, if any.
             match query_router.try_execute_command(message.clone()) {
                 // Normal query, not a custom command.
-                None => (),
+                None => {
+                    if query_router.query_parser_enabled() {
+                        query_router.infer_role(message.clone());
+                    }
+                }
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
