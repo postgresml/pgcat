@@ -297,7 +297,7 @@ impl Client {
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(message.clone(), &pool) {
+            match query_router.try_execute_command(message.clone()) {
                 // Normal query, not a custom command.
                 None => (),
 
