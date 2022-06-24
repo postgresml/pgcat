@@ -60,7 +60,7 @@ mod sharding;
 mod stats;
 
 use config::{get_config, reload_config};
-use pool::{ClientServerMap, ConnectionPool};
+use pool::{get_pool, ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
@@ -112,8 +112,15 @@ async fn main() {
     REPORTER.store(Arc::new(Reporter::new(tx.clone())));
 
     // Connection pool that allows to query all shards and replicas.
-    let mut pool =
-        ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await;
+    match ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await {
+        Ok(_) => (),
+        Err(err) => {
+            error!("Pool error: {:?}", err);
+            return;
+        }
+    };
+
+    let pool = get_pool();
 
     // Statistics collector task.
     let collector_tx = tx.clone();
@@ -126,15 +133,6 @@ async fn main() {
         let mut stats_collector = Collector::new(rx, collector_tx);
         stats_collector.collect(addresses).await;
     });
-
-    // Connect to all servers and validate their versions.
-    match pool.validate().await {
-        Ok(_) => (),
-        Err(err) => {
-            error!("Could not validate connection pool: {:?}", err);
-            return;
-        }
-    };
 
     info!("Waiting for clients");
 
@@ -196,7 +194,10 @@ async fn main() {
 
             info!("Reloading config");
 
-            reload_config(reload_client_server_map.clone()).await;
+            match reload_config(reload_client_server_map.clone()).await {
+                Ok(_) => (),
+                Err(_) => continue,
+            };
 
             get_config().show();
         }

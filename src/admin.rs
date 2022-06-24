@@ -269,7 +269,7 @@ async fn reload(
 ) -> Result<(), Error> {
     info!("Reloading config");
 
-    reload_config(client_server_map).await;
+    reload_config(client_server_map).await?;
 
     get_config().show();
 

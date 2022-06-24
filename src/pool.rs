@@ -37,7 +37,7 @@ impl ConnectionPool {
     pub async fn from_config(
         client_server_map: ClientServerMap,
         stats: Reporter,
-    ) -> ConnectionPool {
+    ) -> Result<(), Error> {
         let config = get_config();
         let mut shards = Vec::new();
         let mut addresses = Vec::new();
@@ -111,7 +111,7 @@ impl ConnectionPool {
 
         assert_eq!(shards.len(), addresses.len());
 
-        let pool = ConnectionPool {
+        let mut pool = ConnectionPool {
             databases: shards,
             addresses: addresses,
             banlist: Arc::new(RwLock::new(banlist)),
@@ -119,9 +119,17 @@ impl ConnectionPool {
             server_info: BytesMut::new(),
         };
 
+        match pool.validate().await {
+            Ok(_) => (),
+            Err(err) => {
+                error!("Could not validate connection pool: {:?}", err);
+                return Err(err);
+            }
+        };
+
         POOL.store(Arc::new(pool.clone()));
 
-        pool
+        Ok(())
     }
 
     /// Connect to all shards and grab server information.
@@ -129,7 +137,7 @@ impl ConnectionPool {
     /// when they connect.
     /// This also warms up the pool for clients that connect when
     /// the pooler starts up.
-    pub async fn validate(&mut self) -> Result<BytesMut, Error> {
+    async fn validate(&mut self) -> Result<(), Error> {
         let mut server_infos = Vec::new();
 
         let stats = self.stats.clone();
@@ -178,7 +186,8 @@ impl ConnectionPool {
         }
 
         self.server_info = server_infos[0].clone();
-        Ok(self.server_info.clone())
+
+        Ok(())
     }
 
     /// Get a connection from the pool.

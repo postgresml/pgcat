@@ -375,14 +375,14 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn reload_config(client_server_map: ClientServerMap) {
+pub async fn reload_config(client_server_map: ClientServerMap) -> Result<(), Error> {
     let old_config = get_config();
 
     match parse(&old_config.path).await {
         Ok(()) => (),
         Err(err) => {
             error!("Config reload error: {:?}", err);
-            return;
+            return Err(Error::BadConfig);
         }
     };
 
@@ -390,7 +390,9 @@ pub async fn reload_config(client_server_map: ClientServerMap) {
 
     if old_config.shards != new_config.shards {
         info!("Sharding configuration changed, re-creating server pools");
-        ConnectionPool::from_config(client_server_map, get_reporter()).await;
+        ConnectionPool::from_config(client_server_map, get_reporter()).await
+    } else {
+        Ok(())
     }
 }
 
