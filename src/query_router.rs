@@ -621,6 +621,6 @@ mod test {
         assert!(qr.query_parser_enabled());
         let query = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(query) != None);
-        assert!(!qr.query_parser_enabled());
+        assert!(qr.query_parser_enabled());
     }
 }
