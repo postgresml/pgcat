@@ -134,7 +134,7 @@ impl QueryRouter {
             return None;
         }
 
-        let config = get_config().clone();
+        let config = get_config();
 
         let sharding_function = match config.query_router.sharding_function.as_ref() {
             "pg_bigint_hash" => ShardingFunction::PgBigintHash,

@@ -10,6 +10,8 @@ use tokio::io::AsyncReadExt;
 use toml;
 
 use crate::errors::Error;
+use crate::stats::get_reporter;
+use crate::{ClientServerMap, ConnectionPool};
 
 /// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
@@ -126,7 +128,7 @@ impl Default for General {
 }
 
 /// Shard configuration.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
     pub servers: Vec<(String, u16, String)>,
     pub database: String,
@@ -371,6 +373,25 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     CONFIG.store(Arc::new(config.clone()));
 
     Ok(())
+}
+
+pub async fn reload_config(client_server_map: ClientServerMap) {
+    let old_config = get_config();
+
+    match parse(&old_config.path).await {
+        Ok(()) => (),
+        Err(err) => {
+            error!("Config reload error: {:?}", err);
+            return;
+        }
+    };
+
+    let new_config = get_config();
+
+    if old_config.shards != new_config.shards {
+        info!("Sharding configuration changed, re-creating server pools");
+        ConnectionPool::from_config(client_server_map, get_reporter()).await;
+    }
 }
 
 #[cfg(test)]

@@ -4,11 +4,10 @@ use log::{info, trace};
 use std::collections::HashMap;
 use tokio::net::tcp::OwnedWriteHalf;
 
-use crate::config::{get_config, parse};
+use crate::config::{get_config, reload_config};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ConnectionPool;
-use crate::stats::get_reporter;
 use crate::stats::get_stats;
 use crate::ClientServerMap;
 
@@ -270,15 +269,9 @@ async fn reload(
 ) -> Result<(), Error> {
     info!("Reloading config");
 
-    let config = get_config();
-    let path = config.path.clone();
+    reload_config(client_server_map).await;
 
-    parse(&path).await?;
-
-    let config = get_config();
-    ConnectionPool::from_config(client_server_map, get_reporter()).await;
-
-    config.show();
+    get_config().show();
 
     let mut res = BytesMut::new();
 

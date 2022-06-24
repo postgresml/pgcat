@@ -59,9 +59,9 @@ mod server;
 mod sharding;
 mod stats;
 
-use config::get_config;
+use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
-use stats::{get_reporter, Collector, Reporter, REPORTER};
+use stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
@@ -193,19 +193,12 @@ async fn main() {
 
         loop {
             stream.recv().await;
+
             info!("Reloading config");
-            match config::parse(&get_config().path).await {
-                Ok(_) => {
-                    let reporter = get_reporter();
-                    let config = get_config();
-                    ConnectionPool::from_config(reload_client_server_map.clone(), reporter).await;
-                    config.show();
-                }
-                Err(err) => {
-                    error!("{:?}", err);
-                    return;
-                }
-            };
+
+            reload_config(reload_client_server_map.clone()).await;
+
+            get_config().show();
         }
     });
 
