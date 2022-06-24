@@ -1,9 +1,13 @@
+use arc_swap::ArcSwap;
 /// Statistics and reporting.
 use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+
+pub static REPORTER: Lazy<ArcSwap<Reporter>> =
+    Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
 
 /// Latest stats updated every second; used in SHOW STATS and other admin commands.
 static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
@@ -58,6 +62,13 @@ pub struct Event {
 #[derive(Clone, Debug)]
 pub struct Reporter {
     tx: Sender<Event>,
+}
+
+impl Default for Reporter {
+    fn default() -> Reporter {
+        let (tx, _rx) = channel(5);
+        Reporter { tx }
+    }
 }
 
 impl Reporter {
@@ -289,7 +300,7 @@ impl Collector {
             ("avg_query_time", 0),
             ("avg_xact_count", 0),
             ("avg_sent", 0),
-            ("avg_received", 0),
+            ("avg_recv", 0),
             ("avg_wait_time", 0),
             ("maxwait_us", 0),
             ("maxwait", 0),
@@ -493,10 +504,14 @@ impl Collector {
                         "avg_query_count",
                         "avgxact_count",
                         "avg_sent",
-                        "avg_received",
+                        "avg_recv",
                         "avg_wait_time",
                     ] {
-                        let total_name = stat.replace("avg_", "total_");
+                        let total_name = match stat {
+                            &"avg_recv" => "total_received".to_string(), // Because PgBouncer is saving bytes
+                            _ => stat.replace("avg_", "total_"),
+                        };
+
                         let old_value = old_stats.entry(total_name.clone()).or_insert(0);
                         let new_value = stats.get(total_name.as_str()).unwrap_or(&0).to_owned();
                         let avg = (new_value - *old_value) / (STAT_PERIOD as i64 / 1_000); // Avg / second
@@ -514,4 +529,9 @@ impl Collector {
 /// by the `Collector`.
 pub fn get_stats() -> HashMap<usize, HashMap<String, i64>> {
     LATEST_STATS.lock().clone()
+}
+
+/// Get the statistics reporter used to update stats across the pools/clients.
+pub fn get_reporter() -> Reporter {
+    (*(*REPORTER.load())).clone()
 }

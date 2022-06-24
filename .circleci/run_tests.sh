@@ -42,7 +42,15 @@ pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
 psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
 
 # Query cancellation test
-(psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(5)' || true) &
+(psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+sleep 1
+killall psql -s SIGINT
+
+# Reload pool (closing unused server connections)
+psql -U sharding_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD'
+
+(psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+sleep 1
 killall psql -s SIGINT
 
 # Sharding insert
@@ -94,7 +102,7 @@ toxiproxy-cli toxic remove --toxicName latency_downstream postgres_replica
 start_pgcat "info"
 
 # Test session mode (and config reload)
-sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' pgcat.toml
+sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' .circleci/pgcat.toml
 
 # Reload config test
 kill -SIGHUP $(pgrep pgcat)

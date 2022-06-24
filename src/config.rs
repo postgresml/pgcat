@@ -1,5 +1,5 @@
 /// Parse the configuration file.
-use arc_swap::{ArcSwap, Guard};
+use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
@@ -10,6 +10,7 @@ use tokio::io::AsyncReadExt;
 use toml;
 
 use crate::errors::Error;
+use crate::{ClientServerMap, ConnectionPool};
 
 /// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
@@ -126,7 +127,7 @@ impl Default for General {
 }
 
 /// Shard configuration.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
     pub servers: Vec<(String, u16, String)>,
     pub database: String,
@@ -161,10 +162,16 @@ impl Default for QueryRouter {
     }
 }
 
+fn default_path() -> String {
+    String::from("pgcat.toml")
+}
+
 /// Configuration wrapper.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
-    pub path: Option<String>,
+    #[serde(default = "default_path")]
+    pub path: String,
+
     pub general: General,
     pub user: User,
     pub shards: HashMap<String, Shard>,
@@ -174,7 +181,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            path: Some(String::from("pgcat.toml")),
+            path: String::from("pgcat.toml"),
             general: General::default(),
             user: User::default(),
             shards: HashMap::from([(String::from("1"), Shard::default())]),
@@ -237,6 +244,8 @@ impl Config {
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
         info!("Sharding function: {}", self.query_router.sharding_function);
+        info!("Primary reads: {}", self.query_router.primary_reads_enabled);
+        info!("Query router: {}", self.query_router.query_parser_enabled);
         info!("Number of shards: {}", self.shards.len());
     }
 }
@@ -244,8 +253,8 @@ impl Config {
 /// Get a read-only instance of the configuration
 /// from anywhere in the app.
 /// ArcSwap makes this cheap and quick.
-pub fn get_config() -> Guard<Arc<Config>> {
-    CONFIG.load()
+pub fn get_config() -> Config {
+    (*(*CONFIG.load())).clone()
 }
 
 /// Parse the configuration file located at the path.
@@ -357,12 +366,33 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
-    config.path = Some(path.to_string());
+    config.path = path.to_string();
 
     // Update the configuration globally.
     CONFIG.store(Arc::new(config.clone()));
 
     Ok(())
+}
+
+pub async fn reload_config(client_server_map: ClientServerMap) -> Result<(), Error> {
+    let old_config = get_config();
+
+    match parse(&old_config.path).await {
+        Ok(()) => (),
+        Err(err) => {
+            error!("Config reload error: {:?}", err);
+            return Err(Error::BadConfig);
+        }
+    };
+
+    let new_config = get_config();
+
+    if old_config.shards != new_config.shards {
+        info!("Sharding configuration changed, re-creating server pools");
+        ConnectionPool::from_config(client_server_map).await
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -377,6 +407,6 @@ mod test {
         assert_eq!(get_config().shards["1"].servers[0].0, "127.0.0.1");
         assert_eq!(get_config().shards["0"].servers[0].2, "primary");
         assert_eq!(get_config().query_router.default_role, "any");
-        assert_eq!(get_config().path, Some("pgcat.toml".to_string()));
+        assert_eq!(get_config().path, "pgcat.toml".to_string());
     }
 }

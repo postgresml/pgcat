@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Lev Kokotov <lev@levthe.dev>
+// Copyright (c) 2022 Lev Kokotov <hi@levthe.dev>
 
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -34,7 +34,7 @@ extern crate sqlparser;
 extern crate tokio;
 extern crate toml;
 
-use log::{error, info};
+use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::{
@@ -59,9 +59,9 @@ mod server;
 mod sharding;
 mod stats;
 
-use config::get_config;
-use pool::{ClientServerMap, ConnectionPool};
-use stats::{Collector, Reporter};
+use config::{get_config, reload_config};
+use pool::{get_pool, ClientServerMap, ConnectionPool};
+use stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
@@ -109,37 +109,39 @@ async fn main() {
 
     // Statistics reporting.
     let (tx, rx) = mpsc::channel(100);
+    REPORTER.store(Arc::new(Reporter::new(tx.clone())));
 
     // Connection pool that allows to query all shards and replicas.
-    let mut pool =
-        ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await;
+    match ConnectionPool::from_config(client_server_map.clone()).await {
+        Ok(_) => (),
+        Err(err) => {
+            error!("Pool error: {:?}", err);
+            return;
+        }
+    };
+
+    let pool = get_pool();
 
     // Statistics collector task.
     let collector_tx = tx.clone();
+
+    // Save these for reloading
+    let reload_client_server_map = client_server_map.clone();
+
     let addresses = pool.databases();
     tokio::task::spawn(async move {
         let mut stats_collector = Collector::new(rx, collector_tx);
         stats_collector.collect(addresses).await;
     });
 
-    // Connect to all servers and validate their versions.
-    let server_info = match pool.validate().await {
-        Ok(info) => info,
-        Err(err) => {
-            error!("Could not validate connection pool: {:?}", err);
-            return;
-        }
-    };
-
     info!("Waiting for clients");
+
+    drop(pool);
 
     // Client connection loop.
     tokio::task::spawn(async move {
         loop {
-            let pool = pool.clone();
             let client_server_map = client_server_map.clone();
-            let server_info = server_info.clone();
-            let reporter = Reporter::new(tx.clone());
 
             let (socket, addr) = match listener.accept().await {
                 Ok((socket, addr)) => (socket, addr),
@@ -152,12 +154,11 @@ async fn main() {
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
-                match client::Client::startup(socket, client_server_map, server_info, reporter)
-                    .await
-                {
+                match client::Client::startup(socket, client_server_map).await {
                     Ok(mut client) => {
                         info!("Client {:?} connected", addr);
-                        match client.handle(pool).await {
+
+                        match client.handle().await {
                             Ok(()) => {
                                 let duration = chrono::offset::Utc::now().naive_utc() - start;
 
@@ -176,7 +177,7 @@ async fn main() {
                     }
 
                     Err(err) => {
-                        error!("Client failed to login: {:?}", err);
+                        debug!("Client failed to login: {:?}", err);
                     }
                 };
             });
@@ -190,16 +191,15 @@ async fn main() {
 
         loop {
             stream.recv().await;
+
             info!("Reloading config");
-            match config::parse("pgcat.toml").await {
-                Ok(_) => {
-                    get_config().show();
-                }
-                Err(err) => {
-                    error!("{:?}", err);
-                    return;
-                }
+
+            match reload_config(reload_client_server_map.clone()).await {
+                Ok(_) => (),
+                Err(_) => continue,
             };
+
+            get_config().show();
         }
     });
 

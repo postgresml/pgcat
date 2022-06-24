@@ -4,17 +4,19 @@ use log::{info, trace};
 use std::collections::HashMap;
 use tokio::net::tcp::OwnedWriteHalf;
 
-use crate::config::{get_config, parse};
+use crate::config::{get_config, reload_config};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ConnectionPool;
 use crate::stats::get_stats;
+use crate::ClientServerMap;
 
 /// Handle admin client.
 pub async fn handle_admin(
     stream: &mut OwnedWriteHalf,
     mut query: BytesMut,
     pool: ConnectionPool,
+    client_server_map: ClientServerMap,
 ) -> Result<(), Error> {
     let code = query.get_u8() as char;
 
@@ -34,7 +36,7 @@ pub async fn handle_admin(
         show_stats(stream, &pool).await
     } else if query.starts_with("RELOAD") {
         trace!("RELOAD");
-        reload(stream).await
+        reload(stream, client_server_map).await
     } else if query.starts_with("SHOW CONFIG") {
         trace!("SHOW CONFIG");
         show_config(stream).await
@@ -143,10 +145,7 @@ async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 /// Show utilization of connection pools for each shard and replicas.
 async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
     let stats = get_stats();
-    let config = {
-        let guard = get_config();
-        &*guard.clone()
-    };
+    let config = get_config();
 
     let columns = vec![
         ("database", DataType::Text),
@@ -199,9 +198,7 @@ async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
 
 /// Show shards and replicas.
 async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
-    let guard = get_config();
-    let config = &*guard.clone();
-    drop(guard);
+    let config = get_config();
 
     // Columns
     let columns = vec![
@@ -266,17 +263,15 @@ async fn ignore_set(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// Reload the configuration file without restarting the process.
-async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+async fn reload(
+    stream: &mut OwnedWriteHalf,
+    client_server_map: ClientServerMap,
+) -> Result<(), Error> {
     info!("Reloading config");
 
-    let config = get_config();
-    let path = config.path.clone().unwrap();
+    reload_config(client_server_map).await?;
 
-    parse(&path).await?;
-
-    let config = get_config();
-
-    config.show();
+    get_config().show();
 
     let mut res = BytesMut::new();
 
@@ -292,10 +287,8 @@ async fn reload(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 
 /// Shows current configuration.
 async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
-    let guard = get_config();
-    let config = &*guard.clone();
+    let config = &get_config();
     let config: HashMap<String, String> = config.into();
-    drop(guard);
 
     // Configs that cannot be changed without restarting.
     let immutables = ["host", "port", "connect_timeout"];

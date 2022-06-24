@@ -151,3 +151,12 @@ SELECT 1;
 set server role to 'replica';
 SeT SeRver Role TO 'PrImARY';
 select 1;
+
+SET PRIMARY READS TO 'on';
+SELECT 1;
+
+SET PRIMARY READS TO 'off';
+SELECT 1;
+
+SET PRIMARY READS TO 'default';
+SELECT 1;
