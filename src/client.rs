@@ -261,7 +261,7 @@ impl Client {
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
         loop {
-            trace!("Client idle, waiting for message");
+            trace!("Client idle, waiting for message, transaction mode: {}", self.transaction_mode);
 
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
