@@ -364,6 +364,11 @@ impl Client {
                 }
             };
 
+            if query_router.query_parser_enabled() && query_router.role() == None {
+                debug!("Inferring role");
+                query_router.infer_role(message.clone());
+            }
+
             debug!("Waiting for connection from pool");
 
             // Grab a server from the pool.
