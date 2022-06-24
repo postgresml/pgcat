@@ -10,7 +10,6 @@ use tokio::io::AsyncReadExt;
 use toml;
 
 use crate::errors::Error;
-use crate::stats::get_reporter;
 use crate::{ClientServerMap, ConnectionPool};
 
 /// Globally available configuration.
@@ -390,7 +389,7 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<(), Err
 
     if old_config.shards != new_config.shards {
         info!("Sharding configuration changed, re-creating server pools");
-        ConnectionPool::from_config(client_server_map, get_reporter()).await
+        ConnectionPool::from_config(client_server_map).await
     } else {
         Ok(())
     }

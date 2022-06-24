@@ -70,10 +70,10 @@ impl Client {
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
     ) -> Result<Client, Error> {
-        let config = get_config().clone();
-        let transaction_mode = config.general.pool_mode.starts_with("t");
+        let config = get_config();
+        let transaction_mode = config.general.pool_mode == "transaction";
         let stats = get_reporter();
-        // drop(config);
+
         loop {
             trace!("Waiting for StartupMessage");
 
@@ -156,6 +156,7 @@ impl Client {
                     write_all(&mut stream, get_pool().server_info()).await?;
                     backend_key_data(&mut stream, process_id, secret_key).await?;
                     ready_for_query(&mut stream).await?;
+
                     trace!("Startup OK");
 
                     let database = parameters
@@ -296,7 +297,7 @@ impl Client {
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(message.clone()) {
+            match query_router.try_execute_command(message.clone(), &pool) {
                 // Normal query, not a custom command.
                 None => (),
 

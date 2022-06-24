@@ -10,4 +10,6 @@ pub enum Error {
     BadConfig,
     AllServersDown,
     ClientError,
+    QueryRouterError,
+    BadShard,
 }

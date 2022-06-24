@@ -1,5 +1,4 @@
 use arc_swap::ArcSwap;
-/// Pooling, failover and banlist.
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection};
 use bytes::BytesMut;
@@ -14,31 +13,47 @@ use std::time::Instant;
 use crate::config::{get_config, Address, Role, User};
 use crate::errors::Error;
 use crate::server::Server;
-use crate::stats::Reporter;
+use crate::stats::{get_reporter, Reporter};
 
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, String)>>>;
 
+/// The connection pool, globally available.
+/// This is atomic and safe and read-optimized.
+/// The pool is recreated dynamically when the config is reloaded.
 pub static POOL: Lazy<ArcSwap<ConnectionPool>> =
     Lazy::new(|| ArcSwap::from_pointee(ConnectionPool::default()));
 
 /// The globally accessible connection pool.
 #[derive(Clone, Debug, Default)]
 pub struct ConnectionPool {
+    /// The pools handled internally by bb8.
     databases: Vec<Vec<Pool<ServerPool>>>,
+
+    /// The addresses (host, port, role) to handle
+    /// failover and load balancing deterministically.
     addresses: Vec<Vec<Address>>,
+
+    /// List of banned addresses (see above)
+    /// that should not be queried.
     banlist: BanList,
+
+    /// The statistics aggregator runs in a separate task
+    /// and receives stats from clients, servers, and the pool.
     stats: Reporter,
+
+    /// The server information (K messages) have to be passed to the
+    /// clients on startup. We pre-connect to all shards and replicas
+    /// on pool creation and save the K messages here.
     server_info: BytesMut,
 }
 
 impl ConnectionPool {
     /// Construct the connection pool from the configuration.
-    pub async fn from_config(
-        client_server_map: ClientServerMap,
-        stats: Reporter,
-    ) -> Result<(), Error> {
+    pub async fn from_config(client_server_map: ClientServerMap) -> Result<(), Error> {
+        let reporter = get_reporter();
         let config = get_config();
+
         let mut shards = Vec::new();
         let mut addresses = Vec::new();
         let mut banlist = Vec::new();
@@ -49,6 +64,8 @@ impl ConnectionPool {
             .into_keys()
             .map(|x| x.to_string())
             .collect::<Vec<String>>();
+
+        // Sort by shard number to ensure consistency.
         shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
 
         for shard_idx in shard_ids {
@@ -87,7 +104,7 @@ impl ConnectionPool {
                     config.user.clone(),
                     &shard.database,
                     client_server_map.clone(),
-                    stats.clone(),
+                    reporter.clone(),
                 );
 
                 let pool = Pool::builder()
@@ -115,10 +132,12 @@ impl ConnectionPool {
             databases: shards,
             addresses: addresses,
             banlist: Arc::new(RwLock::new(banlist)),
-            stats: stats,
+            stats: reporter,
             server_info: BytesMut::new(),
         };
 
+        // Connect to the servers to make sure pool configuration is valid
+        // before setting it globally.
         match pool.validate().await {
             Ok(_) => (),
             Err(err) => {
@@ -139,8 +158,8 @@ impl ConnectionPool {
     /// the pooler starts up.
     async fn validate(&mut self) -> Result<(), Error> {
         let mut server_infos = Vec::new();
-
         let stats = self.stats.clone();
+
         for shard in 0..self.shards() {
             let mut round_robin = 0;
 
@@ -193,10 +212,10 @@ impl ConnectionPool {
     /// Get a connection from the pool.
     pub async fn get(
         &mut self,
-        shard: usize,
-        role: Option<Role>,
-        process_id: i32,
-        mut round_robin: usize,
+        shard: usize,           // shard number
+        role: Option<Role>,     // primary or replica
+        process_id: i32,        // client id
+        mut round_robin: usize, // round robin offset
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
         let addresses = &self.addresses[shard];

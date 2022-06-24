@@ -112,7 +112,7 @@ async fn main() {
     REPORTER.store(Arc::new(Reporter::new(tx.clone())));
 
     // Connection pool that allows to query all shards and replicas.
-    match ConnectionPool::from_config(client_server_map.clone(), Reporter::new(tx.clone())).await {
+    match ConnectionPool::from_config(client_server_map.clone()).await {
         Ok(_) => (),
         Err(err) => {
             error!("Pool error: {:?}", err);
