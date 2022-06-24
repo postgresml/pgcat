@@ -34,7 +34,7 @@ extern crate sqlparser;
 extern crate tokio;
 extern crate toml;
 
-use log::{error, info};
+use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::{
