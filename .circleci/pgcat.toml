@@ -30,6 +30,9 @@ healthcheck_timeout = 100
 ban_time = 60 # Seconds
 
 #
+autoreload = true
+
+#
 # User to use for authentication against the server.
 [user]
 name = "sharding_user"
