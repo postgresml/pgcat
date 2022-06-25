@@ -101,7 +101,7 @@ impl Default for User {
 }
 
 /// General configuration.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct General {
     pub host: String,
     pub port: i16,
@@ -110,6 +110,7 @@ pub struct General {
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub ban_time: i64,
+    pub autoreload: bool,
 }
 
 impl Default for General {
@@ -122,6 +123,7 @@ impl Default for General {
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             ban_time: 60,
+            autoreload: false,
         }
     }
 }
@@ -143,7 +145,7 @@ impl Default for Shard {
 }
 
 /// Query Router configuration.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct QueryRouter {
     pub default_role: String,
     pub query_parser_enabled: bool,
@@ -167,7 +169,7 @@ fn default_path() -> String {
 }
 
 /// Configuration wrapper.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Config {
     #[serde(default = "default_path")]
     pub path: String,
@@ -374,7 +376,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn reload_config(client_server_map: ClientServerMap) -> Result<(), Error> {
+pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
     let old_config = get_config();
 
     match parse(&old_config.path).await {
@@ -387,11 +389,14 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<(), Err
 
     let new_config = get_config();
 
-    if old_config.shards != new_config.shards {
+    if old_config.shards != new_config.shards || old_config.user != new_config.user {
         info!("Sharding configuration changed, re-creating server pools");
-        ConnectionPool::from_config(client_server_map).await
+        ConnectionPool::from_config(client_server_map).await?;
+        Ok(true)
+    } else if old_config != new_config {
+        Ok(true)
     } else {
-        Ok(())
+        Ok(false)
     }
 }
 
