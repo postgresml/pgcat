@@ -60,7 +60,7 @@ mod sharding;
 mod stats;
 
 use config::{get_config, reload_config};
-use pool::{get_pool, ClientServerMap, ConnectionPool};
+use pool::{ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
@@ -120,8 +120,6 @@ async fn main() {
         }
     };
 
-    let pool = get_pool();
-
     // Statistics collector task.
     let collector_tx = tx.clone();
 
@@ -129,15 +127,12 @@ async fn main() {
     let reload_client_server_map = client_server_map.clone();
     let autoreload_client_server_map = client_server_map.clone();
 
-    let addresses = pool.databases();
     tokio::task::spawn(async move {
         let mut stats_collector = Collector::new(rx, collector_tx);
-        stats_collector.collect(addresses).await;
+        stats_collector.collect().await;
     });
 
     info!("Waiting for clients");
-
-    drop(pool);
 
     // Client connection loop.
     tokio::task::spawn(async move {
