@@ -127,6 +127,7 @@ async fn main() {
 
     // Save these for reloading
     let reload_client_server_map = client_server_map.clone();
+    let autoreload_client_server_map = client_server_map.clone();
 
     let addresses = pool.databases();
     tokio::task::spawn(async move {
@@ -202,6 +203,26 @@ async fn main() {
             get_config().show();
         }
     });
+
+    if config.general.autoreload {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
+
+        tokio::task::spawn(async move {
+            info!("Config autoreloader started");
+
+            loop {
+                interval.tick().await;
+                match reload_config(autoreload_client_server_map.clone()).await {
+                    Ok(changed) => {
+                        if changed {
+                            get_config().show()
+                        }
+                    }
+                    Err(_) => (),
+                };
+            }
+        });
+    }
 
     // Exit on Ctrl-C (SIGINT) and SIGTERM.
     let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
