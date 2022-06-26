@@ -7,6 +7,12 @@ use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
 };
+use tokio_rustls::rustls::{self, Certificate, PrivateKey};
+use tokio_rustls::TlsAcceptor;
+use std::sync::Arc;
+use std::io;
+use rustls_pemfile::{certs, rsa_private_keys};
+use tokio::fs::File;
 
 use crate::admin::handle_admin;
 use crate::config::get_config;
@@ -74,6 +80,11 @@ impl Client {
         let transaction_mode = config.general.pool_mode == "transaction";
         let stats = get_reporter();
 
+        // certs
+        let certs = certs(&mut BufReader::new(File::open("server.crt").await.unwrap()))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
+        .map(|mut certs| certs.drain(..).map(Certificate).collect());
+
         loop {
             trace!("Waiting for StartupMessage");
 
@@ -98,10 +109,18 @@ impl Client {
                 SSL_REQUEST_CODE => {
                     trace!("Rejecting SSLRequest");
 
-                    let mut no = BytesMut::with_capacity(1);
-                    no.put_u8(b'N');
+                    let mut yes = BytesMut::with_capacity(1);
+                    yes.put_u8(b'S');
 
-                    write_all(&mut stream, no).await?;
+                    write_all(&mut stream, yes).await?;
+
+                    // Handshake
+                    let tls_config = rustls::ServerConfig::builder()
+                                     .with_safe_defaults()
+                                     .with_no_client_auth()
+                                     .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err)).unwrap();
+                    let acceptor = TlsAcceptor::from(Arc::new(config));
+                    let mut tls_stream = acceptor.accept(stream);
                 }
 
                 // Regular startup message.

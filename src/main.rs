@@ -33,6 +33,7 @@ extern crate serde_derive;
 extern crate sqlparser;
 extern crate tokio;
 extern crate toml;
+extern crate tokio_rustls;
 
 use log::{debug, error, info};
 use parking_lot::Mutex;
