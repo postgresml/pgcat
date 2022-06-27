@@ -30,7 +30,8 @@ impl From<&DataType> for i32 {
 }
 
 /// Tell the client that authentication handshake completed successfully.
-pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
+pub async fn auth_ok<S>(stream: &mut S) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let mut auth_ok = BytesMut::with_capacity(9);
 
     auth_ok.put_u8(b'R');
@@ -41,7 +42,8 @@ pub async fn auth_ok(stream: &mut TcpStream) -> Result<(), Error> {
 }
 
 /// Generate md5 password challenge.
-pub async fn md5_challenge(stream: &mut TcpStream) -> Result<[u8; 4], Error> {
+pub async fn md5_challenge<S>(stream: &mut S) -> Result<[u8; 4], Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     // let mut rng = rand::thread_rng();
     let salt: [u8; 4] = [
         rand::random(),
@@ -62,11 +64,12 @@ pub async fn md5_challenge(stream: &mut TcpStream) -> Result<[u8; 4], Error> {
 
 /// Give the client the process_id and secret we generated
 /// used in query cancellation.
-pub async fn backend_key_data(
-    stream: &mut TcpStream,
+pub async fn backend_key_data<S>(
+    stream: &mut S,
     backend_id: i32,
     secret_key: i32,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let mut key_data = BytesMut::from(&b"K"[..]);
     key_data.put_i32(12);
     key_data.put_i32(backend_id);
@@ -87,7 +90,8 @@ pub fn simple_query(query: &str) -> BytesMut {
 }
 
 /// Tell the client we're ready for another query.
-pub async fn ready_for_query(stream: &mut TcpStream) -> Result<(), Error> {
+pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let mut bytes = BytesMut::with_capacity(5);
 
     bytes.put_u8(b'Z');
@@ -205,12 +209,13 @@ pub fn md5_hash_password(user: &str, password: &str, salt: &[u8]) -> Vec<u8> {
 
 /// Send password challenge response to the server.
 /// This is the MD5 challenge.
-pub async fn md5_password(
-    stream: &mut TcpStream,
+pub async fn md5_password<S>(
+    stream: &mut S,
     user: &str,
     password: &str,
     salt: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let password = md5_hash_password(user, password, salt);
 
     let mut message = BytesMut::with_capacity(password.len() as usize + 5);
@@ -225,10 +230,11 @@ pub async fn md5_password(
 /// Implements a response to our custom `SET SHARDING KEY`
 /// and `SET SERVER ROLE` commands.
 /// This tells the client we're ready for the next query.
-pub async fn custom_protocol_response_ok(
-    stream: &mut OwnedWriteHalf,
+pub async fn custom_protocol_response_ok<S>(
+    stream: &mut S,
     message: &str,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let mut res = BytesMut::with_capacity(25);
 
     let set_complete = BytesMut::from(&format!("{}\0", message)[..]);
@@ -250,7 +256,8 @@ pub async fn custom_protocol_response_ok(
 /// Send a custom error message to the client.
 /// Tell the client we are ready for the next query and no rollback is necessary.
 /// Docs on error codes: <https://www.postgresql.org/docs/12/errcodes-appendix.html>.
-pub async fn error_response(stream: &mut OwnedWriteHalf, message: &str) -> Result<(), Error> {
+pub async fn error_response<S>(stream: &mut S, message: &str) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let mut error = BytesMut::new();
 
     // Error level
@@ -291,7 +298,8 @@ pub async fn error_response(stream: &mut OwnedWriteHalf, message: &str) -> Resul
     Ok(write_all_half(stream, res).await?)
 }
 
-pub async fn wrong_password(stream: &mut TcpStream, user: &str) -> Result<(), Error> {
+pub async fn wrong_password<S>(stream: &mut S, user: &str) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     let mut error = BytesMut::new();
 
     // Error level
@@ -430,7 +438,8 @@ pub fn command_complete(command: &str) -> BytesMut {
 }
 
 /// Write all data in the buffer to the TcpStream.
-pub async fn write_all(stream: &mut TcpStream, buf: BytesMut) -> Result<(), Error> {
+pub async fn write_all<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
         Err(_) => return Err(Error::SocketError),
@@ -438,7 +447,8 @@ pub async fn write_all(stream: &mut TcpStream, buf: BytesMut) -> Result<(), Erro
 }
 
 /// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
-pub async fn write_all_half(stream: &mut OwnedWriteHalf, buf: BytesMut) -> Result<(), Error> {
+pub async fn write_all_half<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
+where S: tokio::io::AsyncWrite + std::marker::Unpin {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
         Err(_) => return Err(Error::SocketError),

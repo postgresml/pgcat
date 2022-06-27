@@ -33,6 +33,8 @@ extern crate serde_derive;
 extern crate sqlparser;
 extern crate tokio;
 extern crate toml;
+extern crate tokio_rustls;
+extern crate rustls_pemfile;
 
 use log::{debug, error, info};
 use parking_lot::Mutex;
@@ -58,6 +60,7 @@ mod scram;
 mod server;
 mod sharding;
 mod stats;
+mod stream;
 
 use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};

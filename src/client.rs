@@ -19,13 +19,13 @@ use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
 
 /// The client state. One of these is created per client.
-pub struct Client {
+pub struct Client <T, S> {
     /// The reads are buffered (8K by default).
-    read: BufReader<OwnedReadHalf>,
+    read: BufReader<T>,
 
     /// We buffer the writes ourselves because we know the protocol
     /// better than a stock buffer.
-    write: OwnedWriteHalf,
+    write: S,
 
     /// Internal buffer, where we place messages until we have to flush
     /// them to the backend.
@@ -63,13 +63,13 @@ pub struct Client {
     last_server_id: Option<i32>,
 }
 
-impl Client {
+impl<T: tokio::io::AsyncRead + std::marker::Unpin, S: tokio::io::AsyncWrite + std::marker::Unpin>  Client <T, S> {
     /// Perform client startup sequence.
     /// See docs: <https://www.postgresql.org/docs/12/protocol-flow.html#id-1.10.5.7.3>
     pub async fn startup(
         mut stream: TcpStream,
         client_server_map: ClientServerMap,
-    ) -> Result<Client, Error> {
+    ) -> Result<Client<T, S>, Error> {
         let config = get_config();
         let transaction_mode = config.general.pool_mode == "transaction";
         let stats = get_reporter();
@@ -650,7 +650,7 @@ impl Client {
     }
 }
 
-impl Drop for Client {
+impl<T, S> Drop for Client <T, S> {
     fn drop(&mut self) {
         // Update statistics.
         if let Some(address_id) = self.last_address_id {

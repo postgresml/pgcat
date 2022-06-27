@@ -111,6 +111,8 @@ pub struct General {
     pub healthcheck_timeout: u64,
     pub ban_time: i64,
     pub autoreload: bool,
+    pub tls_certificate: Option<String>,
+    pub tls_private_key: Option<String>,
 }
 
 impl Default for General {
@@ -124,6 +126,8 @@ impl Default for General {
             healthcheck_timeout: 1000,
             ban_time: 60,
             autoreload: false,
+            tls_certificate: None,
+            tls_private_key: None,
         }
     }
 }
