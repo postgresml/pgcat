@@ -45,11 +45,6 @@ use tokio::{
     sync::mpsc,
 };
 
-use tokio::net::{
-    tcp::{OwnedReadHalf, OwnedWriteHalf},
-    TcpStream,
-};
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -65,9 +60,8 @@ mod scram;
 mod server;
 mod sharding;
 mod stats;
-mod stream;
+mod tls;
 
-use crate::constants::*;
 use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter, REPORTER};
@@ -159,45 +153,22 @@ async fn main() {
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
-                // match client::get_startup(&mut socket) {
-                //     Ok((code, bytes)) => match code {
-                //         SSL_REQUEST_CODE => client::Client::tls_startup<
-                //     }
-                // }
 
-                match client::client_loop(socket, client_server_map).await {
-                    Ok(_) => (),
+                match client::client_entrypoint(socket, client_server_map).await {
+                    Ok(_) => {
+                        let duration = chrono::offset::Utc::now().naive_utc() - start;
+
+                        info!(
+                            "Client {:?} disconnected, session duration: {}",
+                            addr,
+                            format_duration(&duration)
+                        );
+                    },
+
                     Err(err) => {
-                        debug!("Client failed to login: {:?}", err);
+                        debug!("Client disconnected with error {:?}", err);
                     }
                 };
-
-                // match client::Client::<OwnedReadHalf, OwnedWriteHalf>::startup(socket, client_server_map).await {
-                //     Ok(mut client) => {
-                //         info!("Client {:?} connected", addr);
-
-                //         match client.handle().await {
-                //             Ok(()) => {
-                //                 let duration = chrono::offset::Utc::now().naive_utc() - start;
-
-                //                 info!(
-                //                     "Client {:?} disconnected, session duration: {}",
-                //                     addr,
-                //                     format_duration(&duration)
-                //                 );
-                //             }
-
-                //             Err(err) => {
-                //                 error!("Client disconnected with error: {:?}", err);
-                //                 client.release();
-                //             }
-                //         }
-                //     }
-
-                //     Err(err) => {
-                //         debug!("Client failed to login: {:?}", err);
-                //     }
-                // };
             });
         }
     });

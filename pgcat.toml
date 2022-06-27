@@ -33,8 +33,8 @@ ban_time = 60 # Seconds
 autoreload = false
 
 # TLS
-tls_certificate = "server.cert"
-tls_private_key = "server.key"
+# tls_certificate = "server.cert"
+# tls_private_key = "server.key"
 
 #
 # User to use for authentication against the server.
