@@ -2,7 +2,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 use log::{info, trace};
 use std::collections::HashMap;
-use tokio::net::tcp::OwnedWriteHalf;
+// use tokio::net::tcp::T;
 
 use crate::config::{get_config, reload_config};
 use crate::errors::Error;
@@ -12,12 +12,15 @@ use crate::stats::get_stats;
 use crate::ClientServerMap;
 
 /// Handle admin client.
-pub async fn handle_admin(
-    stream: &mut OwnedWriteHalf,
+pub async fn handle_admin<T>(
+    stream: &mut T,
     mut query: BytesMut,
     pool: ConnectionPool,
     client_server_map: ClientServerMap,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let code = query.get_u8() as char;
 
     if code != 'Q' {
@@ -61,7 +64,10 @@ pub async fn handle_admin(
 }
 
 /// Column-oriented statistics.
-async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+async fn show_lists<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let stats = get_stats();
 
     let columns = vec![("list", DataType::Text), ("items", DataType::Int4)];
@@ -128,7 +134,10 @@ async fn show_lists(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
 }
 
 /// Show PgCat version.
-async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+async fn show_version<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let mut res = BytesMut::new();
 
     res.put(row_description(&vec![("version", DataType::Text)]));
@@ -143,7 +152,10 @@ async fn show_version(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// Show utilization of connection pools for each shard and replicas.
-async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+async fn show_pools<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let stats = get_stats();
     let config = get_config();
 
@@ -197,7 +209,10 @@ async fn show_pools(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Resul
 }
 
 /// Show shards and replicas.
-async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+async fn show_databases<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let config = get_config();
 
     // Columns
@@ -258,15 +273,18 @@ async fn show_databases(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> R
 
 /// Ignore any SET commands the client sends.
 /// This is common initialization done by ORMs.
-async fn ignore_set(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+async fn ignore_set<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     custom_protocol_response_ok(stream, "SET").await
 }
 
 /// Reload the configuration file without restarting the process.
-async fn reload(
-    stream: &mut OwnedWriteHalf,
-    client_server_map: ClientServerMap,
-) -> Result<(), Error> {
+async fn reload<T>(stream: &mut T, client_server_map: ClientServerMap) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     info!("Reloading config");
 
     reload_config(client_server_map).await?;
@@ -286,7 +304,10 @@ async fn reload(
 }
 
 /// Shows current configuration.
-async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
+async fn show_config<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let config = &get_config();
     let config: HashMap<String, String> = config.into();
 
@@ -329,7 +350,10 @@ async fn show_config(stream: &mut OwnedWriteHalf) -> Result<(), Error> {
 }
 
 /// Show shard and replicas statistics.
-async fn show_stats(stream: &mut OwnedWriteHalf, pool: &ConnectionPool) -> Result<(), Error> {
+async fn show_stats<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let columns = vec![
         ("database", DataType::Text),
         ("total_xact_count", DataType::Numeric),
