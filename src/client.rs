@@ -1,12 +1,9 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, trace};
+use log::{debug, error, info, trace};
 use std::collections::HashMap;
-use tokio::io::{AsyncReadExt, BufReader};
-use tokio::net::{
-    tcp::{OwnedReadHalf, OwnedWriteHalf},
-    TcpStream,
-};
+use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
+use tokio::net::TcpStream;
 
 use crate::admin::handle_admin;
 use crate::config::get_config;
@@ -17,19 +14,32 @@ use crate::pool::{get_pool, ClientServerMap};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
+use crate::tls::Tls;
+
+use tokio_rustls::server::TlsStream;
+
+/// Type of connection received from client.
+enum ClientConnectionType {
+    Startup,
+    Tls,
+    CancelQuery,
+}
 
 /// The client state. One of these is created per client.
-pub struct Client {
+pub struct Client<S, T> {
     /// The reads are buffered (8K by default).
-    read: BufReader<OwnedReadHalf>,
+    read: BufReader<S>,
 
     /// We buffer the writes ourselves because we know the protocol
     /// better than a stock buffer.
-    write: OwnedWriteHalf,
+    write: T,
 
     /// Internal buffer, where we place messages until we have to flush
     /// them to the backend.
     buffer: BytesMut,
+
+    /// Address
+    addr: std::net::SocketAddr,
 
     /// The client was started with the sole reason to cancel another running query.
     cancel_mode: bool,
@@ -63,161 +73,307 @@ pub struct Client {
     last_server_id: Option<i32>,
 }
 
-impl Client {
-    /// Perform client startup sequence.
-    /// See docs: <https://www.postgresql.org/docs/12/protocol-flow.html#id-1.10.5.7.3>
+/// Client entrypoint.
+pub async fn client_entrypoint(
+    mut stream: TcpStream,
+    client_server_map: ClientServerMap,
+) -> Result<(), Error> {
+    // Figure out if the client wants TLS or not.
+    let addr = stream.peer_addr().unwrap();
+
+    match get_startup::<TcpStream>(&mut stream).await {
+        // Client requested a TLS connection.
+        Ok((ClientConnectionType::Tls, _)) => {
+            let config = get_config();
+
+            // TLS settings are configured, will setup TLS now.
+            if config.general.tls_certificate != None {
+                debug!("Accepting TLS request");
+
+                let mut yes = BytesMut::new();
+                yes.put_u8(b'S');
+                write_all(&mut stream, yes).await?;
+
+                // Negotiate TLS.
+                match startup_tls(stream, client_server_map).await {
+                    Ok(mut client) => {
+                        info!("Client {:?} connected (TLS)", addr);
+
+                        client.handle().await
+                    }
+                    Err(err) => Err(err),
+                }
+            }
+            // TLS is not configured, we cannot offer it.
+            else {
+                // Rejecting client request for TLS.
+                let mut no = BytesMut::new();
+                no.put_u8(b'N');
+                write_all(&mut stream, no).await?;
+
+                // Attempting regular startup. Client can disconnect now
+                // if they choose.
+                match get_startup::<TcpStream>(&mut stream).await {
+                    // Client accepted unencrypted connection.
+                    Ok((ClientConnectionType::Startup, bytes)) => {
+                        let (read, write) = split(stream);
+
+                        // Continue with regular startup.
+                        match Client::startup(read, write, addr, bytes, client_server_map).await {
+                            Ok(mut client) => {
+                                info!("Client {:?} connected (plain)", addr);
+
+                                client.handle().await
+                            }
+                            Err(err) => Err(err),
+                        }
+                    }
+
+                    // Client probably disconnected rejecting our plain text connection.
+                    _ => Err(Error::ProtocolSyncError),
+                }
+            }
+        }
+
+        // Client wants to use plain connection without encryption.
+        Ok((ClientConnectionType::Startup, bytes)) => {
+            let (read, write) = split(stream);
+
+            // Continue with regular startup.
+            match Client::startup(read, write, addr, bytes, client_server_map).await {
+                Ok(mut client) => {
+                    info!("Client {:?} connected (plain)", addr);
+
+                    client.handle().await
+                }
+                Err(err) => Err(err),
+            }
+        }
+
+        // Client wants to cancel a query.
+        Ok((ClientConnectionType::CancelQuery, bytes)) => {
+            let (read, write) = split(stream);
+
+            // Continue with cancel query request.
+            match Client::cancel(read, write, addr, bytes, client_server_map).await {
+                Ok(mut client) => {
+                    info!("Client {:?} issued a cancel query request", addr);
+
+                    client.handle().await
+                }
+
+                Err(err) => Err(err),
+            }
+        }
+
+        // Something failed, probably the socket.
+        Err(err) => Err(err),
+    }
+}
+
+/// Handle the first message the client sends.
+async fn get_startup<S>(stream: &mut S) -> Result<(ClientConnectionType, BytesMut), Error>
+where
+    S: tokio::io::AsyncRead + std::marker::Unpin + tokio::io::AsyncWrite,
+{
+    // Get startup message length.
+    let len = match stream.read_i32().await {
+        Ok(len) => len,
+        Err(_) => return Err(Error::ClientBadStartup),
+    };
+
+    // Get the rest of the message.
+    let mut startup = vec![0u8; len as usize - 4];
+    match stream.read_exact(&mut startup).await {
+        Ok(_) => (),
+        Err(_) => return Err(Error::ClientBadStartup),
+    };
+
+    let mut bytes = BytesMut::from(&startup[..]);
+    let code = bytes.get_i32();
+
+    match code {
+        // Client is requesting SSL (TLS).
+        SSL_REQUEST_CODE => Ok((ClientConnectionType::Tls, bytes)),
+
+        // Client wants to use plain text, requesting regular startup.
+        PROTOCOL_VERSION_NUMBER => Ok((ClientConnectionType::Startup, bytes)),
+
+        // Client is requesting to cancel a running query (plain text connection).
+        CANCEL_REQUEST_CODE => Ok((ClientConnectionType::CancelQuery, bytes)),
+
+        // Something else, probably something is wrong and it's not our fault,
+        // e.g. badly implemented Postgres client.
+        _ => Err(Error::ProtocolSyncError),
+    }
+}
+
+/// Handle TLS connection negotation.
+pub async fn startup_tls(
+    stream: TcpStream,
+    client_server_map: ClientServerMap,
+) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
+    // Negotiate TLS.
+    let tls = Tls::new()?;
+    let addr = stream.peer_addr().unwrap();
+
+    let mut stream = match tls.acceptor.accept(stream).await {
+        Ok(stream) => stream,
+
+        // TLS negotitation failed.
+        Err(err) => {
+            error!("TLS negotiation failed: {:?}", err);
+            return Err(Error::TlsError);
+        }
+    };
+
+    // TLS negotitation successful.
+    // Continue with regular startup using encrypted connection.
+    match get_startup::<TlsStream<TcpStream>>(&mut stream).await {
+        // Got good startup message, proceeding like normal except we
+        // are encrypted now.
+        Ok((ClientConnectionType::Startup, bytes)) => {
+            let (read, write) = split(stream);
+
+            Client::startup(read, write, addr, bytes, client_server_map).await
+        }
+
+        // Bad Postgres client.
+        _ => Err(Error::ProtocolSyncError),
+    }
+}
+
+impl<S, T> Client<S, T>
+where
+    S: tokio::io::AsyncRead + std::marker::Unpin,
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    /// Handle Postgres client startup after TLS negotiation is complete
+    /// or over plain text.
     pub async fn startup(
-        mut stream: TcpStream,
+        mut read: S,
+        mut write: T,
+        addr: std::net::SocketAddr,
+        bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
-    ) -> Result<Client, Error> {
+    ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let transaction_mode = config.general.pool_mode == "transaction";
         let stats = get_reporter();
 
-        loop {
-            trace!("Waiting for StartupMessage");
+        trace!("Got StartupMessage");
+        let parameters = parse_startup(bytes.clone())?;
 
-            // Could be StartupMessage, SSLRequest or CancelRequest.
-            let len = match stream.read_i32().await {
-                Ok(len) => len,
-                Err(_) => return Err(Error::ClientBadStartup),
-            };
+        // Generate random backend ID and secret key
+        let process_id: i32 = rand::random();
+        let secret_key: i32 = rand::random();
 
-            let mut startup = vec![0u8; len as usize - 4];
+        // Perform MD5 authentication.
+        // TODO: Add SASL support.
+        let salt = md5_challenge(&mut write).await?;
 
-            match stream.read_exact(&mut startup).await {
-                Ok(_) => (),
-                Err(_) => return Err(Error::ClientBadStartup),
-            };
+        let code = match read.read_u8().await {
+            Ok(p) => p,
+            Err(_) => return Err(Error::SocketError),
+        };
 
-            let mut bytes = BytesMut::from(&startup[..]);
-            let code = bytes.get_i32();
-
-            match code {
-                // Client wants SSL. We don't support it at the moment.
-                SSL_REQUEST_CODE => {
-                    trace!("Rejecting SSLRequest");
-
-                    let mut no = BytesMut::with_capacity(1);
-                    no.put_u8(b'N');
-
-                    write_all(&mut stream, no).await?;
-                }
-
-                // Regular startup message.
-                PROTOCOL_VERSION_NUMBER => {
-                    trace!("Got StartupMessage");
-                    let parameters = parse_startup(bytes.clone())?;
-
-                    // Generate random backend ID and secret key
-                    let process_id: i32 = rand::random();
-                    let secret_key: i32 = rand::random();
-
-                    // Perform MD5 authentication.
-                    // TODO: Add SASL support.
-                    let salt = md5_challenge(&mut stream).await?;
-
-                    let code = match stream.read_u8().await {
-                        Ok(p) => p,
-                        Err(_) => return Err(Error::SocketError),
-                    };
-
-                    // PasswordMessage
-                    if code as char != 'p' {
-                        debug!("Expected p, got {}", code as char);
-                        return Err(Error::ProtocolSyncError);
-                    }
-
-                    let len = match stream.read_i32().await {
-                        Ok(len) => len,
-                        Err(_) => return Err(Error::SocketError),
-                    };
-
-                    let mut password_response = vec![0u8; (len - 4) as usize];
-
-                    match stream.read_exact(&mut password_response).await {
-                        Ok(_) => (),
-                        Err(_) => return Err(Error::SocketError),
-                    };
-
-                    // Compare server and client hashes.
-                    let password_hash =
-                        md5_hash_password(&config.user.name, &config.user.password, &salt);
-
-                    if password_hash != password_response {
-                        debug!("Password authentication failed");
-                        wrong_password(&mut stream, &config.user.name).await?;
-                        return Err(Error::ClientError);
-                    }
-
-                    debug!("Password authentication successful");
-
-                    auth_ok(&mut stream).await?;
-                    write_all(&mut stream, get_pool().server_info()).await?;
-                    backend_key_data(&mut stream, process_id, secret_key).await?;
-                    ready_for_query(&mut stream).await?;
-
-                    trace!("Startup OK");
-
-                    let database = parameters
-                        .get("database")
-                        .unwrap_or(parameters.get("user").unwrap());
-                    let admin = ["pgcat", "pgbouncer"]
-                        .iter()
-                        .filter(|db| *db == &database)
-                        .count()
-                        == 1;
-
-                    // Split the read and write streams
-                    // so we can control buffering.
-                    let (read, write) = stream.into_split();
-
-                    return Ok(Client {
-                        read: BufReader::new(read),
-                        write: write,
-                        buffer: BytesMut::with_capacity(8196),
-                        cancel_mode: false,
-                        transaction_mode: transaction_mode,
-                        process_id: process_id,
-                        secret_key: secret_key,
-                        client_server_map: client_server_map,
-                        parameters: parameters,
-                        stats: stats,
-                        admin: admin,
-                        last_address_id: None,
-                        last_server_id: None,
-                    });
-                }
-
-                // Query cancel request.
-                CANCEL_REQUEST_CODE => {
-                    let (read, write) = stream.into_split();
-
-                    let process_id = bytes.get_i32();
-                    let secret_key = bytes.get_i32();
-
-                    return Ok(Client {
-                        read: BufReader::new(read),
-                        write: write,
-                        buffer: BytesMut::with_capacity(8196),
-                        cancel_mode: true,
-                        transaction_mode: transaction_mode,
-                        process_id: process_id,
-                        secret_key: secret_key,
-                        client_server_map: client_server_map,
-                        parameters: HashMap::new(),
-                        stats: stats,
-                        admin: false,
-                        last_address_id: None,
-                        last_server_id: None,
-                    });
-                }
-
-                _ => {
-                    return Err(Error::ProtocolSyncError);
-                }
-            };
+        // PasswordMessage
+        if code as char != 'p' {
+            debug!("Expected p, got {}", code as char);
+            return Err(Error::ProtocolSyncError);
         }
+
+        let len = match read.read_i32().await {
+            Ok(len) => len,
+            Err(_) => return Err(Error::SocketError),
+        };
+
+        let mut password_response = vec![0u8; (len - 4) as usize];
+
+        match read.read_exact(&mut password_response).await {
+            Ok(_) => (),
+            Err(_) => return Err(Error::SocketError),
+        };
+
+        // Compare server and client hashes.
+        let password_hash = md5_hash_password(&config.user.name, &config.user.password, &salt);
+
+        if password_hash != password_response {
+            debug!("Password authentication failed");
+            wrong_password(&mut write, &config.user.name).await?;
+            return Err(Error::ClientError);
+        }
+
+        debug!("Password authentication successful");
+
+        auth_ok(&mut write).await?;
+        write_all(&mut write, get_pool().server_info()).await?;
+        backend_key_data(&mut write, process_id, secret_key).await?;
+        ready_for_query(&mut write).await?;
+
+        trace!("Startup OK");
+
+        let database = parameters
+            .get("database")
+            .unwrap_or(parameters.get("user").unwrap());
+        let admin = ["pgcat", "pgbouncer"]
+            .iter()
+            .filter(|db| *db == &database)
+            .count()
+            == 1;
+
+        // Split the read and write streams
+        // so we can control buffering.
+
+        return Ok(Client {
+            read: BufReader::new(read),
+            write: write,
+            addr,
+            buffer: BytesMut::with_capacity(8196),
+            cancel_mode: false,
+            transaction_mode: transaction_mode,
+            process_id: process_id,
+            secret_key: secret_key,
+            client_server_map: client_server_map,
+            parameters: parameters,
+            stats: stats,
+            admin: admin,
+            last_address_id: None,
+            last_server_id: None,
+        });
+    }
+
+    /// Handle cancel request.
+    pub async fn cancel(
+        read: S,
+        write: T,
+        addr: std::net::SocketAddr,
+        mut bytes: BytesMut, // The rest of the startup message.
+        client_server_map: ClientServerMap,
+    ) -> Result<Client<S, T>, Error> {
+        let process_id = bytes.get_i32();
+        let secret_key = bytes.get_i32();
+
+        let config = get_config();
+        let transaction_mode = config.general.pool_mode == "transaction";
+        let stats = get_reporter();
+
+        return Ok(Client {
+            read: BufReader::new(read),
+            write: write,
+            addr,
+            buffer: BytesMut::with_capacity(8196),
+            cancel_mode: true,
+            transaction_mode: transaction_mode,
+            process_id: process_id,
+            secret_key: secret_key,
+            client_server_map: client_server_map,
+            parameters: HashMap::new(),
+            stats: stats,
+            admin: false,
+            last_address_id: None,
+            last_server_id: None,
+        });
     }
 
     /// Handle a connected and authenticated client.
@@ -415,7 +571,7 @@ impl Client {
 
             debug!(
                 "Client {:?} talking to server {:?}",
-                self.write.peer_addr().unwrap(),
+                self.addr,
                 server.address()
             );
 
@@ -650,8 +806,11 @@ impl Client {
     }
 }
 
-impl Drop for Client {
+impl<S, T> Drop for Client<S, T> {
     fn drop(&mut self) {
+        let mut guard = self.client_server_map.lock();
+        guard.remove(&(self.process_id, self.secret_key));
+
         // Update statistics.
         if let Some(address_id) = self.last_address_id {
             self.stats.client_disconnecting(self.process_id, address_id);
@@ -660,5 +819,7 @@ impl Drop for Client {
                 self.stats.server_idle(process_id, address_id);
             }
         }
+
+        // self.release();
     }
 }

@@ -10,4 +10,5 @@ pub enum Error {
     BadConfig,
     AllServersDown,
     ClientError,
+    TlsError,
 }

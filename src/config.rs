@@ -4,12 +4,14 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
 
 use crate::errors::Error;
+use crate::tls::{load_certs, load_keys};
 use crate::{ClientServerMap, ConnectionPool};
 
 /// Globally available configuration.
@@ -111,6 +113,8 @@ pub struct General {
     pub healthcheck_timeout: u64,
     pub ban_time: i64,
     pub autoreload: bool,
+    pub tls_certificate: Option<String>,
+    pub tls_private_key: Option<String>,
 }
 
 impl Default for General {
@@ -124,6 +128,8 @@ impl Default for General {
             healthcheck_timeout: 1000,
             ban_time: 60,
             autoreload: false,
+            tls_certificate: None,
+            tls_private_key: None,
         }
     }
 }
@@ -249,6 +255,25 @@ impl Config {
         info!("Primary reads: {}", self.query_router.primary_reads_enabled);
         info!("Query router: {}", self.query_router.query_parser_enabled);
         info!("Number of shards: {}", self.shards.len());
+
+        match self.general.tls_certificate.clone() {
+            Some(tls_certificate) => {
+                info!("TLS certificate: {}", tls_certificate);
+
+                match self.general.tls_private_key.clone() {
+                    Some(tls_private_key) => {
+                        info!("TLS private key: {}", tls_private_key);
+                        info!("TLS support is enabled");
+                    }
+
+                    None => (),
+                }
+            }
+
+            None => {
+                info!("TLS support is disabled");
+            }
+        };
     }
 }
 
@@ -366,6 +391,37 @@ pub async fn parse(path: &str) -> Result<(), Error> {
             );
             return Err(Error::BadConfig);
         }
+    };
+
+    // Validate TLS!
+    match config.general.tls_certificate.clone() {
+        Some(tls_certificate) => {
+            match load_certs(&Path::new(&tls_certificate)) {
+                Ok(_) => {
+                    // Cert is okay, but what about the private key?
+                    match config.general.tls_private_key.clone() {
+                        Some(tls_private_key) => match load_keys(&Path::new(&tls_private_key)) {
+                            Ok(_) => (),
+                            Err(err) => {
+                                error!("tls_private_key is incorrectly configured: {:?}", err);
+                                return Err(Error::BadConfig);
+                            }
+                        },
+
+                        None => {
+                            error!("tls_certificate is set, but the tls_private_key is not");
+                            return Err(Error::BadConfig);
+                        }
+                    };
+                }
+
+                Err(err) => {
+                    error!("tls_certificate is incorrectly configured: {:?}", err);
+                    return Err(Error::BadConfig);
+                }
+            }
+        }
+        None => (),
     };
 
     config.path = path.to_string();

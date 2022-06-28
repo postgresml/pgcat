@@ -28,10 +28,12 @@ extern crate log;
 extern crate md5;
 extern crate num_cpus;
 extern crate once_cell;
+extern crate rustls_pemfile;
 extern crate serde;
 extern crate serde_derive;
 extern crate sqlparser;
 extern crate tokio;
+extern crate tokio_rustls;
 extern crate toml;
 
 use log::{debug, error, info};
@@ -58,6 +60,7 @@ mod scram;
 mod server;
 mod sharding;
 mod stats;
+mod tls;
 
 use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
@@ -150,30 +153,20 @@ async fn main() {
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
-                match client::Client::startup(socket, client_server_map).await {
-                    Ok(mut client) => {
-                        info!("Client {:?} connected", addr);
 
-                        match client.handle().await {
-                            Ok(()) => {
-                                let duration = chrono::offset::Utc::now().naive_utc() - start;
+                match client::client_entrypoint(socket, client_server_map).await {
+                    Ok(_) => {
+                        let duration = chrono::offset::Utc::now().naive_utc() - start;
 
-                                info!(
-                                    "Client {:?} disconnected, session duration: {}",
-                                    addr,
-                                    format_duration(&duration)
-                                );
-                            }
-
-                            Err(err) => {
-                                error!("Client disconnected with error: {:?}", err);
-                                client.release();
-                            }
-                        }
+                        info!(
+                            "Client {:?} disconnected, session duration: {}",
+                            addr,
+                            format_duration(&duration)
+                        );
                     }
 
                     Err(err) => {
-                        debug!("Client failed to login: {:?}", err);
+                        debug!("Client disconnected with error {:?}", err);
                     }
                 };
             });
