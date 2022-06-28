@@ -32,6 +32,9 @@ ban_time = 60 # Seconds
 #
 autoreload = true
 
+tls_certificate = ".circleci/server.cert"
+tls_private_key = ".circleci/server.key"
+
 #
 # User to use for authentication against the server.
 [user]
