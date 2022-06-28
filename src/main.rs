@@ -163,7 +163,7 @@ async fn main() {
                             addr,
                             format_duration(&duration)
                         );
-                    },
+                    }
 
                     Err(err) => {
                         debug!("Client disconnected with error {:?}", err);

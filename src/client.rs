@@ -1,6 +1,6 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, trace, info};
+use log::{debug, error, info, trace};
 use std::collections::HashMap;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -82,7 +82,6 @@ pub async fn client_entrypoint(
     let addr = stream.peer_addr().unwrap();
 
     match get_startup::<TcpStream>(&mut stream).await {
-
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
             let config = get_config();
@@ -105,7 +104,6 @@ pub async fn client_entrypoint(
                     Err(err) => Err(err),
                 }
             }
-
             // TLS is not configured, we cannot offer it.
             else {
                 // Rejecting client request for TLS.
@@ -225,14 +223,13 @@ pub async fn startup_tls(
         // TLS negotitation failed.
         Err(err) => {
             error!("TLS negotiation failed: {:?}", err);
-            return Err(Error::TlsError)
+            return Err(Error::TlsError);
         }
     };
 
     // TLS negotitation successful.
     // Continue with regular startup using encrypted connection.
     match get_startup::<TlsStream<TcpStream>>(&mut stream).await {
-
         // Got good startup message, proceeding like normal except we
         // are encrypted now.
         Ok((ClientConnectionType::Startup, bytes)) => {

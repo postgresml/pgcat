@@ -4,15 +4,15 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
-use std::path::Path;
 
 use crate::errors::Error;
-use crate::{ClientServerMap, ConnectionPool};
 use crate::tls::{load_certs, load_keys};
+use crate::{ClientServerMap, ConnectionPool};
 
 /// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
@@ -264,7 +264,7 @@ impl Config {
                     Some(tls_private_key) => {
                         info!("TLS private key: {}", tls_private_key);
                         info!("TLS support is enabled");
-                    },
+                    }
 
                     None => (),
                 }
@@ -272,7 +272,7 @@ impl Config {
 
             None => {
                 info!("TLS support is disabled");
-            },
+            }
         };
     }
 }
@@ -400,15 +400,13 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                 Ok(_) => {
                     // Cert is okay, but what about the private key?
                     match config.general.tls_private_key.clone() {
-                        Some(tls_private_key) => {
-                            match load_keys(&Path::new(&tls_private_key)) {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    error!("tls_private_key is incorrectly configured: {:?}", err);
-                                    return Err(Error::BadConfig);
-                                }
+                        Some(tls_private_key) => match load_keys(&Path::new(&tls_private_key)) {
+                            Ok(_) => (),
+                            Err(err) => {
+                                error!("tls_private_key is incorrectly configured: {:?}", err);
+                                return Err(Error::BadConfig);
                             }
-                        }
+                        },
 
                         None => {
                             error!("tls_certificate is set, but the tls_private_key is not");
@@ -422,7 +420,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                     return Err(Error::BadConfig);
                 }
             }
-        },
+        }
         None => (),
     };
 
