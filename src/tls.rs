@@ -10,13 +10,13 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 // TLS
-fn load_certs(path: &Path) -> std::io::Result<Vec<Certificate>> {
+pub fn load_certs(path: &Path) -> std::io::Result<Vec<Certificate>> {
     certs(&mut std::io::BufReader::new(std::fs::File::open(path)?))
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid cert"))
         .map(|mut certs| certs.drain(..).map(Certificate).collect())
 }
 
-fn load_keys(path: &Path) -> std::io::Result<Vec<PrivateKey>> {
+pub fn load_keys(path: &Path) -> std::io::Result<Vec<PrivateKey>> {
     rsa_private_keys(&mut std::io::BufReader::new(std::fs::File::open(path)?))
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid key"))
         .map(|mut keys| keys.drain(..).map(PrivateKey).collect())

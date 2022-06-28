@@ -8,9 +8,11 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use toml;
+use std::path::Path;
 
 use crate::errors::Error;
 use crate::{ClientServerMap, ConnectionPool};
+use crate::tls::{load_certs, load_keys};
 
 /// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
@@ -253,6 +255,25 @@ impl Config {
         info!("Primary reads: {}", self.query_router.primary_reads_enabled);
         info!("Query router: {}", self.query_router.query_parser_enabled);
         info!("Number of shards: {}", self.shards.len());
+
+        match self.general.tls_certificate.clone() {
+            Some(tls_certificate) => {
+                info!("TLS certificate: {}", tls_certificate);
+
+                match self.general.tls_private_key.clone() {
+                    Some(tls_private_key) => {
+                        info!("TLS private key: {}", tls_private_key);
+                        info!("TLS support is enabled");
+                    },
+
+                    None => (),
+                }
+            }
+
+            None => {
+                info!("TLS support is disabled");
+            },
+        };
     }
 }
 
@@ -370,6 +391,39 @@ pub async fn parse(path: &str) -> Result<(), Error> {
             );
             return Err(Error::BadConfig);
         }
+    };
+
+    // Validate TLS!
+    match config.general.tls_certificate.clone() {
+        Some(tls_certificate) => {
+            match load_certs(&Path::new(&tls_certificate)) {
+                Ok(_) => {
+                    // Cert is okay, but what about the private key?
+                    match config.general.tls_private_key.clone() {
+                        Some(tls_private_key) => {
+                            match load_keys(&Path::new(&tls_private_key)) {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    error!("tls_private_key is incorrectly configured: {:?}", err);
+                                    return Err(Error::BadConfig);
+                                }
+                            }
+                        }
+
+                        None => {
+                            error!("tls_certificate is set, but the tls_private_key is not");
+                            return Err(Error::BadConfig);
+                        }
+                    };
+                }
+
+                Err(err) => {
+                    error!("tls_certificate is incorrectly configured: {:?}", err);
+                    return Err(Error::BadConfig);
+                }
+            }
+        },
+        None => (),
     };
 
     config.path = path.to_string();
