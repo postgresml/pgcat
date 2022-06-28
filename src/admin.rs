@@ -2,7 +2,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 use log::{info, trace};
 use std::collections::HashMap;
-// use tokio::net::tcp::T;
 
 use crate::config::{get_config, reload_config};
 use crate::errors::Error;
