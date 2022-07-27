@@ -178,7 +178,7 @@ where
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
     for (_, pool) in get_all_pools() {
-        let pool_config = pool.settings.clone();
+        let pool_config = &pool.settings;
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);

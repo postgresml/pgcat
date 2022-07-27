@@ -301,7 +301,7 @@ impl Config {
         for (pool_name, pool_config) in &self.pools {
             info!("--- Settings for pool {} ---", pool_name);
             info!(
-                "Total Pool size from all users: {}",
+                "Pool size from all users: {}",
                 pool_config
                     .users
                     .iter()
