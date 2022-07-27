@@ -3,10 +3,10 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::{info, trace};
 use std::collections::HashMap;
 
-use crate::config::{get_config, reload_config};
+use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::ConnectionPool;
+use crate::pool::{get_all_pools};
 use crate::stats::get_stats;
 use crate::ClientServerMap;
 
@@ -14,7 +14,6 @@ use crate::ClientServerMap;
 pub async fn handle_admin<T>(
     stream: &mut T,
     mut query: BytesMut,
-    pool: ConnectionPool,
     client_server_map: ClientServerMap,
 ) -> Result<(), Error>
 where
@@ -35,7 +34,7 @@ where
 
     if query.starts_with("SHOW STATS") {
         trace!("SHOW STATS");
-        show_stats(stream, &pool).await
+        show_stats(stream).await
     } else if query.starts_with("RELOAD") {
         trace!("RELOAD");
         reload(stream, client_server_map).await
@@ -44,13 +43,13 @@ where
         show_config(stream).await
     } else if query.starts_with("SHOW DATABASES") {
         trace!("SHOW DATABASES");
-        show_databases(stream, &pool).await
+        show_databases(stream).await
     } else if query.starts_with("SHOW POOLS") {
         trace!("SHOW POOLS");
-        show_pools(stream, &pool).await
+        show_pools(stream).await
     } else if query.starts_with("SHOW LISTS") {
         trace!("SHOW LISTS");
-        show_lists(stream, &pool).await
+        show_lists(stream).await
     } else if query.starts_with("SHOW VERSION") {
         trace!("SHOW VERSION");
         show_version(stream).await
@@ -63,7 +62,7 @@ where
 }
 
 /// Column-oriented statistics.
-async fn show_lists<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+async fn show_lists<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
@@ -71,17 +70,20 @@ where
 
     let columns = vec![("list", DataType::Text), ("items", DataType::Int4)];
 
+    let mut users = 1;
+    let mut databases = 1;
+    for (_, pool) in get_all_pools() {
+        databases += pool.databases();
+        users += 1; // One user per pool
+    }
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
     res.put(data_row(&vec![
         "databases".to_string(),
-        (pool.databases() + 1).to_string(), // see comment below
+        databases.to_string(),
     ]));
-    res.put(data_row(&vec!["users".to_string(), "1".to_string()]));
-    res.put(data_row(&vec![
-        "pools".to_string(),
-        (pool.databases() + 1).to_string(), // +1 for the pgbouncer admin db pool which isn't real
-    ])); // but admin tools that work with pgbouncer want this
+    res.put(data_row(&vec!["users".to_string(), users.to_string()]));
+    res.put(data_row(&vec!["pools".to_string(), databases.to_string()]));
     res.put(data_row(&vec![
         "free_clients".to_string(),
         stats
@@ -140,7 +142,7 @@ where
     let mut res = BytesMut::new();
 
     res.put(row_description(&vec![("version", DataType::Text)]));
-    res.put(data_row(&vec!["PgCat 0.1.0".to_string()]));
+    res.put(data_row(&vec![format!("PgCat {}", VERSION).to_string()]));
     res.put(command_complete("SHOW"));
 
     res.put_u8(b'Z');
@@ -151,12 +153,11 @@ where
 }
 
 /// Show utilization of connection pools for each shard and replicas.
-async fn show_pools<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+async fn show_pools<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let stats = get_stats();
-    let config = get_config();
 
     let columns = vec![
         ("database", DataType::Text),
@@ -176,24 +177,26 @@ where
 
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
+    for (_, pool) in get_all_pools() {
+        let pool_config = pool.settings.clone();
+        for shard in 0..pool.shards() {
+            for server in 0..pool.servers(shard) {
+                let address = pool.address(shard, server);
+                let stats = match stats.get(&address.id) {
+                    Some(stats) => stats.clone(),
+                    None => HashMap::new(),
+                };
 
-    for shard in 0..pool.shards() {
-        for server in 0..pool.servers(shard) {
-            let address = pool.address(shard, server);
-            let stats = match stats.get(&address.id) {
-                Some(stats) => stats.clone(),
-                None => HashMap::new(),
-            };
+                let mut row = vec![address.name(), pool_config.user.username.clone()];
 
-            let mut row = vec![address.name(), config.user.name.clone()];
+                for column in &columns[2..columns.len() - 1] {
+                    let value = stats.get(column.0).unwrap_or(&0).to_string();
+                    row.push(value);
+                }
 
-            for column in &columns[2..columns.len() - 1] {
-                let value = stats.get(column.0).unwrap_or(&0).to_string();
-                row.push(value);
+                row.push(pool_config.pool_mode.to_string());
+                res.put(data_row(&row));
             }
-
-            row.push(config.general.pool_mode.to_string());
-            res.put(data_row(&row));
         }
     }
 
@@ -208,12 +211,10 @@ where
 }
 
 /// Show shards and replicas.
-async fn show_databases<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+async fn show_databases<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let config = get_config();
-
     // Columns
     let columns = vec![
         ("name", DataType::Text),
@@ -235,31 +236,33 @@ where
 
     res.put(row_description(&columns));
 
-    for shard in 0..pool.shards() {
-        let database_name = &config.shards[&shard.to_string()].database;
+    for (_, pool) in get_all_pools() {
+        let pool_config = pool.settings.clone();
+        for shard in 0..pool.shards() {
+            let database_name = &pool_config.shards[&shard.to_string()].database;
 
-        for server in 0..pool.servers(shard) {
-            let address = pool.address(shard, server);
-            let pool_state = pool.pool_state(shard, server);
+            for server in 0..pool.servers(shard) {
+                let address = pool.address(shard, server);
+                let pool_state = pool.pool_state(shard, server);
 
-            res.put(data_row(&vec![
-                address.name(),                       // name
-                address.host.to_string(),             // host
-                address.port.to_string(),             // port
-                database_name.to_string(),            // database
-                config.user.name.to_string(),         // force_user
-                config.general.pool_size.to_string(), // pool_size
-                "0".to_string(),                      // min_pool_size
-                "0".to_string(),                      // reserve_pool
-                config.general.pool_mode.to_string(), // pool_mode
-                config.general.pool_size.to_string(), // max_connections
-                pool_state.connections.to_string(),   // current_connections
-                "0".to_string(),                      // paused
-                "0".to_string(),                      // disabled
-            ]));
+                res.put(data_row(&vec![
+                    address.name(),                          // name
+                    address.host.to_string(),                // host
+                    address.port.to_string(),                // port
+                    database_name.to_string(),               // database
+                    pool_config.user.username.to_string(),   // force_user
+                    pool_config.user.pool_size.to_string(),  // pool_size
+                    "0".to_string(),                         // min_pool_size
+                    "0".to_string(),                         // reserve_pool
+                    pool_config.pool_mode.to_string(),       // pool_mode
+                    pool_config.user.pool_size.to_string(), // max_connections
+                    pool_state.connections.to_string(),      // current_connections
+                    "0".to_string(),                         // paused
+                    "0".to_string(),                         // disabled
+                ]));
+            }
         }
     }
-
     res.put(command_complete("SHOW"));
 
     // ReadyForQuery
@@ -349,7 +352,7 @@ where
 }
 
 /// Show shard and replicas statistics.
-async fn show_stats<T>(stream: &mut T, pool: &ConnectionPool) -> Result<(), Error>
+async fn show_stats<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
@@ -375,21 +378,23 @@ where
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    for shard in 0..pool.shards() {
-        for server in 0..pool.servers(shard) {
-            let address = pool.address(shard, server);
-            let stats = match stats.get(&address.id) {
-                Some(stats) => stats.clone(),
-                None => HashMap::new(),
-            };
+    for (_, pool) in get_all_pools() {
+        for shard in 0..pool.shards() {
+            for server in 0..pool.servers(shard) {
+                let address = pool.address(shard, server);
+                let stats = match stats.get(&address.id) {
+                    Some(stats) => stats.clone(),
+                    None => HashMap::new(),
+                };
 
-            let mut row = vec![address.name()];
+                let mut row = vec![address.name()];
 
-            for column in &columns[1..] {
-                row.push(stats.get(column.0).unwrap_or(&0).to_string());
+                for column in &columns[1..] {
+                    row.push(stats.get(column.0).unwrap_or(&0).to_string());
+                }
+
+                res.put(data_row(&row));
             }
-
-            res.put(data_row(&row));
         }
     }
 

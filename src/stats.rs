@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::pool::get_pool;
+use crate::pool::get_number_of_addresses;
 
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
     Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
@@ -331,8 +331,8 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD / 15));
             loop {
                 interval.tick().await;
-                let addresses = get_pool().databases();
-                for address_id in 0..addresses {
+                let address_count = get_number_of_addresses();
+                for address_id in 0..address_count {
                     let _ = tx.try_send(Event {
                         name: EventName::UpdateStats,
                         value: 0,
@@ -349,8 +349,8 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
             loop {
                 interval.tick().await;
-                let addresses = get_pool().databases();
-                for address_id in 0..addresses {
+                let address_count = get_number_of_addresses();
+                for address_id in 0..address_count {
                     let _ = tx.try_send(Event {
                         name: EventName::UpdateAverages,
                         value: 0,
