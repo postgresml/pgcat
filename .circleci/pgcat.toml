@@ -12,16 +12,16 @@ host = "0.0.0.0"
 port = 6432
 
 # How long to wait before aborting a server connection (ms).
-connect_timeout = 5000
+connect_timeout = 100
 
 # How much time to give `SELECT 1` health check query to return with a result (ms).
-healthcheck_timeout = 1000
+healthcheck_timeout = 100
 
 # For how long to ban a server if it fails a health check (seconds).
-ban_time = 60 # seconds
+ban_time = 60 # Seconds
 
 # Reload config automatically if it changes.
-autoreload = false
+autoreload = true
 
 # TLS
 tls_certificate = ".circleci/server.cert"
@@ -80,11 +80,6 @@ password = "sharding_user"
 # is the sum of pool_size across all users.
 pool_size = 9
 
-[pools.sharded.users.1]
-username = "other_user"
-password = "other_user"
-pool_size = 21
-
 # Shard 0
 [pools.sharded.shards.0]
 # [ host, port, role ]
@@ -108,23 +103,3 @@ servers = [
     [ "localhost", 5432, "replica" ],
 ]
 database = "shard2"
-
-
-[pools.simple_db]
-pool_mode = "session"
-default_role = "primary"
-query_parser_enabled = true
-primary_reads_enabled = true
-sharding_function = "pg_bigint_hash"
-
-[pools.simple_db.users.0]
-username = "simple_user"
-password = "simple_user"
-pool_size = 5
-
-[pools.simple_db.shards.0]
-servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ]
-]
-database = "some_db"
