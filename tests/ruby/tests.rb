@@ -15,7 +15,7 @@ ActiveRecord::Base.establish_connection(
   port: 6432,
   username: 'sharding_user',
   password: 'sharding_user',
-  database: 'rails_dev',
+  database: 'sharded_db',
   application_name: 'testing_pgcat',
   prepared_statements: false, # Transaction mode
   advisory_locks: false # Same
@@ -117,7 +117,7 @@ end
 
 # Test evil clients
 def poorly_behaved_client
-  conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/rails_dev?application_name=testing_pgcat")
+  conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat")
   conn.async_exec 'BEGIN'
   conn.async_exec 'SELECT 1'
 
