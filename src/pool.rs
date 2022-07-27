@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, Role, User, Shard};
+use crate::config::{get_config, Address, Role, Shard, User};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -22,8 +22,7 @@ pub type PoolMap = HashMap<(String, String), ConnectionPool>;
 /// The connection pool, globally available.
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
-pub static POOLS: Lazy<ArcSwap<PoolMap>> =
-    Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
 #[derive(Clone, Debug)]
 pub struct PoolSettings {
@@ -72,9 +71,8 @@ pub struct ConnectionPool {
     /// on pool creation and save the K messages here.
     server_info: BytesMut,
 
-    pub settings: PoolSettings
+    pub settings: PoolSettings,
 }
-
 
 impl ConnectionPool {
     /// Construct the connection pool from the configuration.
@@ -172,8 +170,8 @@ impl ConnectionPool {
                         default_role: pool_config.default_role.clone(),
                         query_parser_enabled: pool_config.query_parser_enabled.clone(),
                         primary_reads_enabled: pool_config.primary_reads_enabled,
-                        sharding_function: pool_config.sharding_function.clone()
-                    }
+                        sharding_function: pool_config.sharding_function.clone(),
+                    },
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -563,18 +561,17 @@ impl ManageConnection for ServerPool {
 pub fn get_pool(db: String, user: String) -> Option<ConnectionPool> {
     match get_all_pools().get(&(db, user)) {
         Some(pool) => Some(pool.clone()),
-        None => None
+        None => None,
     }
 }
 
 pub fn get_number_of_addresses() -> usize {
     get_all_pools()
         .iter()
-        .map(|(_, pool)| pool.databases() )
+        .map(|(_, pool)| pool.databases())
         .sum()
 }
 
 pub fn get_all_pools() -> HashMap<(String, String), ConnectionPool> {
     return (*(*POOLS.load())).clone();
 }
-

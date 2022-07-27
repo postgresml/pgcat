@@ -72,7 +72,7 @@ pub struct Client<S, T> {
     /// Last server process id we talked to.
     last_server_id: Option<i32>,
 
-    target_pool: ConnectionPool
+    target_pool: ConnectionPool,
 }
 
 /// Client entrypoint.
@@ -266,12 +266,12 @@ where
         let parameters = parse_startup(bytes.clone())?;
         let database = match parameters.get("database") {
             Some(db) => db,
-            None => return Err(Error::ClientError)
+            None => return Err(Error::ClientError),
         };
 
         let user = match parameters.get("user") {
             Some(user) => user,
-            None => return Err(Error::ClientError)
+            None => return Err(Error::ClientError),
         };
 
         let admin = ["pgcat", "pgbouncer"]
@@ -311,8 +311,6 @@ where
             Err(_) => return Err(Error::SocketError),
         };
 
-
-
         let mut target_pool: ConnectionPool = ConnectionPool::default();
         let mut transaction_mode = false;
 
@@ -333,9 +331,13 @@ where
                 None => {
                     error_response(
                         &mut write,
-                        &format!("No pool configured for database: {:?}, user: {:?}", database, user),
-                    ).await?;
-                    return Err(Error::ClientError)
+                        &format!(
+                            "No pool configured for database: {:?}, user: {:?}",
+                            database, user
+                        ),
+                    )
+                    .await?;
+                    return Err(Error::ClientError);
                 }
             };
             transaction_mode = target_pool.settings.pool_mode == "transaction";
@@ -362,7 +364,6 @@ where
 
         trace!("Startup OK");
 
-
         // Split the read and write streams
         // so we can control buffering.
 
@@ -381,7 +382,7 @@ where
             admin: admin,
             last_address_id: None,
             last_server_id: None,
-            target_pool: target_pool
+            target_pool: target_pool,
         });
     }
 
@@ -410,7 +411,7 @@ where
             admin: false,
             last_address_id: None,
             last_server_id: None,
-            target_pool: ConnectionPool::default()
+            target_pool: ConnectionPool::default(),
         });
     }
 
@@ -481,12 +482,7 @@ where
             // Handle admin database queries.
             if self.admin {
                 debug!("Handling admin command");
-                handle_admin(
-                    &mut self.write,
-                    message,
-                    self.client_server_map.clone(),
-                )
-                .await?;
+                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
                 continue;
             }
 

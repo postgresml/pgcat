@@ -167,8 +167,6 @@ impl Default for Pool {
     }
 }
 
-
-
 /// Shard configuration.
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
@@ -211,17 +209,47 @@ impl Default for Config {
 
 impl From<&Config> for std::collections::HashMap<String, String> {
     fn from(config: &Config) -> HashMap<String, String> {
-        let mut r: Vec<(String, String)> = config.pools.iter().flat_map(|(pool_name, pool)|  {
-            [
-                (format!("pools.{}.pool_mode", pool_name), pool.pool_mode.clone()),
-                (format!("pools.{}.primary_reads_enabled", pool_name), pool.primary_reads_enabled.to_string()),
-                (format!("pools.{}.query_parser_enabled", pool_name), pool.query_parser_enabled.to_string()),
-                (format!("pools.{}.default_role", pool_name), pool.default_role.clone()),
-                (format!("pools.{}.sharding_function", pool_name), pool.sharding_function.clone()),
-                (format!("pools.{:?}.shard_count", pool_name), pool.shards.len().to_string()),
-                (format!("pools.{:?}.users", pool_name), pool.users.iter().map(|(_username, user)| &user.username ).cloned().collect::<Vec<String>>().join(", "))
-            ]
-        }).collect();
+        let mut r: Vec<(String, String)> = config
+            .pools
+            .iter()
+            .flat_map(|(pool_name, pool)| {
+                [
+                    (
+                        format!("pools.{}.pool_mode", pool_name),
+                        pool.pool_mode.clone(),
+                    ),
+                    (
+                        format!("pools.{}.primary_reads_enabled", pool_name),
+                        pool.primary_reads_enabled.to_string(),
+                    ),
+                    (
+                        format!("pools.{}.query_parser_enabled", pool_name),
+                        pool.query_parser_enabled.to_string(),
+                    ),
+                    (
+                        format!("pools.{}.default_role", pool_name),
+                        pool.default_role.clone(),
+                    ),
+                    (
+                        format!("pools.{}.sharding_function", pool_name),
+                        pool.sharding_function.clone(),
+                    ),
+                    (
+                        format!("pools.{:?}.shard_count", pool_name),
+                        pool.shards.len().to_string(),
+                    ),
+                    (
+                        format!("pools.{:?}.users", pool_name),
+                        pool.users
+                            .iter()
+                            .map(|(_username, user)| &user.username)
+                            .cloned()
+                            .collect::<Vec<String>>()
+                            .join(", "),
+                    ),
+                ]
+            })
+            .collect();
 
         let mut static_settings = vec![
             ("host".to_string(), config.general.host.to_string()),
@@ -234,7 +262,7 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 "healthcheck_timeout".to_string(),
                 config.general.healthcheck_timeout.to_string(),
             ),
-            ("ban_time".to_string(), config.general.ban_time.to_string())
+            ("ban_time".to_string(), config.general.ban_time.to_string()),
         ];
 
         r.append(&mut static_settings);
@@ -272,7 +300,15 @@ impl Config {
 
         for (pool_name, pool_config) in &self.pools {
             info!("--- Settings for pool {} ---", pool_name);
-            info!("Total Pool size from all users: {}", pool_config.users.iter().map(|(_, user_cfg)| user_cfg.pool_size ).sum::<u32>().to_string());
+            info!(
+                "Total Pool size from all users: {}",
+                pool_config
+                    .users
+                    .iter()
+                    .map(|(_, user_cfg)| user_cfg.pool_size)
+                    .sum::<u32>()
+                    .to_string()
+            );
             info!("Pool mode: {}", pool_config.pool_mode);
             info!("Sharding function: {}", pool_config.sharding_function);
             info!("Primary reads: {}", pool_config.primary_reads_enabled);
@@ -479,21 +515,48 @@ mod test {
         assert_eq!(get_config().pools["sharded"].users.len(), 2);
         assert_eq!(get_config().pools["simple_db"].users.len(), 1);
 
-        assert_eq!(get_config().pools["sharded"].shards["0"].servers[0].0, "127.0.0.1");
-        assert_eq!(get_config().pools["sharded"].shards["1"].servers[0].2, "primary");
+        assert_eq!(
+            get_config().pools["sharded"].shards["0"].servers[0].0,
+            "127.0.0.1"
+        );
+        assert_eq!(
+            get_config().pools["sharded"].shards["1"].servers[0].2,
+            "primary"
+        );
         assert_eq!(get_config().pools["sharded"].shards["1"].database, "shard1");
-        assert_eq!(get_config().pools["sharded"].users["0"].username, "sharding_user");
-        assert_eq!(get_config().pools["sharded"].users["1"].password, "other_user");
+        assert_eq!(
+            get_config().pools["sharded"].users["0"].username,
+            "sharding_user"
+        );
+        assert_eq!(
+            get_config().pools["sharded"].users["1"].password,
+            "other_user"
+        );
         assert_eq!(get_config().pools["sharded"].users["1"].pool_size, 21);
         assert_eq!(get_config().pools["sharded"].default_role, "any");
 
-        assert_eq!(get_config().pools["simple_db"].shards["0"].servers[0].0, "127.0.0.1");
-        assert_eq!(get_config().pools["simple_db"].shards["0"].servers[0].1, 5432);
-        assert_eq!(get_config().pools["simple_db"].shards["0"].database, "some_db");
+        assert_eq!(
+            get_config().pools["simple_db"].shards["0"].servers[0].0,
+            "127.0.0.1"
+        );
+        assert_eq!(
+            get_config().pools["simple_db"].shards["0"].servers[0].1,
+            5432
+        );
+        assert_eq!(
+            get_config().pools["simple_db"].shards["0"].database,
+            "some_db"
+        );
         assert_eq!(get_config().pools["simple_db"].default_role, "primary");
 
-        assert_eq!(get_config().pools["simple_db"].users["0"].username, "simple_user");
-        assert_eq!(get_config().pools["simple_db"].users["0"].password, "simple_user");
+        assert_eq!(
+            get_config().pools["simple_db"].users["0"].username,
+            "simple_user"
+        );
+        assert_eq!(
+            get_config().pools["simple_db"].users["0"].password,
+            "simple_user"
+        );
         assert_eq!(get_config().pools["simple_db"].users["0"].pool_size, 5);
     }
 }

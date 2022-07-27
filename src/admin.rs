@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{get_all_pools};
+use crate::pool::get_all_pools;
 use crate::stats::get_stats;
 use crate::ClientServerMap;
 
@@ -246,19 +246,19 @@ where
                 let pool_state = pool.pool_state(shard, server);
 
                 res.put(data_row(&vec![
-                    address.name(),                          // name
-                    address.host.to_string(),                // host
-                    address.port.to_string(),                // port
-                    database_name.to_string(),               // database
-                    pool_config.user.username.to_string(),   // force_user
-                    pool_config.user.pool_size.to_string(),  // pool_size
-                    "0".to_string(),                         // min_pool_size
-                    "0".to_string(),                         // reserve_pool
-                    pool_config.pool_mode.to_string(),       // pool_mode
+                    address.name(),                         // name
+                    address.host.to_string(),               // host
+                    address.port.to_string(),               // port
+                    database_name.to_string(),              // database
+                    pool_config.user.username.to_string(),  // force_user
+                    pool_config.user.pool_size.to_string(), // pool_size
+                    "0".to_string(),                        // min_pool_size
+                    "0".to_string(),                        // reserve_pool
+                    pool_config.pool_mode.to_string(),      // pool_mode
                     pool_config.user.pool_size.to_string(), // max_connections
-                    pool_state.connections.to_string(),      // current_connections
-                    "0".to_string(),                         // paused
-                    "0".to_string(),                         // disabled
+                    pool_state.connections.to_string(),     // current_connections
+                    "0".to_string(),                        // paused
+                    "0".to_string(),                        // disabled
                 ]));
             }
         }

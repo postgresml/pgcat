@@ -8,7 +8,7 @@ use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-use crate::config::{Role};
+use crate::config::Role;
 use crate::pool::{ConnectionPool, PoolSettings};
 use crate::sharding::{Sharder, ShardingFunction};
 
@@ -622,4 +622,3 @@ mod test {
         assert!(qr.query_parser_enabled());
     }
 }
-
