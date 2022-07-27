@@ -32,7 +32,7 @@ toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 start_pgcat "info"
 
 export PGPASSWORD=sharding_user
-export PGDABATASE=sharded_db
+export PGDATABASE=sharded_db
 
 # pgbench test
 pgbench -U sharding_user -i -h 127.0.0.1 -p 6432
