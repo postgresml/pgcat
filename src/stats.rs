@@ -292,17 +292,18 @@ impl Collector {
 
         let stats_template = HashMap::from([
             ("total_query_count", 0),
-            ("total_xact_count", 0),
-            ("total_sent", 0),
-            ("total_received", 0),
-            ("total_xact_time", 0),
             ("total_query_time", 0),
+            ("total_received", 0),
+            ("total_sent", 0),
+            ("total_xact_count", 0),
+            ("total_xact_time", 0),
             ("total_wait_time", 0),
-            ("avg_xact_time", 0),
+            ("avg_query_count", 0),
             ("avg_query_time", 0),
-            ("avg_xact_count", 0),
-            ("avg_sent", 0),
             ("avg_recv", 0),
+            ("avg_sent", 0),
+            ("avg_xact_count", 0),
+            ("avg_xact_time", 0),
             ("avg_wait_time", 0),
             ("maxwait_us", 0),
             ("maxwait", 0),
@@ -506,9 +507,11 @@ impl Collector {
                     // Calculate averages
                     for stat in &[
                         "avg_query_count",
-                        "avgxact_count",
-                        "avg_sent",
+                        "avg_query_time",
                         "avg_recv",
+                        "avg_sent",
+                        "avg_xact_time",
+                        "avg_xact_count",
                         "avg_wait_time",
                     ] {
                         let total_name = match stat {
