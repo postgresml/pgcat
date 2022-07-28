@@ -71,6 +71,7 @@ pub struct ConnectionPool {
     /// on pool creation and save the K messages here.
     server_info: BytesMut,
 
+
     pub settings: PoolSettings,
 }
 
