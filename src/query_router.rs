@@ -8,7 +8,8 @@ use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-use crate::config::{get_config, Role};
+use crate::config::Role;
+use crate::pool::{ConnectionPool, PoolSettings};
 use crate::sharding::{Sharder, ShardingFunction};
 
 /// Regexes used to parse custom commands.
@@ -53,6 +54,8 @@ pub struct QueryRouter {
 
     /// Include the primary into the replica pool for reads.
     primary_reads_enabled: bool,
+
+    pool_settings: PoolSettings,
 }
 
 impl QueryRouter {
@@ -88,14 +91,13 @@ impl QueryRouter {
     }
 
     /// Create a new instance of the query router. Each client gets its own.
-    pub fn new() -> QueryRouter {
-        let config = get_config();
-
+    pub fn new(target_pool: ConnectionPool) -> QueryRouter {
         QueryRouter {
             active_shard: None,
             active_role: None,
-            query_parser_enabled: config.query_router.query_parser_enabled,
-            primary_reads_enabled: config.query_router.primary_reads_enabled,
+            query_parser_enabled: target_pool.settings.query_parser_enabled,
+            primary_reads_enabled: target_pool.settings.primary_reads_enabled,
+            pool_settings: target_pool.settings,
         }
     }
 
@@ -130,15 +132,13 @@ impl QueryRouter {
             return None;
         }
 
-        let config = get_config();
-
-        let sharding_function = match config.query_router.sharding_function.as_ref() {
+        let sharding_function = match self.pool_settings.sharding_function.as_ref() {
             "pg_bigint_hash" => ShardingFunction::PgBigintHash,
             "sha1" => ShardingFunction::Sha1,
             _ => unreachable!(),
         };
 
-        let default_server_role = match config.query_router.default_role.as_ref() {
+        let default_server_role = match self.pool_settings.default_role.as_ref() {
             "any" => None,
             "primary" => Some(Role::Primary),
             "replica" => Some(Role::Replica),
@@ -196,7 +196,7 @@ impl QueryRouter {
 
         match command {
             Command::SetShardingKey => {
-                let sharder = Sharder::new(config.shards.len(), sharding_function);
+                let sharder = Sharder::new(self.pool_settings.shards.len(), sharding_function);
                 let shard = sharder.shard(value.parse::<i64>().unwrap());
                 self.active_shard = Some(shard);
                 value = shard.to_string();
@@ -204,7 +204,7 @@ impl QueryRouter {
 
             Command::SetShard => {
                 self.active_shard = match value.to_ascii_uppercase().as_ref() {
-                    "ANY" => Some(rand::random::<usize>() % config.shards.len()),
+                    "ANY" => Some(rand::random::<usize>() % self.pool_settings.shards.len()),
                     _ => Some(value.parse::<usize>().unwrap()),
                 };
             }
@@ -233,7 +233,7 @@ impl QueryRouter {
 
                     "default" => {
                         self.active_role = default_server_role;
-                        self.query_parser_enabled = config.query_router.query_parser_enabled;
+                        self.query_parser_enabled = self.query_parser_enabled;
                         self.active_role
                     }
 
@@ -250,7 +250,7 @@ impl QueryRouter {
                     self.primary_reads_enabled = false;
                 } else if value == "default" {
                     debug!("Setting primary reads to default");
-                    self.primary_reads_enabled = config.query_router.primary_reads_enabled;
+                    self.primary_reads_enabled = self.pool_settings.primary_reads_enabled;
                 }
             }
 
@@ -370,7 +370,7 @@ mod test {
     #[test]
     fn test_defaults() {
         QueryRouter::setup();
-        let qr = QueryRouter::new();
+        let qr = QueryRouter::new(ConnectionPool::default());
 
         assert_eq!(qr.role(), None);
     }
@@ -378,7 +378,7 @@ mod test {
     #[test]
     fn test_infer_role_replica() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new();
+        let mut qr = QueryRouter::new(ConnectionPool::default());
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
         assert_eq!(qr.query_parser_enabled(), true);
 
@@ -402,7 +402,7 @@ mod test {
     #[test]
     fn test_infer_role_primary() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new();
+        let mut qr = QueryRouter::new(ConnectionPool::default());
 
         let queries = vec![
             simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
@@ -421,7 +421,7 @@ mod test {
     #[test]
     fn test_infer_role_primary_reads_enabled() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new();
+        let mut qr = QueryRouter::new(ConnectionPool::default());
         let query = simple_query("SELECT * FROM items WHERE id = 5");
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO on")) != None);
 
@@ -432,7 +432,7 @@ mod test {
     #[test]
     fn test_infer_role_parse_prepared() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new();
+        let mut qr = QueryRouter::new(ConnectionPool::default());
         qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'"));
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -523,15 +523,15 @@ mod test {
     #[test]
     fn test_try_execute_command() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new();
+        let mut qr = QueryRouter::new(ConnectionPool::default());
 
         // SetShardingKey
         let query = simple_query("SET SHARDING KEY TO 13");
         assert_eq!(
             qr.try_execute_command(query),
-            Some((Command::SetShardingKey, String::from("1")))
+            Some((Command::SetShardingKey, String::from("0")))
         );
-        assert_eq!(qr.shard(), 1);
+        assert_eq!(qr.shard(), 0);
 
         // SetShard
         let query = simple_query("SET SHARD TO '1'");
@@ -600,7 +600,7 @@ mod test {
     #[test]
     fn test_enable_query_parser() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new();
+        let mut qr = QueryRouter::new(ConnectionPool::default());
         let query = simple_query("SET SERVER ROLE TO 'auto'");
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 

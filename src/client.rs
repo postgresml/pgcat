@@ -10,7 +10,7 @@ use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{get_pool, ClientServerMap};
+use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
@@ -71,6 +71,8 @@ pub struct Client<S, T> {
 
     /// Last server process id we talked to.
     last_server_id: Option<i32>,
+
+    target_pool: ConnectionPool,
 }
 
 /// Client entrypoint.
@@ -258,11 +260,25 @@ where
         client_server_map: ClientServerMap,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
-        let transaction_mode = config.general.pool_mode == "transaction";
         let stats = get_reporter();
 
         trace!("Got StartupMessage");
         let parameters = parse_startup(bytes.clone())?;
+        let database = match parameters.get("database") {
+            Some(db) => db,
+            None => return Err(Error::ClientError),
+        };
+
+        let user = match parameters.get("user") {
+            Some(user) => user,
+            None => return Err(Error::ClientError),
+        };
+
+        let admin = ["pgcat", "pgbouncer"]
+            .iter()
+            .filter(|db| *db == &database)
+            .count()
+            == 1;
 
         // Generate random backend ID and secret key
         let process_id: i32 = rand::random();
@@ -295,32 +311,56 @@ where
             Err(_) => return Err(Error::SocketError),
         };
 
-        // Compare server and client hashes.
-        let password_hash = md5_hash_password(&config.user.name, &config.user.password, &salt);
+        let mut target_pool: ConnectionPool = ConnectionPool::default();
+        let mut transaction_mode = false;
 
-        if password_hash != password_response {
-            debug!("Password authentication failed");
-            wrong_password(&mut write, &config.user.name).await?;
-            return Err(Error::ClientError);
+        if admin {
+            let correct_user = config.general.admin_username.as_str();
+            let correct_password = config.general.admin_password.as_str();
+
+            // Compare server and client hashes.
+            let password_hash = md5_hash_password(correct_user, correct_password, &salt);
+            if password_hash != password_response {
+                debug!("Password authentication failed");
+                wrong_password(&mut write, user).await?;
+                return Err(Error::ClientError);
+            }
+        } else {
+            target_pool = match get_pool(database.clone(), user.clone()) {
+                Some(pool) => pool,
+                None => {
+                    error_response(
+                        &mut write,
+                        &format!(
+                            "No pool configured for database: {:?}, user: {:?}",
+                            database, user
+                        ),
+                    )
+                    .await?;
+                    return Err(Error::ClientError);
+                }
+            };
+            transaction_mode = target_pool.settings.pool_mode == "transaction";
+
+            // Compare server and client hashes.
+            let correct_password = target_pool.settings.user.password.as_str();
+            let password_hash = md5_hash_password(user, correct_password, &salt);
+
+            if password_hash != password_response {
+                debug!("Password authentication failed");
+                wrong_password(&mut write, user).await?;
+                return Err(Error::ClientError);
+            }
         }
 
         debug!("Password authentication successful");
 
         auth_ok(&mut write).await?;
-        write_all(&mut write, get_pool().server_info()).await?;
+        write_all(&mut write, target_pool.server_info()).await?;
         backend_key_data(&mut write, process_id, secret_key).await?;
         ready_for_query(&mut write).await?;
 
         trace!("Startup OK");
-
-        let database = parameters
-            .get("database")
-            .unwrap_or(parameters.get("user").unwrap());
-        let admin = ["pgcat", "pgbouncer"]
-            .iter()
-            .filter(|db| *db == &database)
-            .count()
-            == 1;
 
         // Split the read and write streams
         // so we can control buffering.
@@ -335,11 +375,12 @@ where
             process_id: process_id,
             secret_key: secret_key,
             client_server_map: client_server_map,
-            parameters: parameters,
+            parameters: parameters.clone(),
             stats: stats,
             admin: admin,
             last_address_id: None,
             last_server_id: None,
+            target_pool: target_pool,
         });
     }
 
@@ -353,26 +394,22 @@ where
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
-
-        let config = get_config();
-        let transaction_mode = config.general.pool_mode == "transaction";
-        let stats = get_reporter();
-
         return Ok(Client {
             read: BufReader::new(read),
             write: write,
             addr,
             buffer: BytesMut::with_capacity(8196),
             cancel_mode: true,
-            transaction_mode: transaction_mode,
+            transaction_mode: false,
             process_id: process_id,
             secret_key: secret_key,
             client_server_map: client_server_map,
             parameters: HashMap::new(),
-            stats: stats,
+            stats: get_reporter(),
             admin: false,
             last_address_id: None,
             last_server_id: None,
+            target_pool: ConnectionPool::default(),
         });
     }
 
@@ -410,7 +447,7 @@ where
 
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
-        let mut query_router = QueryRouter::new();
+        let mut query_router = QueryRouter::new(self.target_pool.clone());
         let mut round_robin = 0;
 
         // Our custom protocol loop.
@@ -432,7 +469,7 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let mut pool = get_pool();
+            let mut pool = self.target_pool.clone();
 
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {
@@ -443,13 +480,7 @@ where
             // Handle admin database queries.
             if self.admin {
                 debug!("Handling admin command");
-                handle_admin(
-                    &mut self.write,
-                    message,
-                    pool.clone(),
-                    self.client_server_map.clone(),
-                )
-                .await?;
+                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
                 continue;
             }
 

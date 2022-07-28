@@ -66,10 +66,12 @@ use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter, REPORTER};
 
+use crate::config::VERSION;
+
 #[tokio::main(worker_threads = 4)]
 async fn main() {
     env_logger::init();
-    info!("Welcome to PgCat! Meow.");
+    info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
     if !query_router::QueryRouter::setup() {
         error!("Could not setup query router");

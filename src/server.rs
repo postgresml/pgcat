@@ -82,7 +82,7 @@ impl Server {
         trace!("Sending StartupMessage");
 
         // StartupMessage
-        startup(&mut stream, &user.name, database).await?;
+        startup(&mut stream, &user.username, database).await?;
 
         let mut server_info = BytesMut::new();
         let mut process_id: i32 = 0;
@@ -127,7 +127,7 @@ impl Server {
                                 Err(_) => return Err(Error::SocketError),
                             };
 
-                            md5_password(&mut stream, &user.name, &user.password, &salt[..])
+                            md5_password(&mut stream, &user.username, &user.password, &salt[..])
                                 .await?;
                         }
 

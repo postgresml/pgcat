@@ -4,6 +4,7 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -13,6 +14,8 @@ use toml;
 use crate::errors::Error;
 use crate::tls::{load_certs, load_keys};
 use crate::{ClientServerMap, ConnectionPool};
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
@@ -58,6 +61,7 @@ pub struct Address {
     pub host: String,
     pub port: String,
     pub shard: usize,
+    pub database: String,
     pub role: Role,
     pub replica_number: usize,
 }
@@ -70,6 +74,7 @@ impl Default for Address {
             port: String::from("5432"),
             shard: 0,
             replica_number: 0,
+            database: String::from("database"),
             role: Role::Replica,
         }
     }
@@ -79,9 +84,12 @@ impl Address {
     /// Address name (aka database) used in `SHOW STATS`, `SHOW DATABASES`, and `SHOW POOLS`.
     pub fn name(&self) -> String {
         match self.role {
-            Role::Primary => format!("shard_{}_primary", self.shard),
+            Role::Primary => format!("{}_shard_{}_primary", self.database, self.shard),
 
-            Role::Replica => format!("shard_{}_replica_{}", self.shard, self.replica_number),
+            Role::Replica => format!(
+                "{}_shard_{}_replica_{}",
+                self.database, self.shard, self.replica_number
+            ),
         }
     }
 }
@@ -89,15 +97,17 @@ impl Address {
 /// PostgreSQL user.
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Deserialize, Debug)]
 pub struct User {
-    pub name: String,
+    pub username: String,
     pub password: String,
+    pub pool_size: u32,
 }
 
 impl Default for User {
     fn default() -> User {
         User {
-            name: String::from("postgres"),
+            username: String::from("postgres"),
             password: String::new(),
+            pool_size: 15,
         }
     }
 }
@@ -107,14 +117,14 @@ impl Default for User {
 pub struct General {
     pub host: String,
     pub port: i16,
-    pub pool_size: u32,
-    pub pool_mode: String,
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub ban_time: i64,
     pub autoreload: bool,
     pub tls_certificate: Option<String>,
     pub tls_private_key: Option<String>,
+    pub admin_username: String,
+    pub admin_password: String,
 }
 
 impl Default for General {
@@ -122,14 +132,37 @@ impl Default for General {
         General {
             host: String::from("localhost"),
             port: 5432,
-            pool_size: 15,
-            pool_mode: String::from("transaction"),
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             ban_time: 60,
             autoreload: false,
             tls_certificate: None,
             tls_private_key: None,
+            admin_username: String::from("admin"),
+            admin_password: String::from("admin"),
+        }
+    }
+}
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct Pool {
+    pub pool_mode: String,
+    pub shards: HashMap<String, Shard>,
+    pub users: HashMap<String, User>,
+    pub default_role: String,
+    pub query_parser_enabled: bool,
+    pub primary_reads_enabled: bool,
+    pub sharding_function: String,
+}
+impl Default for Pool {
+    fn default() -> Pool {
+        Pool {
+            pool_mode: String::from("transaction"),
+            shards: HashMap::from([(String::from("1"), Shard::default())]),
+            users: HashMap::default(),
+            default_role: String::from("any"),
+            query_parser_enabled: false,
+            primary_reads_enabled: true,
+            sharding_function: "pg_bigint_hash".to_string(),
         }
     }
 }
@@ -137,8 +170,8 @@ impl Default for General {
 /// Shard configuration.
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
-    pub servers: Vec<(String, u16, String)>,
     pub database: String,
+    pub servers: Vec<(String, u16, String)>,
 }
 
 impl Default for Shard {
@@ -146,26 +179,6 @@ impl Default for Shard {
         Shard {
             servers: vec![(String::from("localhost"), 5432, String::from("primary"))],
             database: String::from("postgres"),
-        }
-    }
-}
-
-/// Query Router configuration.
-#[derive(Deserialize, Debug, Clone, PartialEq)]
-pub struct QueryRouter {
-    pub default_role: String,
-    pub query_parser_enabled: bool,
-    pub primary_reads_enabled: bool,
-    pub sharding_function: String,
-}
-
-impl Default for QueryRouter {
-    fn default() -> QueryRouter {
-        QueryRouter {
-            default_role: String::from("any"),
-            query_parser_enabled: false,
-            primary_reads_enabled: true,
-            sharding_function: "pg_bigint_hash".to_string(),
         }
     }
 }
@@ -181,9 +194,7 @@ pub struct Config {
     pub path: String,
 
     pub general: General,
-    pub user: User,
-    pub shards: HashMap<String, Shard>,
-    pub query_router: QueryRouter,
+    pub pools: HashMap<String, Pool>,
 }
 
 impl Default for Config {
@@ -191,26 +202,58 @@ impl Default for Config {
         Config {
             path: String::from("pgcat.toml"),
             general: General::default(),
-            user: User::default(),
-            shards: HashMap::from([(String::from("1"), Shard::default())]),
-            query_router: QueryRouter::default(),
+            pools: HashMap::default(),
         }
     }
 }
 
 impl From<&Config> for std::collections::HashMap<String, String> {
     fn from(config: &Config) -> HashMap<String, String> {
-        HashMap::from([
+        let mut r: Vec<(String, String)> = config
+            .pools
+            .iter()
+            .flat_map(|(pool_name, pool)| {
+                [
+                    (
+                        format!("pools.{}.pool_mode", pool_name),
+                        pool.pool_mode.clone(),
+                    ),
+                    (
+                        format!("pools.{}.primary_reads_enabled", pool_name),
+                        pool.primary_reads_enabled.to_string(),
+                    ),
+                    (
+                        format!("pools.{}.query_parser_enabled", pool_name),
+                        pool.query_parser_enabled.to_string(),
+                    ),
+                    (
+                        format!("pools.{}.default_role", pool_name),
+                        pool.default_role.clone(),
+                    ),
+                    (
+                        format!("pools.{}.sharding_function", pool_name),
+                        pool.sharding_function.clone(),
+                    ),
+                    (
+                        format!("pools.{:?}.shard_count", pool_name),
+                        pool.shards.len().to_string(),
+                    ),
+                    (
+                        format!("pools.{:?}.users", pool_name),
+                        pool.users
+                            .iter()
+                            .map(|(_username, user)| &user.username)
+                            .cloned()
+                            .collect::<Vec<String>>()
+                            .join(", "),
+                    ),
+                ]
+            })
+            .collect();
+
+        let mut static_settings = vec![
             ("host".to_string(), config.general.host.to_string()),
             ("port".to_string(), config.general.port.to_string()),
-            (
-                "pool_size".to_string(),
-                config.general.pool_size.to_string(),
-            ),
-            (
-                "pool_mode".to_string(),
-                config.general.pool_mode.to_string(),
-            ),
             (
                 "connect_timeout".to_string(),
                 config.general.connect_timeout.to_string(),
@@ -220,42 +263,22 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 config.general.healthcheck_timeout.to_string(),
             ),
             ("ban_time".to_string(), config.general.ban_time.to_string()),
-            (
-                "default_role".to_string(),
-                config.query_router.default_role.to_string(),
-            ),
-            (
-                "query_parser_enabled".to_string(),
-                config.query_router.query_parser_enabled.to_string(),
-            ),
-            (
-                "primary_reads_enabled".to_string(),
-                config.query_router.primary_reads_enabled.to_string(),
-            ),
-            (
-                "sharding_function".to_string(),
-                config.query_router.sharding_function.to_string(),
-            ),
-        ])
+        ];
+
+        r.append(&mut static_settings);
+        return r.iter().cloned().collect();
     }
 }
 
 impl Config {
     /// Print current configuration.
     pub fn show(&self) {
-        info!("Pool size: {}", self.general.pool_size);
-        info!("Pool mode: {}", self.general.pool_mode);
         info!("Ban time: {}s", self.general.ban_time);
         info!(
             "Healthcheck timeout: {}ms",
             self.general.healthcheck_timeout
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
-        info!("Sharding function: {}", self.query_router.sharding_function);
-        info!("Primary reads: {}", self.query_router.primary_reads_enabled);
-        info!("Query router: {}", self.query_router.query_parser_enabled);
-        info!("Number of shards: {}", self.shards.len());
-
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);
@@ -274,6 +297,25 @@ impl Config {
                 info!("TLS support is disabled");
             }
         };
+
+        for (pool_name, pool_config) in &self.pools {
+            info!("--- Settings for pool {} ---", pool_name);
+            info!(
+                "Pool size from all users: {}",
+                pool_config
+                    .users
+                    .iter()
+                    .map(|(_, user_cfg)| user_cfg.pool_size)
+                    .sum::<u32>()
+                    .to_string()
+            );
+            info!("Pool mode: {}", pool_config.pool_mode);
+            info!("Sharding function: {}", pool_config.sharding_function);
+            info!("Primary reads: {}", pool_config.primary_reads_enabled);
+            info!("Query router: {}", pool_config.query_parser_enabled);
+            info!("Number of shards: {}", pool_config.shards.len());
+            info!("Number of users: {}", pool_config.users.len());
+        }
     }
 }
 
@@ -311,88 +353,6 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
-    match config.query_router.sharding_function.as_ref() {
-        "pg_bigint_hash" => (),
-        "sha1" => (),
-        _ => {
-            error!(
-                "Supported sharding functions are: 'pg_bigint_hash', 'sha1', got: '{}'",
-                config.query_router.sharding_function
-            );
-            return Err(Error::BadConfig);
-        }
-    };
-
-    // Quick config sanity check.
-    for shard in &config.shards {
-        // We use addresses as unique identifiers,
-        // let's make sure they are unique in the config as well.
-        let mut dup_check = HashSet::new();
-        let mut primary_count = 0;
-
-        match shard.0.parse::<usize>() {
-            Ok(_) => (),
-            Err(_) => {
-                error!(
-                    "Shard '{}' is not a valid number, shards must be numbered starting at 0",
-                    shard.0
-                );
-                return Err(Error::BadConfig);
-            }
-        };
-
-        if shard.1.servers.len() == 0 {
-            error!("Shard {} has no servers configured", shard.0);
-            return Err(Error::BadConfig);
-        }
-
-        for server in &shard.1.servers {
-            dup_check.insert(server);
-
-            // Check that we define only zero or one primary.
-            match server.2.as_ref() {
-                "primary" => primary_count += 1,
-                _ => (),
-            };
-
-            // Check role spelling.
-            match server.2.as_ref() {
-                "primary" => (),
-                "replica" => (),
-                _ => {
-                    error!(
-                        "Shard {} server role must be either 'primary' or 'replica', got: '{}'",
-                        shard.0, server.2
-                    );
-                    return Err(Error::BadConfig);
-                }
-            };
-        }
-
-        if primary_count > 1 {
-            error!("Shard {} has more than on primary configured", &shard.0);
-            return Err(Error::BadConfig);
-        }
-
-        if dup_check.len() != shard.1.servers.len() {
-            error!("Shard {} contains duplicate server configs", &shard.0);
-            return Err(Error::BadConfig);
-        }
-    }
-
-    match config.query_router.default_role.as_ref() {
-        "any" => (),
-        "primary" => (),
-        "replica" => (),
-        other => {
-            error!(
-                "Query router default_role must be 'primary', 'replica', or 'any', got: '{}'",
-                other
-            );
-            return Err(Error::BadConfig);
-        }
-    };
-
     // Validate TLS!
     match config.general.tls_certificate.clone() {
         Some(tls_certificate) => {
@@ -424,6 +384,90 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         None => (),
     };
 
+    for (pool_name, pool) in &config.pools {
+        match pool.sharding_function.as_ref() {
+            "pg_bigint_hash" => (),
+            "sha1" => (),
+            _ => {
+                error!(
+                    "Supported sharding functions are: 'pg_bigint_hash', 'sha1', got: '{}' in pool {} settings",
+                    pool.sharding_function,
+                    pool_name
+                );
+                return Err(Error::BadConfig);
+            }
+        };
+
+        match pool.default_role.as_ref() {
+            "any" => (),
+            "primary" => (),
+            "replica" => (),
+            other => {
+                error!(
+                    "Query router default_role must be 'primary', 'replica', or 'any', got: '{}'",
+                    other
+                );
+                return Err(Error::BadConfig);
+            }
+        };
+
+        for shard in &pool.shards {
+            // We use addresses as unique identifiers,
+            // let's make sure they are unique in the config as well.
+            let mut dup_check = HashSet::new();
+            let mut primary_count = 0;
+
+            match shard.0.parse::<usize>() {
+                Ok(_) => (),
+                Err(_) => {
+                    error!(
+                        "Shard '{}' is not a valid number, shards must be numbered starting at 0",
+                        shard.0
+                    );
+                    return Err(Error::BadConfig);
+                }
+            };
+
+            if shard.1.servers.len() == 0 {
+                error!("Shard {} has no servers configured", shard.0);
+                return Err(Error::BadConfig);
+            }
+
+            for server in &shard.1.servers {
+                dup_check.insert(server);
+
+                // Check that we define only zero or one primary.
+                match server.2.as_ref() {
+                    "primary" => primary_count += 1,
+                    _ => (),
+                };
+
+                // Check role spelling.
+                match server.2.as_ref() {
+                    "primary" => (),
+                    "replica" => (),
+                    _ => {
+                        error!(
+                            "Shard {} server role must be either 'primary' or 'replica', got: '{}'",
+                            shard.0, server.2
+                        );
+                        return Err(Error::BadConfig);
+                    }
+                };
+            }
+
+            if primary_count > 1 {
+                error!("Shard {} has more than on primary configured", &shard.0);
+                return Err(Error::BadConfig);
+            }
+
+            if dup_check.len() != shard.1.servers.len() {
+                error!("Shard {} contains duplicate server configs", &shard.0);
+                return Err(Error::BadConfig);
+            }
+        }
+    }
+
     config.path = path.to_string();
 
     // Update the configuration globally.
@@ -434,7 +478,6 @@ pub async fn parse(path: &str) -> Result<(), Error> {
 
 pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
     let old_config = get_config();
-
     match parse(&old_config.path).await {
         Ok(()) => (),
         Err(err) => {
@@ -442,11 +485,10 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
             return Err(Error::BadConfig);
         }
     };
-
     let new_config = get_config();
 
-    if old_config.shards != new_config.shards || old_config.user != new_config.user {
-        info!("Sharding configuration changed, re-creating server pools");
+    if old_config.pools != new_config.pools {
+        info!("Pool configuration changed, re-creating server pools");
         ConnectionPool::from_config(client_server_map).await?;
         Ok(true)
     } else if old_config != new_config {
@@ -463,11 +505,58 @@ mod test {
     #[tokio::test]
     async fn test_config() {
         parse("pgcat.toml").await.unwrap();
-        assert_eq!(get_config().general.pool_size, 15);
-        assert_eq!(get_config().shards.len(), 3);
-        assert_eq!(get_config().shards["1"].servers[0].0, "127.0.0.1");
-        assert_eq!(get_config().shards["0"].servers[0].2, "primary");
-        assert_eq!(get_config().query_router.default_role, "any");
+
         assert_eq!(get_config().path, "pgcat.toml".to_string());
+
+        assert_eq!(get_config().general.ban_time, 60);
+        assert_eq!(get_config().pools.len(), 2);
+        assert_eq!(get_config().pools["sharded"].shards.len(), 3);
+        assert_eq!(get_config().pools["simple_db"].shards.len(), 1);
+        assert_eq!(get_config().pools["sharded"].users.len(), 2);
+        assert_eq!(get_config().pools["simple_db"].users.len(), 1);
+
+        assert_eq!(
+            get_config().pools["sharded"].shards["0"].servers[0].0,
+            "127.0.0.1"
+        );
+        assert_eq!(
+            get_config().pools["sharded"].shards["1"].servers[0].2,
+            "primary"
+        );
+        assert_eq!(get_config().pools["sharded"].shards["1"].database, "shard1");
+        assert_eq!(
+            get_config().pools["sharded"].users["0"].username,
+            "sharding_user"
+        );
+        assert_eq!(
+            get_config().pools["sharded"].users["1"].password,
+            "other_user"
+        );
+        assert_eq!(get_config().pools["sharded"].users["1"].pool_size, 21);
+        assert_eq!(get_config().pools["sharded"].default_role, "any");
+
+        assert_eq!(
+            get_config().pools["simple_db"].shards["0"].servers[0].0,
+            "127.0.0.1"
+        );
+        assert_eq!(
+            get_config().pools["simple_db"].shards["0"].servers[0].1,
+            5432
+        );
+        assert_eq!(
+            get_config().pools["simple_db"].shards["0"].database,
+            "some_db"
+        );
+        assert_eq!(get_config().pools["simple_db"].default_role, "primary");
+
+        assert_eq!(
+            get_config().pools["simple_db"].users["0"].username,
+            "simple_user"
+        );
+        assert_eq!(
+            get_config().pools["simple_db"].users["0"].password,
+            "simple_user"
+        );
+        assert_eq!(get_config().pools["simple_db"].users["0"].pool_size, 5);
     }
 }
