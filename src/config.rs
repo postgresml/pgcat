@@ -2,7 +2,7 @@
 use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::path::Path;
@@ -21,7 +21,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
 
 /// Server role: primary or replica.
-#[derive(Clone, PartialEq, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
 pub enum Role {
     Primary,
     Replica,
@@ -95,7 +95,7 @@ impl Address {
 }
 
 /// PostgreSQL user.
-#[derive(Clone, PartialEq, Hash, std::cmp::Eq, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Hash, std::cmp::Eq, Serialize, Deserialize, Debug)]
 pub struct User {
     pub username: String,
     pub password: String,
@@ -113,7 +113,7 @@ impl Default for User {
 }
 
 /// General configuration.
-#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct General {
     pub host: String,
     pub port: i16,
@@ -143,7 +143,7 @@ impl Default for General {
         }
     }
 }
-#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Pool {
     pub pool_mode: String,
     pub shards: HashMap<String, Shard>,
@@ -168,7 +168,7 @@ impl Default for Pool {
 }
 
 /// Shard configuration.
-#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
     pub database: String,
     pub servers: Vec<(String, u16, String)>,
@@ -188,7 +188,7 @@ fn default_path() -> String {
 }
 
 /// Configuration wrapper.
-#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Config {
     #[serde(default = "default_path")]
     pub path: String,
