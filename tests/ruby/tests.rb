@@ -147,6 +147,4 @@ def test_reader_writer_endpoints
   puts 'Reader/Writer clients ok'
 end
 
-25.times do
-  poorly_behaved_client
-end
+test_reader_writer_endpoints
