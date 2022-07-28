@@ -58,7 +58,7 @@ pub struct QueryRouter {
 
     pool_settings: PoolSettings,
 
-    client_routing_mode: ClientRoutingMode
+    client_routing_mode: ClientRoutingMode,
 }
 
 impl QueryRouter {
@@ -101,7 +101,7 @@ impl QueryRouter {
             query_parser_enabled: target_pool.settings.query_parser_enabled,
             primary_reads_enabled: target_pool.settings.primary_reads_enabled,
             pool_settings: target_pool.settings,
-            client_routing_mode: client_routing_mode
+            client_routing_mode: client_routing_mode,
         }
     }
 
@@ -346,7 +346,7 @@ impl QueryRouter {
         match self.client_routing_mode {
             ClientRoutingMode::Default => self.active_role,
             ClientRoutingMode::Reader => Some(Role::Replica),
-            ClientRoutingMode::Writer => Some(Role::Primary)
+            ClientRoutingMode::Writer => Some(Role::Primary),
         }
     }
 

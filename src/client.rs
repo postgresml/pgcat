@@ -29,7 +29,7 @@ enum ClientConnectionType {
 pub enum ClientRoutingMode {
     Default,
     Reader,
-    Writer
+    Writer,
 }
 
 /// The client state. One of these is created per client.
@@ -81,7 +81,7 @@ pub struct Client<S, T> {
 
     target_pool: ConnectionPool,
 
-    routing_mode: ClientRoutingMode
+    routing_mode: ClientRoutingMode,
 }
 
 /// Client entrypoint.
@@ -278,25 +278,31 @@ where
             Some(db) => db,
             None => return Err(Error::ClientError),
         };
-        let database_name_parts  = database_param.split("/").collect::<Vec<&str>>();
+        let database_name_parts = database_param.split("/").collect::<Vec<&str>>();
         let (database_name, routing_mode) = match database_name_parts.len() {
-            1 => (database_name_parts[0].to_string(), ClientRoutingMode::Default),
+            1 => (
+                database_name_parts[0].to_string(),
+                ClientRoutingMode::Default,
+            ),
             2 => match database_name_parts[1] {
                 "reader" => {
                     info!("Client connected in force reader mode");
-                    (database_name_parts[0].to_string(), ClientRoutingMode::Reader)
-                },
+                    (
+                        database_name_parts[0].to_string(),
+                        ClientRoutingMode::Reader,
+                    )
+                }
                 "writer" => {
                     info!("Client connected in force writer mode");
-                    (database_name_parts[0].to_string(), ClientRoutingMode::Writer)
-                },
+                    (
+                        database_name_parts[0].to_string(),
+                        ClientRoutingMode::Writer,
+                    )
+                }
                 _ => {
                     error_response(
                         &mut write,
-                        &format!(
-                            "Invalid database mode {}",
-                            database_name_parts[1]
-                        ),
+                        &format!("Invalid database mode {}", database_name_parts[1]),
                     )
                     .await?;
                     return Err(Error::ClientError);
@@ -305,10 +311,7 @@ where
             _ => {
                 error_response(
                     &mut write,
-                    &format!(
-                        "Invalid database name {}",
-                        database_param
-                    ),
+                    &format!("Invalid database name {}", database_param),
                 )
                 .await?;
                 return Err(Error::ClientError);
@@ -495,7 +498,8 @@ where
 
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
-        let mut query_router = QueryRouter::new(self.target_pool.clone(), self.routing_mode.clone());
+        let mut query_router =
+            QueryRouter::new(self.target_pool.clone(), self.routing_mode.clone());
 
         let mut round_robin = 0;
 
