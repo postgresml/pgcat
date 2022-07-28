@@ -629,4 +629,33 @@ mod test {
         assert!(qr.try_execute_command(query) != None);
         assert!(qr.query_parser_enabled());
     }
+
+    #[test]
+    fn test_client_routing_mode() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new(ConnectionPool::default(), ClientRoutingMode::Reader);
+        let query = simple_query("SET SERVER ROLE TO 'auto'");
+        assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
+
+        assert!(qr.try_execute_command(query) != None);
+        assert!(qr.query_parser_enabled());
+        assert_eq!(qr.role(), Some(Role::Replica));
+
+        let query = simple_query("BEGIN");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Replica));
+
+        let query = simple_query("INSERT INTO test_table VALUES (1)");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Replica));
+
+        let query = simple_query("SELECT * FROM test_table");
+        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.role(), Some(Role::Replica));
+
+        assert!(qr.query_parser_enabled());
+        let query = simple_query("SET SERVER ROLE TO 'default'");
+        assert!(qr.try_execute_command(query) != None);
+        assert!(qr.query_parser_enabled());
+    }
 }
