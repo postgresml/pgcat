@@ -356,10 +356,8 @@ where
         debug!("Password authentication successful");
 
         auth_ok(&mut write).await?;
-        if !admin {
-            write_all(&mut write, target_pool.server_info()).await?;
-            backend_key_data(&mut write, process_id, secret_key).await?;
-        }
+        write_all(&mut write, target_pool.server_info()).await?;
+        backend_key_data(&mut write, process_id, secret_key).await?;
         ready_for_query(&mut write).await?;
 
         trace!("Startup OK");
