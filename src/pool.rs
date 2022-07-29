@@ -328,7 +328,7 @@ impl ConnectionPool {
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
-                server.query("SELECT 1"),
+                server.query(";"),
             )
             .await
             {
