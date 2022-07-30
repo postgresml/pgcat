@@ -559,4 +559,11 @@ mod test {
         );
         assert_eq!(get_config().pools["simple_db"].users["0"].pool_size, 5);
     }
+
+    #[tokio::test]
+    async fn test_serialize_configs() {
+        parse("pgcat.toml").await.unwrap();
+        print!("{}", toml::to_string(&get_config()).unwrap());
+    }
+
 }
