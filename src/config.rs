@@ -565,5 +565,4 @@ mod test {
         parse("pgcat.toml").await.unwrap();
         print!("{}", toml::to_string(&get_config()).unwrap());
     }
-
 }
