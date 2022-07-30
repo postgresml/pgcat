@@ -146,12 +146,12 @@ impl Default for General {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Pool {
     pub pool_mode: String,
-    pub shards: HashMap<String, Shard>,
-    pub users: HashMap<String, User>,
     pub default_role: String,
     pub query_parser_enabled: bool,
     pub primary_reads_enabled: bool,
     pub sharding_function: String,
+    pub shards: HashMap<String, Shard>,
+    pub users: HashMap<String, User>,
 }
 impl Default for Pool {
     fn default() -> Pool {
@@ -190,6 +190,17 @@ fn default_path() -> String {
 /// Configuration wrapper.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Config {
+    // Serializer maintains the order of fields in the struct
+    // so we should always put simple fields before nested fields
+    // in all serializable structs to avoid ValueAfterTable errors
+    // These errors occur when the toml serializer is about to produce
+    // ambigous toml structure like the one below
+    // [main]
+    // field1_under_main = 1
+    // field2_under_main = 2
+    // [main.subconf]
+    // field1_under_subconf = 1
+    // field3_under_main = 3 # This field will be interpreted as being under subconf and not under main
     #[serde(default = "default_path")]
     pub path: String,
 
