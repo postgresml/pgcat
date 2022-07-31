@@ -76,7 +76,7 @@ cd ../..
 # Python tests
 #
 cd tests/python && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt && \
     python tests.py && \
 cd ../..
 
