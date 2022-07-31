@@ -5,9 +5,8 @@ use std::collections::HashMap;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 
-use crate::admin::handle_admin;
+use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::config::get_config;
-use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
@@ -15,6 +14,7 @@ use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
 use crate::tls::Tls;
+use crate::{constants::*, server};
 
 use tokio_rustls::server::TlsStream;
 
@@ -313,8 +313,10 @@ where
 
         let mut target_pool: ConnectionPool = ConnectionPool::default();
         let mut transaction_mode = false;
+        let mut server_info = target_pool.server_info();
 
         if admin {
+            server_info = generate_server_info_for_admin();
             let correct_user = config.general.admin_username.as_str();
             let correct_password = config.general.admin_password.as_str();
 
@@ -356,7 +358,7 @@ where
         debug!("Password authentication successful");
 
         auth_ok(&mut write).await?;
-        write_all(&mut write, target_pool.server_info()).await?;
+        write_all(&mut write, server_info).await?;
         backend_key_data(&mut write, process_id, secret_key).await?;
         ready_for_query(&mut write).await?;
 

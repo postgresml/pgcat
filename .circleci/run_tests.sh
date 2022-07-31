@@ -72,6 +72,15 @@ cd tests/ruby && \
     ruby tests.rb && \
 cd ../..
 
+#
+# Python tests
+#
+cd tests/python && \
+    pip install -r requirements.txt
+    python tests.py && \
+cd ../..
+
+
 # Admin tests
 export PGPASSWORD=admin_pass
 psql -U admin_user -e -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW STATS' > /dev/null
