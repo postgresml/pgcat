@@ -75,6 +75,8 @@ cd ../..
 #
 # Python tests
 #
+pwd
+ls
 cd tests/python && \
     pip install -r requirements.txt && \
     python tests.py && \
