@@ -15,6 +15,8 @@ pub fn generate_server_info_for_admin() -> BytesMut {
 
     server_info.put(server_paramater_message("application_name", "").unwrap());
     server_info.put(server_paramater_message("client_encoding", "UTF8").unwrap());
+    server_info.put(server_paramater_message("server_encoding", "UTF8").unwrap());
+    server_info.put(server_paramater_message("server_version", VERSION).unwrap());
     server_info.put(server_paramater_message("DateStyle", "ISO, MDY").unwrap());
 
     return server_info;

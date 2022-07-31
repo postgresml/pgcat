@@ -313,7 +313,7 @@ where
 
         let mut target_pool: ConnectionPool = ConnectionPool::default();
         let mut transaction_mode = false;
-        let mut server_info = target_pool.server_info();
+        let mut server_info = BytesMut::default();
 
         if admin {
             server_info = generate_server_info_for_admin();
@@ -342,6 +342,7 @@ where
                     return Err(Error::ClientError);
                 }
             };
+            server_info = target_pool.server_info();
             transaction_mode = target_pool.settings.pool_mode == "transaction";
 
             // Compare server and client hashes.
