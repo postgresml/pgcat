@@ -70,7 +70,7 @@ cd tests/ruby && \
     sudo gem install bundler && \
     bundle install && \
     ruby tests.rb
-cd home/circleci/project
+cd /home/circleci/project
 
 #
 # Python tests
@@ -78,7 +78,7 @@ cd home/circleci/project
 cd tests/python && \
     pip install -r requirements.txt && \
     python tests.py
-cd home/circleci/project
+cd /home/circleci/project
 
 
 # Admin tests
