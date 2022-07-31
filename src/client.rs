@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::config::get_config;
+use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
@@ -14,7 +15,6 @@ use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
 use crate::tls::Tls;
-use crate::{constants::*, server};
 
 use tokio_rustls::server::TlsStream;
 

@@ -1,15 +1,13 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, BytesMut};
-use hmac::digest::typenum::Max;
 use md5::{Digest, Md5};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use std::collections::HashMap;
-use std::ptr::null;
-use std::{cmp, mem};
+use std::mem;
 
 /// Postgres data type mappings
 /// used in RowDescription ('T') message.
