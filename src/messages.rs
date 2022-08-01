@@ -500,11 +500,8 @@ where
     Ok(bytes)
 }
 
-pub fn server_paramater_message(key: &str, value: &str) -> Result<BytesMut, Error> {
+pub fn server_paramater_message(key: &str, value: &str) -> BytesMut {
     let mut server_info = BytesMut::new();
-    if !key.is_ascii() || !value.is_ascii() || key.is_empty() {
-        return Err(Error::ProtocolSyncError);
-    }
 
     let null_byte_size = 1;
     let len: usize =
@@ -517,5 +514,5 @@ pub fn server_paramater_message(key: &str, value: &str) -> Result<BytesMut, Erro
     server_info.put_slice(value.as_bytes());
     server_info.put_bytes(0, 1);
 
-    return Ok(server_info);
+    return server_info;
 }
