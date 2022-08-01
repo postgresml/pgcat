@@ -311,12 +311,7 @@ where
             Err(_) => return Err(Error::SocketError),
         };
 
-        let mut target_pool: ConnectionPool = ConnectionPool::default();
-        let mut transaction_mode = false;
-        let mut server_info = BytesMut::default();
-
-        if admin {
-            server_info = generate_server_info_for_admin();
+        let (target_pool, transaction_mode, server_info) = if admin {
             let correct_user = config.general.admin_username.as_str();
             let correct_password = config.general.admin_password.as_str();
 
@@ -327,8 +322,13 @@ where
                 wrong_password(&mut write, user).await?;
                 return Err(Error::ClientError);
             }
+            (
+                ConnectionPool::default(),
+                false,
+                generate_server_info_for_admin(),
+            )
         } else {
-            target_pool = match get_pool(database.clone(), user.clone()) {
+            let target_pool = match get_pool(database.clone(), user.clone()) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -342,9 +342,8 @@ where
                     return Err(Error::ClientError);
                 }
             };
-            server_info = target_pool.server_info();
-            transaction_mode = target_pool.settings.pool_mode == "transaction";
-
+            let transaction_mode = target_pool.settings.pool_mode == "transaction";
+            let server_info = target_pool.server_info();
             // Compare server and client hashes.
             let correct_password = target_pool.settings.user.password.as_str();
             let password_hash = md5_hash_password(user, correct_password, &salt);
@@ -354,7 +353,8 @@ where
                 wrong_password(&mut write, user).await?;
                 return Err(Error::ClientError);
             }
-        }
+            (target_pool, transaction_mode, server_info)
+        };
 
         debug!("Password authentication successful");
 
