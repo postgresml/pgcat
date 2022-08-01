@@ -148,3 +148,17 @@ def test_reader_writer_endpoints
 end
 
 test_reader_writer_endpoints
+
+def test_server_parameters
+  server_conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat")
+  raise StandardError, "Bad server version" if server_conn.server_version == 0
+  server_conn.close
+
+  admin_conn = PG::connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
+  raise StandardError, "Bad server version" if admin_conn.server_version == 0
+  admin_conn.close
+
+  puts 'Server parameters ok'
+end
+
+test_server_parameters

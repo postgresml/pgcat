@@ -69,8 +69,17 @@ psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_te
 cd tests/ruby && \
     sudo gem install bundler && \
     bundle install && \
-    ruby tests.rb && \
-cd ../..
+    ruby tests.rb
+cd /home/circleci/project
+
+#
+# Python tests
+#
+cd tests/python && \
+    pip install -r requirements.txt && \
+    python tests.py
+cd /home/circleci/project
+
 
 # Admin tests
 export PGPASSWORD=admin_pass

@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use std::collections::HashMap;
+use std::mem;
 
 /// Postgres data type mappings
 /// used in RowDescription ('T') message.
@@ -497,4 +498,21 @@ where
     bytes.put_slice(&buf);
 
     Ok(bytes)
+}
+
+pub fn server_paramater_message(key: &str, value: &str) -> BytesMut {
+    let mut server_info = BytesMut::new();
+
+    let null_byte_size = 1;
+    let len: usize =
+        mem::size_of::<i32>() + key.len() + null_byte_size + value.len() + null_byte_size;
+
+    server_info.put_slice("S".as_bytes());
+    server_info.put_i32(len.try_into().unwrap());
+    server_info.put_slice(key.as_bytes());
+    server_info.put_bytes(0, 1);
+    server_info.put_slice(value.as_bytes());
+    server_info.put_bytes(0, 1);
+
+    return server_info;
 }
