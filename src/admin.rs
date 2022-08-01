@@ -10,6 +10,18 @@ use crate::pool::get_all_pools;
 use crate::stats::get_stats;
 use crate::ClientServerMap;
 
+pub fn generate_server_info_for_admin() -> BytesMut {
+    let mut server_info = BytesMut::new();
+
+    server_info.put(server_paramater_message("application_name", ""));
+    server_info.put(server_paramater_message("client_encoding", "UTF8"));
+    server_info.put(server_paramater_message("server_encoding", "UTF8"));
+    server_info.put(server_paramater_message("server_version", VERSION));
+    server_info.put(server_paramater_message("DateStyle", "ISO, MDY"));
+
+    return server_info;
+}
+
 /// Handle admin client.
 pub async fn handle_admin<T>(
     stream: &mut T,

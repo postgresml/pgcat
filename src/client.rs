@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 
-use crate::admin::handle_admin;
+use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::config::get_config;
 use crate::constants::*;
 use crate::errors::Error;
@@ -311,10 +311,7 @@ where
             Err(_) => return Err(Error::SocketError),
         };
 
-        let mut target_pool: ConnectionPool = ConnectionPool::default();
-        let mut transaction_mode = false;
-
-        if admin {
+        let (target_pool, transaction_mode, server_info) = if admin {
             let correct_user = config.general.admin_username.as_str();
             let correct_password = config.general.admin_password.as_str();
 
@@ -325,8 +322,13 @@ where
                 wrong_password(&mut write, user).await?;
                 return Err(Error::ClientError);
             }
+            (
+                ConnectionPool::default(),
+                false,
+                generate_server_info_for_admin(),
+            )
         } else {
-            target_pool = match get_pool(database.clone(), user.clone()) {
+            let target_pool = match get_pool(database.clone(), user.clone()) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -340,8 +342,8 @@ where
                     return Err(Error::ClientError);
                 }
             };
-            transaction_mode = target_pool.settings.pool_mode == "transaction";
-
+            let transaction_mode = target_pool.settings.pool_mode == "transaction";
+            let server_info = target_pool.server_info();
             // Compare server and client hashes.
             let correct_password = target_pool.settings.user.password.as_str();
             let password_hash = md5_hash_password(user, correct_password, &salt);
@@ -351,12 +353,13 @@ where
                 wrong_password(&mut write, user).await?;
                 return Err(Error::ClientError);
             }
-        }
+            (target_pool, transaction_mode, server_info)
+        };
 
         debug!("Password authentication successful");
 
         auth_ok(&mut write).await?;
-        write_all(&mut write, target_pool.server_info()).await?;
+        write_all(&mut write, server_info).await?;
         backend_key_data(&mut write, process_id, secret_key).await?;
         ready_for_query(&mut write).await?;
 
