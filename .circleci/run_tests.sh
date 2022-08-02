@@ -72,15 +72,13 @@ cd tests/ruby && \
     ruby tests.rb
 cd ../..
 
-pwd
 #
 # Python tests
 #
 cd tests/python && \
-    pip install -r requirements.txt && \
-    python tests.py
+    pip3 install -r requirements.txt && \
+    python3 tests.py
 cd ../..
-pwd
 
 
 # Admin tests
