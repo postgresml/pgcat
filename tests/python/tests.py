@@ -10,7 +10,7 @@ def test_normal_db_access():
 
 
 def test_admin_db_access():
-    conn = psycopg2.connect("postgres://user:pass@127.0.0.1:6432/pgcat")
+    conn = psycopg2.connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
     conn.autocommit = True # BEGIN/COMMIT is not supported by admin db
     cur = conn.cursor()
 
