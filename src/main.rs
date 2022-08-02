@@ -233,7 +233,6 @@ async fn main() {
     client::SHUTTING_DOWN.store(true, Ordering::Relaxed);
     warn!("Got SIGINT, waiting for client connection drain now");
     wg.wait();
-
 }
 
 /// Format chrono::Duration to be more human-friendly.
