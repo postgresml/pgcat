@@ -70,7 +70,8 @@ cd tests/ruby && \
     sudo gem install bundler && \
     bundle install && \
     ruby tests.rb
-cd
+cd ../..
+
 pwd
 #
 # Python tests
@@ -78,7 +79,7 @@ pwd
 cd tests/python && \
     pip install -r requirements.txt && \
     python tests.py
-cd
+cd ../..
 pwd
 
 
