@@ -80,6 +80,7 @@ cd tests/python && \
     pip3 install -r requirements.txt && \
     python3 tests.py && \
     echo "Python Tests Done"
+echo $?
 cd ../..
 
 
