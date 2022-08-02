@@ -69,7 +69,8 @@ psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_te
 cd tests/ruby && \
     sudo gem install bundler && \
     bundle install && \
-    ruby tests.rb
+    ruby tests.rb && \
+    echo "Ruby Tests Done"
 cd ../..
 
 #
@@ -77,7 +78,8 @@ cd ../..
 #
 cd tests/python && \
     pip3 install -r requirements.txt && \
-    python3 tests.py
+    python3 tests.py && \
+    echo "Python Tests Done"
 cd ../..
 
 
