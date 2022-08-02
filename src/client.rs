@@ -18,6 +18,10 @@ use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
 /// Type of connection received from client.
 enum ClientConnectionType {
     Startup,
@@ -461,6 +465,10 @@ where
                 "Client idle, waiting for message, transaction mode: {}",
                 self.transaction_mode
             );
+
+            if SHUTTING_DOWN.load(Ordering::Relaxed) {
+                return Ok(());
+            }
 
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).

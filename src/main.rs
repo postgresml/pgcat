@@ -36,11 +36,10 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::{
-    signal,
     signal::unix::{signal as unix_signal, SignalKind},
     sync::mpsc,
 };
@@ -65,6 +64,9 @@ mod tls;
 use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter, REPORTER};
+
+use std::sync::atomic::Ordering;
+use wg::WaitGroup;
 
 use crate::config::VERSION;
 
@@ -139,6 +141,10 @@ async fn main() {
 
     info!("Waiting for clients");
 
+    let wg = WaitGroup::new();
+
+    let t_wg = wg.clone();
+
     // Client connection loop.
     tokio::task::spawn(async move {
         loop {
@@ -151,6 +157,11 @@ async fn main() {
                     continue;
                 }
             };
+
+            if client::SHUTTING_DOWN.load(Ordering::Relaxed) {
+                break;
+            }
+            let t_wg = t_wg.add(1);
 
             // Handle client.
             tokio::task::spawn(async move {
@@ -171,6 +182,7 @@ async fn main() {
                         debug!("Client disconnected with error {:?}", err);
                     }
                 };
+                t_wg.done();
             });
         }
     });
@@ -214,15 +226,14 @@ async fn main() {
         });
     }
 
-    // Exit on Ctrl-C (SIGINT) and SIGTERM.
-    let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
+    // initiate graceful shutdown sequence on sig int
+    let mut stream = unix_signal(SignalKind::interrupt()).unwrap();
 
-    tokio::select! {
-        _ = signal::ctrl_c() => (),
-        _ = term_signal.recv() => (),
-    };
+    stream.recv().await;
+    client::SHUTTING_DOWN.store(true, Ordering::Relaxed);
+    warn!("Got SIGINT, waiting for client connection drain now");
+    wg.wait();
 
-    info!("Shutting down...");
 }
 
 /// Format chrono::Duration to be more human-friendly.
