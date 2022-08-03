@@ -11,6 +11,9 @@ host = "0.0.0.0"
 # Port to run on, same as PgBouncer used in this example.
 port = 6432
 
+# http port to run prometheus metrics exporter on
+http_port = 9090
+
 # How long to wait before aborting a server connection (ms).
 connect_timeout = 5000
 

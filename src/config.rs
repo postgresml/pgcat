@@ -117,6 +117,7 @@ impl Default for User {
 pub struct General {
     pub host: String,
     pub port: i16,
+    pub http_port: Option<i16>,
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub ban_time: i64,
@@ -132,6 +133,7 @@ impl Default for General {
         General {
             host: String::from("localhost"),
             port: 5432,
+            http_port: None,
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             ban_time: 60,

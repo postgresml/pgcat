@@ -46,6 +46,8 @@ use tokio::{
 };
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 mod admin;
@@ -64,7 +66,7 @@ mod tls;
 
 use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
-use stats::{Collector, Reporter, REPORTER};
+use stats::{start_metric_server, Collector, Reporter, REPORTER};
 
 use crate::config::VERSION;
 
@@ -95,6 +97,23 @@ async fn main() {
     };
 
     let config = get_config();
+
+    config.show();
+
+    if let Some(http_port) = config.general.http_port {
+        let http_addr_str = format!("{}:{}", config.general.host, http_port);
+        let http_addr = match SocketAddr::from_str(&http_addr_str) {
+            Ok(addr) => addr,
+            Err(err) => {
+                error!("Invalid http address: {}", err);
+                return;
+            }
+        };
+        tokio::task::spawn(async move {
+            start_metric_server(http_addr).await;
+        });
+    }
+
     let addr = format!("{}:{}", config.general.host, config.general.port);
 
     let listener = match TcpListener::bind(&addr).await {
