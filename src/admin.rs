@@ -391,7 +391,7 @@ where
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    for ((_db_name, user_name), pool) in get_all_pools() {
+    for ((_db_name, username), pool) in get_all_pools() {
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
@@ -401,7 +401,7 @@ where
                 };
 
                 let mut row = vec![address.name()];
-                row.push(user_name.clone());
+                row.push(username.clone());
 
                 for column in &columns[2..] {
                     row.push(stats.get(column.0).unwrap_or(&0).to_string());
