@@ -370,6 +370,7 @@ where
 {
     let columns = vec![
         ("database", DataType::Text),
+        ("user", DataType::Text),
         ("total_xact_count", DataType::Numeric),
         ("total_query_count", DataType::Numeric),
         ("total_received", DataType::Numeric),
@@ -390,7 +391,7 @@ where
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    for (_, pool) in get_all_pools() {
+    for ((_db_name, username), pool) in get_all_pools() {
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
@@ -400,8 +401,9 @@ where
                 };
 
                 let mut row = vec![address.name()];
+                row.push(username.clone());
 
-                for column in &columns[1..] {
+                for column in &columns[2..] {
                     row.push(stats.get(column.0).unwrap_or(&0).to_string());
                 }
 
