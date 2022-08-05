@@ -46,6 +46,7 @@ use tokio::{
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 mod admin;
 mod client;
@@ -64,9 +65,6 @@ mod tls;
 use config::{get_config, reload_config};
 use pool::{ClientServerMap, ConnectionPool};
 use stats::{Collector, Reporter, REPORTER};
-
-use std::sync::atomic::Ordering;
-use wg::WaitGroup;
 
 use crate::config::VERSION;
 
@@ -141,33 +139,51 @@ async fn main() {
 
     info!("Waiting for clients");
 
-    let wg = WaitGroup::new();
+    let (shutdown_event_tx, mut shutdown_event_rx) = broadcast::channel::<()>(1);
 
-    let t_wg = wg.clone();
+    let shutdown_event_tx_clone = shutdown_event_tx.clone();
 
     // Client connection loop.
     tokio::task::spawn(async move {
+        // Creates event subscriber for shutdown event, this is dropped when shutdown event is broadcast
+        let mut listener_rx = shutdown_event_tx_clone.subscribe();
         loop {
             let client_server_map = client_server_map.clone();
 
-            let (socket, addr) = match listener.accept().await {
-                Ok((socket, addr)) => (socket, addr),
-                Err(err) => {
-                    error!("{:?}", err);
-                    continue;
+            // Listen for shutdown event and client connection at the same time
+            let (socket, addr) = tokio::select! {
+                _ = listener_rx.recv() => {
+                    break;
+                }
+
+                listener_response = listener.accept() => {
+                    match listener_response {
+                        Ok((socket, addr)) => (socket, addr),
+                        Err(err) => {
+                            error!("{:?}", err);
+                            continue;
+                        }
+                    }
                 }
             };
 
-            if client::SHUTTING_DOWN.load(Ordering::Relaxed) {
-                break;
-            }
-            let t_wg = t_wg.add(1);
+            // Used to signal shutdown
+            let client_shutdown_handler_rx = shutdown_event_tx_clone.subscribe();
+
+            // Used to signal that the task has completed
+            let dummy_tx = shutdown_event_tx_clone.clone();
 
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
 
-                match client::client_entrypoint(socket, client_server_map).await {
+                match client::client_entrypoint(
+                    socket,
+                    client_server_map,
+                    client_shutdown_handler_rx,
+                )
+                .await
+                {
                     Ok(_) => {
                         let duration = chrono::offset::Utc::now().naive_utc() - start;
 
@@ -182,7 +198,8 @@ async fn main() {
                         debug!("Client disconnected with error {:?}", err);
                     }
                 };
-                t_wg.done();
+                // Drop this transmitter so receiver knows that the task is completed
+                drop(dummy_tx);
             });
         }
     });
@@ -230,9 +247,22 @@ async fn main() {
     let mut stream = unix_signal(SignalKind::interrupt()).unwrap();
 
     stream.recv().await;
-    client::SHUTTING_DOWN.store(true, Ordering::Relaxed);
     warn!("Got SIGINT, waiting for client connection drain now");
-    wg.wait();
+
+    // Broadcast that client tasks need to finish
+    shutdown_event_tx.send(()).unwrap();
+    // Closes transmitter
+    drop(shutdown_event_tx);
+
+    loop {
+        match shutdown_event_rx.recv().await {
+            // The first event the receiver gets is from the initial broadcast, so we ignore that
+            Ok(_) => {}
+            // Expect to receive a closed error when all transmitters are closed. Which means all clients have completed their work
+            Err(_) => break,
+        };
+    }
+
 }
 
 /// Format chrono::Duration to be more human-friendly.

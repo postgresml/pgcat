@@ -422,7 +422,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "toml",
- "wg",
 ]
 
 [[package]]
@@ -883,15 +882,6 @@ checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
 dependencies = [
  "ring",
  "untrusted",
-]
-
-[[package]]
-name = "wg"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f0193600355622d5de21a3deadfffa0dc6b3aa3c40e02d5a476495c67841a76"
-dependencies = [
- "parking_lot",
 ]
 
 [[package]]
