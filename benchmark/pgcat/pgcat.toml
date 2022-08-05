@@ -1,0 +1,28 @@
+[general]
+host = "0.0.0.0"
+port = 6432
+connect_timeout = 5000
+healthcheck_timeout = 1000
+ban_time = 60 # seconds
+autoreload = false
+admin_username = "user"
+admin_password = "pass"
+
+[pools.shard0]
+pool_mode = "transaction"
+default_role = "primary"
+query_parser_enabled = false
+primary_reads_enabled = false
+sharding_function = "pg_bigint_hash"
+
+[pools.shard0.users.0]
+username = "main_user"
+password = "main_user"
+pool_size = 100
+
+# Shard 0
+[pools.shard0.shards.0]
+servers = [
+    [ "127.0.0.1", 5432, "primary" ]
+]
+database = "shard0"

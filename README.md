@@ -79,6 +79,19 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && \
 pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 ```
 
+To benchmark pgcat against pgbouncer or against directly hitting postgres you can use the benchmark script
+```
+cd benchmark
+./run_benchmark.sh
+
+# optionally you can specifiy any of the following flags
+# --pgcat-only to run only pgcat benchmark
+# --pgbouncer-only to run only pgbouncer benchmark
+# --recompile to recompile pgcat before running the benchmark
+# You can also modify benchmark/pgbouncer/pgbouncer.ini and benchmark/pgcat/pgcat.toml to change
+# proxy configs used for the benchmarks
+```
+
 See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
 | **Feature**           | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
@@ -439,7 +452,7 @@ Always good to have a base line.
 
 ```
 $ pgbench -t 1000 -c 16 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
@@ -453,7 +466,7 @@ tps = 139443.955722 (including connections establishing)
 tps = 142314.859075 (excluding connections establishing)
 
 $ pgbench -t 1000 -c 32 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
@@ -467,7 +480,7 @@ tps = 150644.840891 (including connections establishing)
 tps = 152218.499430 (excluding connections establishing)
 
 $ pgbench -t 1000 -c 64 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
@@ -481,7 +494,7 @@ tps = 152517.663404 (including connections establishing)
 tps = 153319.188482 (excluding connections establishing)
 
 $ pgbench -t 1000 -c 128 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
