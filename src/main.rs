@@ -247,21 +247,27 @@ async fn main() {
     let mut stream = unix_signal(SignalKind::interrupt()).unwrap();
 
     stream.recv().await;
-    warn!("Got SIGINT, waiting for client connection drain now");
+    debug!("Got SIGINT, waiting for client connection drain now");
 
     // Broadcast that client tasks need to finish
     shutdown_event_tx.send(()).unwrap();
     // Closes transmitter
     drop(shutdown_event_tx);
-
+    
     loop {
-        match shutdown_event_rx.recv().await {
-            // The first event the receiver gets is from the initial broadcast, so we ignore that
-            Ok(_) => {}
-            // Expect to receive a closed error when all transmitters are closed. Which means all clients have completed their work
-            Err(_) => break,
-        };
+        match tokio::time::timeout(tokio::time::Duration::from_millis(config.general.shutdown_timeout), shutdown_event_rx.recv()).await {
+            Ok(res) => match res {
+                Ok(_) => {},
+                Err(_) => break,
+            },
+            Err(_) => {
+                println!("Timed out while waiting for clients to shutdown");
+                break
+            }
+        }
     }
+
+    debug!("Shutting down...");
 }
 
 /// Format chrono::Duration to be more human-friendly.
