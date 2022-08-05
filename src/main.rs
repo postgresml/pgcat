@@ -262,7 +262,6 @@ async fn main() {
             Err(_) => break,
         };
     }
-
 }
 
 /// Format chrono::Duration to be more human-friendly.
