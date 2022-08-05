@@ -1,7 +1,7 @@
 [general]
 host = "0.0.0.0"
 port = 6432
-connect_timeout = 5000
+connect_timeout = 120000
 healthcheck_timeout = 1000
 ban_time = 60 # seconds
 autoreload = false

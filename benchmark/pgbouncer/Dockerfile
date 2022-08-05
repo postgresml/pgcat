@@ -9,8 +9,7 @@ RUN \
   mv pgbouncer-$VERSION pgbouncer && \
   cd pgbouncer && \
   ./configure --prefix=/usr && \
-  make && \
-  ls
+  make
 
 FROM debian:bullseye-slim
 

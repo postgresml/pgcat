@@ -3,6 +3,7 @@
 RECOMPILE_PGCAT=0
 PGCAT_ONLY=0
 PGBOUNCER_ONLY=0
+
 for ((i=1;i<=$#;i++));
 do
     if [ ${!i} = "--pgcat-only" ]
@@ -17,7 +18,21 @@ do
     fi
 done;
 
-wait_for_containers() {
+drop_and_recreate_database() {
+    docker compose stop proxy &> /dev/null # Avoid errors if proxy is connected to the database
+    docker compose exec --env PGPASSWORD=main_user postgres psql -p 5432 -h 127.0.0.1 -U main_user -d postgres -c "DROP DATABASE shard0"  &> /dev/null
+    docker compose exec --env PGPASSWORD=main_user postgres psql -p 5432 -h 127.0.0.1 -U main_user -d postgres -c "CREATE DATABASE shard0"  &> /dev/null
+    docker compose start proxy &> /dev/null
+    wait_for_proxy
+}
+
+
+run_benchmark() {
+    docker compose exec --env PGPASSWORD=main_user proxy pgbench -p $1 -h 127.0.0.1 -U main_user -i shard0
+    docker compose exec --env PGPASSWORD=main_user proxy pgbench -t 25000 -c 128 -j 2 -p $1 -h 127.0.0.1 -U main_user -S --protocol extended shard0
+}
+
+wait_for_proxy() {
     until docker compose exec --env PGPASSWORD=main_user proxy psql -p 6432 -h 127.0.0.1 -U main_user -d shard0 -c "select 1" &> /dev/null
     do
         echo "Waiting for postgres server"
@@ -32,25 +47,22 @@ benchmark_pgbouncer() {
     echo "======================"
     cd pgbouncer
     docker compose down -v  # Remove any stored data from previous runs
-    docker compose up -d
-    wait_for_containers
-
-    docker compose exec --env PGPASSWORD=main_user proxy pgbench -p 6432 -h 127.0.0.1 -U main_user -i shard0
+    docker compose up -d &> /dev/null
+    wait_for_proxy
 
     echo ""
     echo "================================================"
     echo "[Pgbouncer] Running test directly against the DB"
     echo "================================================"
-    docker compose exec --env PGPASSWORD=main_user proxy pgbench -t 1000 -c 128 -j 2 -p 5432 -h 127.0.0.1 -U main_user -S --protocol extended shard0
-
+    drop_and_recreate_database
+    run_benchmark 5432
 
     echo ""
     echo "=========================================="
     echo "[Pgbouncer] Running test against the proxy"
     echo "=========================================="
-    docker compose exec --env PGPASSWORD=main_user proxy pgbench -t 1000 -c 128 -j 2 -p 6432 -h 127.0.0.1 -U main_user -S --protocol extended shard0
-
-    docker compose down -v
+    drop_and_recreate_database
+    run_benchmark 6432
 
     echo ""
     echo ""
@@ -68,24 +80,22 @@ benchmark_pgcat() {
         docker compose build proxy --no-cache
     fi
     docker compose down -v # Remove any stored data from previous runs
-    docker compose up -d
-    wait_for_containers
-
-    docker compose exec --env PGPASSWORD=main_user proxy pgbench -p 6432 -h 127.0.0.1 -U main_user -i shard0
+    docker compose up -d &> /dev/null
+    wait_for_proxy
 
     echo ""
     echo "============================================"
     echo "[Pgcat] Running test directly against the DB"
     echo "============================================"
-    docker compose exec --env PGPASSWORD=main_user proxy pgbench -t 1000 -c 128 -j 2 -p 5432 -h 127.0.0.1 -U main_user -S --protocol extended shard0
+    drop_and_recreate_database
+    run_benchmark 5432
 
     echo ""
     echo "======================================"
     echo "[Pgcat] Running test against the proxy"
     echo "======================================"
-    docker compose exec --env PGPASSWORD=main_user proxy pgbench -t 1000 -c 128 -j 2 -p 6432 -h 127.0.0.1 -U main_user -S --protocol extended shard0
-
-    docker compose down -v
+    drop_and_recreate_database
+    run_benchmark 6432
 
     echo ""
     echo ""
@@ -94,13 +104,13 @@ benchmark_pgcat() {
 }
 
 
-if [ PGCAT_ONLY = 1 ]
+if [ $PGCAT_ONLY = 1 ]
 then
     benchmark_pgcat
     exit 0
 fi
 
-if [ PGBOUNCER_ONLY = 1 ]
+if [ $PGBOUNCER_ONLY = 1 ]
 then
     benchmark_pgbouncer
     exit 0
