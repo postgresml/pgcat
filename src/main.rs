@@ -253,16 +253,21 @@ async fn main() {
     shutdown_event_tx.send(()).unwrap();
     // Closes transmitter
     drop(shutdown_event_tx);
-    
+
     loop {
-        match tokio::time::timeout(tokio::time::Duration::from_millis(config.general.shutdown_timeout), shutdown_event_rx.recv()).await {
+        match tokio::time::timeout(
+            tokio::time::Duration::from_millis(config.general.shutdown_timeout),
+            shutdown_event_rx.recv(),
+        )
+        .await
+        {
             Ok(res) => match res {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(_) => break,
             },
             Err(_) => {
                 println!("Timed out while waiting for clients to shutdown");
-                break
+                break;
             }
         }
     }
