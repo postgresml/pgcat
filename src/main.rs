@@ -243,7 +243,7 @@ async fn main() {
         });
     }
 
-    // initiate graceful shutdown sequence on sig int
+    // Initiate graceful shutdown sequence on sig int
     let mut stream = unix_signal(SignalKind::interrupt()).unwrap();
 
     stream.recv().await;
