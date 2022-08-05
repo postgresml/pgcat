@@ -57,6 +57,7 @@ mod constants;
 mod errors;
 mod messages;
 mod pool;
+mod prometheus;
 mod query_router;
 mod scram;
 mod server;
@@ -64,11 +65,10 @@ mod sharding;
 mod stats;
 mod tls;
 
-use config::{get_config, reload_config};
-use pool::{ClientServerMap, ConnectionPool};
-use stats::{start_metric_server, Collector, Reporter, REPORTER};
-
-use crate::config::VERSION;
+use crate::config::{get_config, reload_config, VERSION};
+use crate::pool::{ClientServerMap, ConnectionPool};
+use crate::prometheus::start_metric_server;
+use crate::stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
@@ -97,8 +97,6 @@ async fn main() {
     };
 
     let config = get_config();
-
-    config.show();
 
     if let Some(http_port) = config.general.http_port {
         let http_addr_str = format!("{}:{}", config.general.host, http_port);

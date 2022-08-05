@@ -1,13 +1,9 @@
 use arc_swap::ArcSwap;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server, StatusCode};
 /// Statistics and reporting.
-use log::{error, info};
+use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::convert::Infallible;
-use std::net::SocketAddr;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::pool::get_number_of_addresses;
@@ -545,33 +541,4 @@ pub fn get_stats() -> HashMap<usize, HashMap<String, i64>> {
 /// Get the statistics reporter used to update stats across the pools/clients.
 pub fn get_reporter() -> Reporter {
     (*(*REPORTER.load())).clone()
-}
-
-async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
-    if request.uri().path() != "/metrics" {
-        Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body("".into())
-    } else {
-        let stats = get_stats();
-        let mut lines = Vec::new();
-        for (address_id, address_stats) in stats.iter() {
-            for (key, value) in address_stats.iter() {
-                lines.push(format!("{key}{{address={address_id}}} {value}"))
-            }
-        }
-        Ok(Response::new(lines.join("\n").into()))
-    }
-}
-
-pub async fn start_metric_server(http_addr: SocketAddr) {
-    let http_service_factory = make_service_fn(|_conn| async {
-        // service_fn converts our function into a `Service`
-        Ok::<_, Infallible>(service_fn(prometheus_stats))
-    });
-    let server = Server::bind(&http_addr.into()).serve(http_service_factory);
-    info!("Exposing prometheus metrics on {http_addr}.");
-    if let Err(e) = server.await {
-        error!("Failed to run HTTP server: {}.", e);
-    }
 }
