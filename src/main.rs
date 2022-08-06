@@ -36,7 +36,7 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::{
@@ -153,6 +153,7 @@ async fn main() {
             // Listen for shutdown event and client connection at the same time
             let (socket, addr) = tokio::select! {
                 _ = listener_rx.recv() => {
+                    // Exits client connection loop which drops listener, listener_rx and shutdown_event_tx_clone
                     break;
                 }
 
@@ -247,7 +248,7 @@ async fn main() {
     let mut stream = unix_signal(SignalKind::interrupt()).unwrap();
 
     stream.recv().await;
-    debug!("Got SIGINT, waiting for client connection drain now");
+    info!("Got SIGINT, waiting for client connection drain now");
 
     // Broadcast that client tasks need to finish
     shutdown_event_tx.send(()).unwrap();
@@ -266,13 +267,13 @@ async fn main() {
                 Err(_) => break,
             },
             Err(_) => {
-                println!("Timed out while waiting for clients to shutdown");
+                info!("Timed out while waiting for clients to shutdown");
                 break;
             }
         }
     }
 
-    debug!("Shutting down...");
+    info!("Shutting down...");
 }
 
 /// Format chrono::Duration to be more human-friendly.
