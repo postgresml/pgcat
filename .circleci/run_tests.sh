@@ -66,11 +66,11 @@ psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_te
 #
 # ActiveRecord tests
 #
-cd tests/ruby && \
-    sudo gem install bundler && \
-    bundle install && \
-    ruby tests.rb
-cd /home/circleci/project
+cd tests/ruby
+sudo gem install bundler
+bundle install
+ruby tests.rb
+cd ../..
 
 #
 # Python tests
@@ -78,7 +78,6 @@ cd /home/circleci/project
 #
 pip install -r tests/python/requirements.txt && \
     python tests/python/tests.py
-cd /home/circleci/project
 
 start_pgcat "info"
 
