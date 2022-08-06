@@ -74,12 +74,13 @@ cd /home/circleci/project
 
 #
 # Python tests
+# These tests will start and stop the pgcat server so it will need to be restarted after the tests
 #
-cd tests/python && \
-    pip install -r requirements.txt && \
-    python tests.py
+pip install -r tests/python/requirements.txt && \
+    python tests/python/tests.py
 cd /home/circleci/project
 
+start_pgcat "info"
 
 # Admin tests
 export PGPASSWORD=admin_pass
