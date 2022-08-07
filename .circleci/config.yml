@@ -44,6 +44,9 @@ jobs:
       - run:
           name: "Tests"
           command: "cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
+      - store_artifacts:
+          path: /tmp/cov
+          destination: coverage-data
       - save_cache:
           key: cargo-lock-2-{{ checksum "Cargo.lock" }}
           paths:
