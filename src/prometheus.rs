@@ -20,12 +20,12 @@ struct MetricHelpType {
 // gauges can arbitrarily increase or decrease
 static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = phf_map! {
     "total_query_count" => MetricHelpType {
-        help: "Total number of queries emitted",
+        help: "Number of queries sent by all clients",
         ty: "counter",
     },
     "total_query_time" => MetricHelpType {
         help: "Unimplemented",
-        ty: "unknown",
+        ty: "counter",
     },
     "total_received" => MetricHelpType {
         help: "Number of bytes received from the server",
@@ -48,68 +48,68 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         ty: "counter",
     },
     "avg_query_count" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "Average of total_query_count every 15 seconds",
+        ty: "gauge",
     },
     "avg_query_time" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "Unimplemented",
+        ty: "gauge",
     },
     "avg_recv" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "Average of total_received every 15 seconds",
+        ty: "gauge",
     },
     "avg_sent" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "Average of total_sent every 15 seconds",
+        ty: "gauge",
     },
     "avg_xact_count" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "Average of total_xact_count every 15 seconds",
+        ty: "gauge",
     },
     "avg_xact_time" => MetricHelpType {
         help: "",
-        ty: "",
+        ty: "gauge",
     },
     "avg_wait_time" => MetricHelpType {
         help: "",
         ty: "",
     },
     "maxwait_us" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "The time a client waited for a server connection in microseconds",
+        ty: "gauge",
     },
     "maxwait" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "The time a client waited for a server connection in seconds",
+        ty: "gauge",
     },
     "cl_waiting" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many clients are waiting for a connection from the pool",
+        ty: "gauge",
     },
     "cl_active" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many clients are actively communicating with a server",
+        ty: "gauge",
     },
     "cl_idle" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many clients are idle",
+        ty: "gauge",
     },
     "sv_idle" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many server connections are idle",
+        ty: "gauge",
     },
     "sv_active" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many server connections are actively communicating with a client",
+        ty: "gauge",
     },
     "sv_login" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many server connections are currently being created",
+        ty: "gauge",
     },
     "sv_tested" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "How many server connections are currently waiting on a health check to succeed",
+        ty: "gauge",
     },
 };
 
