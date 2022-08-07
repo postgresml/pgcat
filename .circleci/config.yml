@@ -12,6 +12,8 @@ jobs:
       - image: cimg/rust:1.58.1
         environment:
           RUST_LOG: info
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "pgcat-%m.profraw"
       - image: postgres:14
         # auth:
         #   username: mydockerhub-user
@@ -41,7 +43,7 @@ jobs:
           command: "cargo build"
       - run:
           name: "Tests"
-          command: "cargo test && bash .circleci/run_tests.sh && .circleci/coverage_report.sh"
+          command: "cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
       - save_cache:
           key: cargo-lock-2-{{ checksum "Cargo.lock" }}
           paths:
