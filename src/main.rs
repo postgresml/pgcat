@@ -146,14 +146,14 @@ async fn main() {
     // Client connection loop.
     tokio::task::spawn(async move {
         // Creates event subscriber for shutdown event, this is dropped when shutdown event is broadcast
-        let mut listener_rx = shutdown_event_tx_clone.subscribe();
+        let mut listener_shutdown_event_rx = shutdown_event_tx_clone.subscribe();
         loop {
             let client_server_map = client_server_map.clone();
 
             // Listen for shutdown event and client connection at the same time
             let (socket, addr) = tokio::select! {
-                _ = listener_rx.recv() => {
-                    // Exits client connection loop which drops listener, listener_rx and shutdown_event_tx_clone
+                _ = listener_shutdown_event_rx.recv() => {
+                    // Exits client connection loop which drops listener, listener_shutdown_event_rx and shutdown_event_tx_clone
                     break;
                 }
 

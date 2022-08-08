@@ -78,7 +78,6 @@ cd ../..
 #
 pip3 install -r tests/python/requirements.txt && \
     python3 tests/python/tests.py
-cd /home/circleci/project
 
 start_pgcat "info"
 
