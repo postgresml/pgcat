@@ -267,6 +267,29 @@ pub async fn error_response<S>(stream: &mut S, message: &str) -> Result<(), Erro
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
+    error_response_terminal(stream, message).await?;
+
+    // Ready for query, no rollback needed (I = idle).
+    let mut ready_for_query = BytesMut::new();
+
+    ready_for_query.put_u8(b'Z');
+    ready_for_query.put_i32(5);
+    ready_for_query.put_u8(b'I');
+
+    // Compose the two message reply.
+    let mut res = BytesMut::with_capacity(ready_for_query.len() + 5);
+    res.put(ready_for_query);
+
+    Ok(write_all_half(stream, res).await?)
+}
+
+/// Send a custom error message to the client.
+/// Tell the client we are ready for the next query and no rollback is necessary.
+/// Docs on error codes: <https://www.postgresql.org/docs/12/errcodes-appendix.html>.
+pub async fn error_response_terminal<S>(stream: &mut S, message: &str) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let mut error = BytesMut::new();
 
     // Error level
@@ -296,13 +319,11 @@ where
     ready_for_query.put_u8(b'I');
 
     // Compose the two message reply.
-    let mut res = BytesMut::with_capacity(error.len() + ready_for_query.len() + 5);
+    let mut res = BytesMut::with_capacity(error.len());
 
     res.put_u8(b'E');
     res.put_i32(error.len() as i32 + 4);
-
     res.put(error);
-    res.put(ready_for_query);
 
     Ok(write_all_half(stream, res).await?)
 }
