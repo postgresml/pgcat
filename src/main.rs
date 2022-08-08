@@ -98,8 +98,8 @@ async fn main() {
 
     let config = get_config();
 
-    if let Some(http_port) = config.general.http_port {
-        let http_addr_str = format!("{}:{}", config.general.host, http_port);
+    if let Some(true) = config.general.enable_prometheus_exporter {
+        let http_addr_str = format!("{}:{}", config.general.host, crate::prometheus::HTTP_PORT);
         let http_addr = match SocketAddr::from_str(&http_addr_str) {
             Ok(addr) => addr,
             Err(err) => {

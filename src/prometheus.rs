@@ -10,6 +10,8 @@ use crate::config::Address;
 use crate::pool::get_all_pools;
 use crate::stats::get_stats;
 
+pub const HTTP_PORT: usize = 9930;
+
 struct MetricHelpType {
     help: &'static str,
     ty: &'static str,
@@ -170,7 +172,7 @@ impl PrometheusMetric {
 
 async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
     match (request.method(), request.uri().path()) {
-        (&Method::Get, "/metrics") => {
+        (&Method::GET, "/metrics") => {
             let stats = get_stats();
 
             let mut lines = Vec::new();
@@ -188,7 +190,9 @@ async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hype
                 }
             }
 
-            Response::builder().body(lines.join("\n").into())
+            Response::builder()
+                .header("content-type", "text/plain; version=0.0.4")
+                .body(lines.join("\n").into())
         }
         _ => Response::builder()
             .status(StatusCode::NOT_FOUND)
