@@ -98,7 +98,9 @@ pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let mut bytes = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>());
+    let mut bytes = BytesMut::with_capacity(
+        mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
+    );
 
     bytes.put_u8(b'Z');
     bytes.put_i32(5);
