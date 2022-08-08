@@ -202,7 +202,10 @@ pub async fn start_metric_server(http_addr: SocketAddr) {
     let http_service_factory =
         make_service_fn(|_conn| async { Ok::<_, hyper::Error>(service_fn(prometheus_stats)) });
     let server = Server::bind(&http_addr.into()).serve(http_service_factory);
-    info!("Exposing prometheus metrics on {http_addr}.");
+    info!(
+        "Exposing prometheus metrics on http://{}/metrics.",
+        http_addr
+    );
     if let Err(e) = server.await {
         error!("Failed to run HTTP server: {}.", e);
     }
