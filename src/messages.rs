@@ -98,7 +98,7 @@ pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let mut bytes = BytesMut::with_capacity(5);
+    let mut bytes = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>());
 
     bytes.put_u8(b'Z');
     bytes.put_i32(5);
@@ -252,12 +252,8 @@ where
     res.put_i32(len);
     res.put_slice(&set_complete[..]);
 
-    // ReadyForQuery (idle)
-    res.put_u8(b'Z');
-    res.put_i32(5);
-    res.put_u8(b'I');
-
-    write_all_half(stream, res).await
+    write_all_half(stream, res).await?;
+    ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
@@ -268,19 +264,7 @@ where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     error_response_terminal(stream, message).await?;
-
-    // Ready for query, no rollback needed (I = idle).
-    let mut ready_for_query = BytesMut::new();
-
-    ready_for_query.put_u8(b'Z');
-    ready_for_query.put_i32(5);
-    ready_for_query.put_u8(b'I');
-
-    // Compose the two message reply.
-    let mut res = BytesMut::with_capacity(ready_for_query.len() + 5);
-    res.put(ready_for_query);
-
-    Ok(write_all_half(stream, res).await?)
+    ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
@@ -380,12 +364,8 @@ where
     // CommandComplete
     res.put(command_complete("SELECT 1"));
 
-    // ReadyForQuery
-    res.put_u8(b'Z');
-    res.put_i32(5);
-    res.put_u8(b'I');
-
-    write_all_half(stream, res).await
+    write_all_half(stream, res).await?;
+    ready_for_query(stream).await
 }
 
 pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
