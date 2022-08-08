@@ -534,7 +534,10 @@ mod test {
             get_config().pools["sharded_db"].shards["1"].servers[0].2,
             "primary"
         );
-        assert_eq!(get_config().pools["sharded_db"].shards["1"].database, "shard1");
+        assert_eq!(
+            get_config().pools["sharded_db"].shards["1"].database,
+            "shard1"
+        );
         assert_eq!(
             get_config().pools["sharded_db"].users["0"].username,
             "sharding_user"
