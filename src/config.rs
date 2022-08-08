@@ -12,6 +12,7 @@ use tokio::io::AsyncReadExt;
 use toml;
 
 use crate::errors::Error;
+use crate::prometheus::HTTP_PORT;
 use crate::tls::{load_certs, load_keys};
 use crate::{ClientServerMap, ConnectionPool};
 
@@ -310,6 +311,12 @@ impl Config {
                 info!("TLS support is disabled");
             }
         };
+        if let Some(true) = self.general.enable_prometheus_exporter {
+            info!(
+                "Exposing prometheus metrics on http://{}:{}/metrics",
+                self.general.host, HTTP_PORT
+            );
+        }
 
         for (pool_name, pool_config) in &self.pools {
             info!("--- Settings for pool {} ---", pool_name);

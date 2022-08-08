@@ -1,6 +1,6 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use log::{error, info};
+use log::{error, info, warn};
 use phf::phf_map;
 use std::collections::HashMap;
 use std::fmt;
@@ -25,10 +25,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Number of queries sent by all clients",
         ty: "counter",
     },
-    "total_query_time" => MetricHelpType {
-        help: "Unimplemented",
-        ty: "counter",
-    },
+//    "total_query_time" => MetricHelpType {
+//        help: "Unimplemented",
+//        ty: "counter",
+//    },
     "total_received" => MetricHelpType {
         help: "Number of bytes received from the server",
         ty: "counter",
@@ -41,10 +41,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Total number of transactions started by the client",
         ty: "counter",
     },
-    "total_xact_time" => MetricHelpType {
-        help: "Unimplemented",
-        ty: "unknown",
-    },
+//    "total_xact_time" => MetricHelpType {
+//        help: "Unimplemented",
+//        ty: "unknown",
+//    },
     "total_wait_time" => MetricHelpType {
         help: "Total time client waited for a server connection",
         ty: "counter",
@@ -53,10 +53,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Average of total_query_count every 15 seconds",
         ty: "gauge",
     },
-    "avg_query_time" => MetricHelpType {
-        help: "Unimplemented",
-        ty: "gauge",
-    },
+//    "avg_query_time" => MetricHelpType {
+//        help: "Unimplemented",
+//        ty: "gauge",
+//    },
     "avg_recv" => MetricHelpType {
         help: "Average of total_received every 15 seconds",
         ty: "gauge",
@@ -69,13 +69,13 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Average of total_xact_count every 15 seconds",
         ty: "gauge",
     },
-    "avg_xact_time" => MetricHelpType {
-        help: "",
-        ty: "gauge",
-    },
+//    "avg_xact_time" => MetricHelpType {
+//        help: "(Unimplemented) Average of total_xact_time every 15 seconds",
+//        ty: "gauge",
+//    },
     "avg_wait_time" => MetricHelpType {
-        help: "",
-        ty: "",
+        help: "Average of total_wait_time every 15 seconds",
+        ty: "gauge",
     },
     "maxwait_us" => MetricHelpType {
         help: "The time a client waited for a server connection in microseconds",
@@ -144,29 +144,22 @@ impl fmt::Display for PrometheusMetric {
 }
 
 impl PrometheusMetric {
-    fn new(address: &Address, name: &str, value: i64) -> PrometheusMetric {
+    fn new(address: &Address, name: &str, value: i64) -> Option<PrometheusMetric> {
         let mut labels = HashMap::new();
         labels.insert("host", address.host.clone());
         labels.insert("shard", address.shard.to_string());
         labels.insert("role", address.role.to_string());
         labels.insert("database", address.database.to_string());
 
-        let metric_help_type = METRIC_HELP_AND_TYPES_LOOKUP.get(name);
-        let help = metric_help_type
-            .map(|v| v.help)
-            .unwrap_or_default()
-            .to_owned();
-        let ty = metric_help_type
-            .map(|v| v.ty)
-            .unwrap_or_default()
-            .to_owned();
-        PrometheusMetric {
-            name: name.to_owned(),
-            help,
-            ty,
-            labels,
-            value,
-        }
+        METRIC_HELP_AND_TYPES_LOOKUP
+            .get(name)
+            .map(|metric| PrometheusMetric {
+                name: name.to_owned(),
+                help: metric.help.to_owned(),
+                ty: metric.ty.to_owned(),
+                labels,
+                value,
+            })
     }
 }
 
@@ -182,8 +175,13 @@ async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hype
                         let address = pool.address(shard, server);
                         if let Some(address_stats) = stats.get(&address.id) {
                             for (key, value) in address_stats.iter() {
-                                let prometheus_metric = PrometheusMetric::new(address, key, *value);
-                                lines.push(prometheus_metric.to_string());
+                                if let Some(prometheus_metric) =
+                                    PrometheusMetric::new(address, key, *value)
+                                {
+                                    lines.push(prometheus_metric.to_string());
+                                } else {
+                                    warn!("Metric {} not implemented for {}", key, address.name());
+                                }
                             }
                         }
                     }
