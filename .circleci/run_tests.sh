@@ -32,7 +32,7 @@ toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 start_pgcat "info"
 
 # Check that prometheus is running
-curl localhost:9930/metrics
+curl --fail-with-body localhost:9930/metrics
 
 export PGPASSWORD=sharding_user
 export PGDATABASE=sharded_db
