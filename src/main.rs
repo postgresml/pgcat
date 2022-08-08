@@ -40,13 +40,13 @@ use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::{
-    signal,
     signal::unix::{signal as unix_signal, SignalKind},
     sync::mpsc,
 };
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 mod admin;
 mod client;
@@ -139,24 +139,52 @@ async fn main() {
 
     info!("Waiting for clients");
 
+    let (shutdown_event_tx, mut shutdown_event_rx) = broadcast::channel::<()>(1);
+
+    let shutdown_event_tx_clone = shutdown_event_tx.clone();
+
     // Client connection loop.
     tokio::task::spawn(async move {
+        // Creates event subscriber for shutdown event, this is dropped when shutdown event is broadcast
+        let mut listener_shutdown_event_rx = shutdown_event_tx_clone.subscribe();
         loop {
             let client_server_map = client_server_map.clone();
 
-            let (socket, addr) = match listener.accept().await {
-                Ok((socket, addr)) => (socket, addr),
-                Err(err) => {
-                    error!("{:?}", err);
-                    continue;
+            // Listen for shutdown event and client connection at the same time
+            let (socket, addr) = tokio::select! {
+                _ = listener_shutdown_event_rx.recv() => {
+                    // Exits client connection loop which drops listener, listener_shutdown_event_rx and shutdown_event_tx_clone
+                    break;
+                }
+
+                listener_response = listener.accept() => {
+                    match listener_response {
+                        Ok((socket, addr)) => (socket, addr),
+                        Err(err) => {
+                            error!("{:?}", err);
+                            continue;
+                        }
+                    }
                 }
             };
+
+            // Used to signal shutdown
+            let client_shutdown_handler_rx = shutdown_event_tx_clone.subscribe();
+
+            // Used to signal that the task has completed
+            let dummy_tx = shutdown_event_tx_clone.clone();
 
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
 
-                match client::client_entrypoint(socket, client_server_map).await {
+                match client::client_entrypoint(
+                    socket,
+                    client_server_map,
+                    client_shutdown_handler_rx,
+                )
+                .await
+                {
                     Ok(_) => {
                         let duration = chrono::offset::Utc::now().naive_utc() - start;
 
@@ -171,6 +199,8 @@ async fn main() {
                         debug!("Client disconnected with error {:?}", err);
                     }
                 };
+                // Drop this transmitter so receiver knows that the task is completed
+                drop(dummy_tx);
             });
         }
     });
@@ -214,13 +244,41 @@ async fn main() {
         });
     }
 
-    // Exit on Ctrl-C (SIGINT) and SIGTERM.
     let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
+    let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
 
     tokio::select! {
-        _ = signal::ctrl_c() => (),
+        // Initiate graceful shutdown sequence on sig int
+        _ = interrupt_signal.recv() => {
+            info!("Got SIGINT, waiting for client connection drain now");
+
+            // Broadcast that client tasks need to finish
+            shutdown_event_tx.send(()).unwrap();
+            // Closes transmitter
+            drop(shutdown_event_tx);
+
+            // This is in a loop because the first event that the receiver receives will be the shutdown event
+            // This is not what we are waiting for instead, we want the receiver to send an error once all senders are closed which is reached after the shutdown event is received
+            loop {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_millis(config.general.shutdown_timeout),
+                    shutdown_event_rx.recv(),
+                )
+                .await
+                {
+                    Ok(res) => match res {
+                        Ok(_) => {}
+                        Err(_) => break,
+                    },
+                    Err(_) => {
+                        info!("Timed out while waiting for clients to shutdown");
+                        break;
+                    }
+                }
+            }
+        },
         _ = term_signal.recv() => (),
-    };
+    }
 
     info!("Shutting down...");
 }

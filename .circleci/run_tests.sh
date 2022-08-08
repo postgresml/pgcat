@@ -74,12 +74,12 @@ cd ../..
 
 #
 # Python tests
+# These tests will start and stop the pgcat server so it will need to be restarted after the tests
 #
-cd tests/python
-pip3 install -r requirements.txt
-python3 tests.py
-cd ../..
+pip3 install -r tests/python/requirements.txt
+python3 tests/python/tests.py
 
+start_pgcat "info"
 
 # Admin tests
 export PGPASSWORD=admin_pass
