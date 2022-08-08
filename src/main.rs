@@ -255,6 +255,8 @@ async fn main() {
     // Closes transmitter
     drop(shutdown_event_tx);
 
+    // This is in a loop because the first event that the receiver receives will be the shutdown event
+    // This is not what we are waiting for instead, we want the receiver to send an error once all senders are closed which is reached after the shutdown event is received
     loop {
         match tokio::time::timeout(
             tokio::time::Duration::from_millis(config.general.shutdown_timeout),
