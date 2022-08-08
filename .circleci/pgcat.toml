@@ -35,7 +35,7 @@ admin_password = "admin_pass"
 # pool
 # configs are structured as pool.<pool_name>
 # the pool_name is what clients use as database name when connecting
-# For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded"
+# For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded_db"
 [pools.sharded_db]
 # Pool mode (see PgBouncer docs for more).
 # session: one server connection per connected client
@@ -80,6 +80,11 @@ password = "sharding_user"
 # is the sum of pool_size across all users.
 pool_size = 9
 
+[pools.sharded_db.users.1]
+username = "other_user"
+password = "other_user"
+pool_size = 21
+
 # Shard 0
 [pools.sharded_db.shards.0]
 # [ host, port, role ]
@@ -103,3 +108,23 @@ servers = [
     [ "localhost", 5432, "replica" ],
 ]
 database = "shard2"
+
+
+[pools.simple_db]
+pool_mode = "session"
+default_role = "primary"
+query_parser_enabled = true
+primary_reads_enabled = true
+sharding_function = "pg_bigint_hash"
+
+[pools.simple_db.users.0]
+username = "simple_user"
+password = "simple_user"
+pool_size = 5
+
+[pools.simple_db.shards.0]
+servers = [
+    [ "127.0.0.1", 5432, "primary" ],
+    [ "localhost", 5432, "replica" ]
+]
+database = "some_db"

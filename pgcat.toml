@@ -14,7 +14,7 @@ port = 6432
 # How long to wait before aborting a server connection (ms).
 connect_timeout = 5000
 
-# How much time to give `SELECT 1` health check query to return with a result (ms).
+# How much time to give the health check query to return with a result (ms).
 healthcheck_timeout = 1000
 
 # For how long to ban a server if it fails a health check (seconds).
@@ -29,14 +29,14 @@ autoreload = false
 
 # Credentials to access the virtual administrative database (pgbouncer or pgcat)
 # Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DATABASES`, etc..
-admin_username = "user"
-admin_password = "pass"
+admin_username = "admin_user"
+admin_password = "admin_pass"
 
 # pool
 # configs are structured as pool.<pool_name>
 # the pool_name is what clients use as database name when connecting
-# For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded"
-[pools.sharded]
+# For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded_db"
+[pools.sharded_db]
 # Pool mode (see PgBouncer docs for more).
 # session: one server connection per connected client
 # transaction: one server connection per client transaction
@@ -72,7 +72,7 @@ primary_reads_enabled = true
 sharding_function = "pg_bigint_hash"
 
 # Credentials for users that may connect to this cluster
-[pools.sharded.users.0]
+[pools.sharded_db.users.0]
 username = "sharding_user"
 password = "sharding_user"
 # Maximum number of server connections that can be established for this user
@@ -80,13 +80,13 @@ password = "sharding_user"
 # is the sum of pool_size across all users.
 pool_size = 9
 
-[pools.sharded.users.1]
+[pools.sharded_db.users.1]
 username = "other_user"
 password = "other_user"
 pool_size = 21
 
 # Shard 0
-[pools.sharded.shards.0]
+[pools.sharded_db.shards.0]
 # [ host, port, role ]
 servers = [
     [ "127.0.0.1", 5432, "primary" ],
@@ -95,14 +95,14 @@ servers = [
 # Database name (e.g. "postgres")
 database = "shard0"
 
-[pools.sharded.shards.1]
+[pools.sharded_db.shards.1]
 servers = [
     [ "127.0.0.1", 5432, "primary" ],
     [ "localhost", 5432, "replica" ],
 ]
 database = "shard1"
 
-[pools.sharded.shards.2]
+[pools.sharded_db.shards.2]
 servers = [
     [ "127.0.0.1", 5432, "primary" ],
     [ "localhost", 5432, "replica" ],
