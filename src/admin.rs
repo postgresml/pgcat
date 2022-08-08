@@ -252,10 +252,10 @@ where
         let pool_config = pool.settings.clone();
         for shard in 0..pool.shards() {
             let database_name = &pool_config.shards[&shard.to_string()].database;
-
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
                 let pool_state = pool.pool_state(shard, server);
+                let banned = pool.is_banned(address, shard, Some(address.role));
 
                 res.put(data_row(&vec![
                     address.name(),                         // name
@@ -270,7 +270,11 @@ where
                     pool_config.user.pool_size.to_string(), // max_connections
                     pool_state.connections.to_string(),     // current_connections
                     "0".to_string(),                        // paused
-                    "0".to_string(),                        // disabled
+                    match banned {
+                        // disabled
+                        true => "1".to_string(),
+                        false => "0".to_string(),
+                    },
                 ]));
             }
         }
