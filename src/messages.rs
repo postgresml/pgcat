@@ -311,15 +311,8 @@ where
     // No more fields follow.
     error.put_u8(0);
 
-    // Ready for query, no rollback needed (I = idle).
-    let mut ready_for_query = BytesMut::new();
-
-    ready_for_query.put_u8(b'Z');
-    ready_for_query.put_i32(5);
-    ready_for_query.put_u8(b'I');
-
     // Compose the two message reply.
-    let mut res = BytesMut::with_capacity(error.len());
+    let mut res = BytesMut::with_capacity(error.len() + 5);
 
     res.put_u8(b'E');
     res.put_i32(error.len() as i32 + 4);
