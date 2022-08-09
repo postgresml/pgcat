@@ -4,6 +4,7 @@ use log::{debug, error, info, trace};
 use std::collections::HashMap;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
+use tokio::sync::broadcast::Receiver;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::config::get_config;
@@ -77,12 +78,16 @@ pub struct Client<S, T> {
 
     /// Postgres user for this client (This comes from the user in the connection string)
     target_user_name: String,
+
+    /// Used to notify clients about an impending shutdown
+    shutdown_event_receiver: Receiver<()>,
 }
 
 /// Client entrypoint.
 pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
+    shutdown_event_receiver: Receiver<()>,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -101,7 +106,7 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map).await {
+                match startup_tls(stream, client_server_map, shutdown_event_receiver).await {
                     Ok(mut client) => {
                         info!("Client {:?} connected (TLS)", addr);
 
@@ -125,7 +130,16 @@ pub async fn client_entrypoint(
                         let (read, write) = split(stream);
 
                         // Continue with regular startup.
-                        match Client::startup(read, write, addr, bytes, client_server_map).await {
+                        match Client::startup(
+                            read,
+                            write,
+                            addr,
+                            bytes,
+                            client_server_map,
+                            shutdown_event_receiver,
+                        )
+                        .await
+                        {
                             Ok(mut client) => {
                                 info!("Client {:?} connected (plain)", addr);
 
@@ -146,7 +160,16 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with regular startup.
-            match Client::startup(read, write, addr, bytes, client_server_map).await {
+            match Client::startup(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown_event_receiver,
+            )
+            .await
+            {
                 Ok(mut client) => {
                     info!("Client {:?} connected (plain)", addr);
 
@@ -161,7 +184,16 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with cancel query request.
-            match Client::cancel(read, write, addr, bytes, client_server_map).await {
+            match Client::cancel(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown_event_receiver,
+            )
+            .await
+            {
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
@@ -218,6 +250,7 @@ where
 pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
+    shutdown_event_receiver: Receiver<()>,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -241,7 +274,15 @@ pub async fn startup_tls(
         Ok((ClientConnectionType::Startup, bytes)) => {
             let (read, write) = split(stream);
 
-            Client::startup(read, write, addr, bytes, client_server_map).await
+            Client::startup(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown_event_receiver,
+            )
+            .await
         }
 
         // Bad Postgres client.
@@ -262,6 +303,7 @@ where
         addr: std::net::SocketAddr,
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
+        shutdown_event_receiver: Receiver<()>,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let stats = get_reporter();
@@ -386,6 +428,7 @@ where
             last_server_id: None,
             target_pool_name: target_pool_name.clone(),
             target_user_name: target_user_name.clone(),
+            shutdown_event_receiver: shutdown_event_receiver,
         });
     }
 
@@ -396,6 +439,7 @@ where
         addr: std::net::SocketAddr,
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
+        shutdown_event_receiver: Receiver<()>,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
@@ -416,6 +460,7 @@ where
             last_server_id: None,
             target_pool_name: String::from("undefined"),
             target_user_name: String::from("undefined"),
+            shutdown_event_receiver: shutdown_event_receiver,
         });
     }
 
@@ -467,7 +512,14 @@ where
             // We can parse it here before grabbing a server from the pool,
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
-            let mut message = read_message(&mut self.read).await?;
+
+            let mut message = tokio::select! {
+                _ = self.shutdown_event_receiver.recv() => {
+                    error_response_terminal(&mut self.write, &format!("terminating connection due to administrator command")).await?;
+                    return Ok(())
+                },
+                message_result = read_message(&mut self.read) => message_result?
+            };
 
             // Avoid taking a server if the client just wants to disconnect.
             if message[0] as char == 'X' {

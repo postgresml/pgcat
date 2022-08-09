@@ -1,1 +1,2 @@
 psycopg2==2.9.3
+psutil==5.9.1

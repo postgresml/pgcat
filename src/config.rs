@@ -119,6 +119,7 @@ pub struct General {
     pub port: i16,
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
+    pub shutdown_timeout: u64,
     pub ban_time: i64,
     pub autoreload: bool,
     pub tls_certificate: Option<String>,
@@ -134,6 +135,7 @@ impl Default for General {
             port: 5432,
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
+            shutdown_timeout: 60000,
             ban_time: 60,
             autoreload: false,
             tls_certificate: None,
@@ -273,6 +275,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 "healthcheck_timeout".to_string(),
                 config.general.healthcheck_timeout.to_string(),
             ),
+            (
+                "shutdown_timeout".to_string(),
+                config.general.shutdown_timeout.to_string(),
+            ),
             ("ban_time".to_string(), config.general.ban_time.to_string()),
         ];
 
@@ -290,6 +296,7 @@ impl Config {
             self.general.healthcheck_timeout
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
+        info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);
@@ -521,30 +528,33 @@ mod test {
 
         assert_eq!(get_config().general.ban_time, 60);
         assert_eq!(get_config().pools.len(), 2);
-        assert_eq!(get_config().pools["sharded"].shards.len(), 3);
+        assert_eq!(get_config().pools["sharded_db"].shards.len(), 3);
         assert_eq!(get_config().pools["simple_db"].shards.len(), 1);
-        assert_eq!(get_config().pools["sharded"].users.len(), 2);
+        assert_eq!(get_config().pools["sharded_db"].users.len(), 2);
         assert_eq!(get_config().pools["simple_db"].users.len(), 1);
 
         assert_eq!(
-            get_config().pools["sharded"].shards["0"].servers[0].0,
+            get_config().pools["sharded_db"].shards["0"].servers[0].0,
             "127.0.0.1"
         );
         assert_eq!(
-            get_config().pools["sharded"].shards["1"].servers[0].2,
+            get_config().pools["sharded_db"].shards["1"].servers[0].2,
             "primary"
         );
-        assert_eq!(get_config().pools["sharded"].shards["1"].database, "shard1");
         assert_eq!(
-            get_config().pools["sharded"].users["0"].username,
+            get_config().pools["sharded_db"].shards["1"].database,
+            "shard1"
+        );
+        assert_eq!(
+            get_config().pools["sharded_db"].users["0"].username,
             "sharding_user"
         );
         assert_eq!(
-            get_config().pools["sharded"].users["1"].password,
+            get_config().pools["sharded_db"].users["1"].password,
             "other_user"
         );
-        assert_eq!(get_config().pools["sharded"].users["1"].pool_size, 21);
-        assert_eq!(get_config().pools["sharded"].default_role, "any");
+        assert_eq!(get_config().pools["sharded_db"].users["1"].pool_size, 21);
+        assert_eq!(get_config().pools["sharded_db"].default_role, "any");
 
         assert_eq!(
             get_config().pools["simple_db"].shards["0"].servers[0].0,

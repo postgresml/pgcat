@@ -98,7 +98,9 @@ pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let mut bytes = BytesMut::with_capacity(5);
+    let mut bytes = BytesMut::with_capacity(
+        mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
+    );
 
     bytes.put_u8(b'Z');
     bytes.put_i32(5);
@@ -252,18 +254,25 @@ where
     res.put_i32(len);
     res.put_slice(&set_complete[..]);
 
-    // ReadyForQuery (idle)
-    res.put_u8(b'Z');
-    res.put_i32(5);
-    res.put_u8(b'I');
-
-    write_all_half(stream, res).await
+    write_all_half(stream, res).await?;
+    ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
 /// Tell the client we are ready for the next query and no rollback is necessary.
 /// Docs on error codes: <https://www.postgresql.org/docs/12/errcodes-appendix.html>.
 pub async fn error_response<S>(stream: &mut S, message: &str) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    error_response_terminal(stream, message).await?;
+    ready_for_query(stream).await
+}
+
+/// Send a custom error message to the client.
+/// Tell the client we are ready for the next query and no rollback is necessary.
+/// Docs on error codes: <https://www.postgresql.org/docs/12/errcodes-appendix.html>.
+pub async fn error_response_terminal<S>(stream: &mut S, message: &str) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
@@ -288,21 +297,12 @@ where
     // No more fields follow.
     error.put_u8(0);
 
-    // Ready for query, no rollback needed (I = idle).
-    let mut ready_for_query = BytesMut::new();
-
-    ready_for_query.put_u8(b'Z');
-    ready_for_query.put_i32(5);
-    ready_for_query.put_u8(b'I');
-
     // Compose the two message reply.
-    let mut res = BytesMut::with_capacity(error.len() + ready_for_query.len() + 5);
+    let mut res = BytesMut::with_capacity(error.len() + 5);
 
     res.put_u8(b'E');
     res.put_i32(error.len() as i32 + 4);
-
     res.put(error);
-    res.put(ready_for_query);
 
     Ok(write_all_half(stream, res).await?)
 }
@@ -366,12 +366,8 @@ where
     // CommandComplete
     res.put(command_complete("SELECT 1"));
 
-    // ReadyForQuery
-    res.put_u8(b'Z');
-    res.put_i32(5);
-    res.put_u8(b'I');
-
-    write_all_half(stream, res).await
+    write_all_half(stream, res).await?;
+    ready_for_query(stream).await
 }
 
 pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
