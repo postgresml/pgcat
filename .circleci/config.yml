@@ -28,7 +28,7 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: cargo-lock-3-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
       - run:
           name: "Lint"
           command: "cargo fmt --check"
@@ -48,7 +48,7 @@ jobs:
           path: /tmp/cov
           destination: coverage-data
       - save_cache:
-          key: cargo-lock-3-{{ checksum "Cargo.lock" }}
+          key: cargo-lock-2-{{ checksum "Cargo.lock" }}
           paths:
             - target
             - ~/.cargo
