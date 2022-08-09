@@ -25,10 +25,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Number of queries sent by all clients",
         ty: "counter",
     },
-//    "total_query_time" => MetricHelpType {
-//        help: "Unimplemented",
-//        ty: "counter",
-//    },
+    "total_query_time" => MetricHelpType {
+        help: "Total amount of time for queries to execute",
+        ty: "counter",
+    },
     "total_received" => MetricHelpType {
         help: "Number of bytes received from the server",
         ty: "counter",
@@ -41,10 +41,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Total number of transactions started by the client",
         ty: "counter",
     },
-//    "total_xact_time" => MetricHelpType {
-//        help: "Unimplemented",
-//        ty: "unknown",
-//    },
+    "total_xact_time" => MetricHelpType {
+        help: "Total amount of time for all transactions to execute",
+        ty: "counter",
+    },
     "total_wait_time" => MetricHelpType {
         help: "Total time client waited for a server connection",
         ty: "counter",
@@ -53,26 +53,26 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Average of total_query_count every 15 seconds",
         ty: "gauge",
     },
-//    "avg_query_time" => MetricHelpType {
-//        help: "Unimplemented",
-//        ty: "gauge",
-//    },
+    "avg_query_time" => MetricHelpType {
+        help: "Average time taken for queries to execute every 15 seconds",
+        ty: "gauge",
+    },
     "avg_recv" => MetricHelpType {
-        help: "Average of total_received every 15 seconds",
+        help: "Average of total_received bytes every 15 seconds",
         ty: "gauge",
     },
     "avg_sent" => MetricHelpType {
-        help: "Average of total_sent every 15 seconds",
+        help: "Average of total_sent bytes every 15 seconds",
         ty: "gauge",
     },
     "avg_xact_count" => MetricHelpType {
         help: "Average of total_xact_count every 15 seconds",
         ty: "gauge",
     },
-//    "avg_xact_time" => MetricHelpType {
-//        help: "(Unimplemented) Average of total_xact_time every 15 seconds",
-//        ty: "gauge",
-//    },
+    "avg_xact_time" => MetricHelpType {
+        help: "Average of total_xact_time every 15 seconds",
+        ty: "gauge",
+    },
     "avg_wait_time" => MetricHelpType {
         help: "Average of total_wait_time every 15 seconds",
         ty: "gauge",
