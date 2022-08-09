@@ -24,7 +24,8 @@ def pg_cat_send_signal(signal: signal.Signals):
         if "pgcat" == proc.name():
             os.kill(proc.pid, signal)
     if signal == signal.SIGTERM:
-        if os.system('pgrep pgcat'):
+        # Returns 0 if pgcat process exists
+        if not os.system('pgrep pgcat'):
             raise Exception("pgcat not closed after SIGTERM")
 
 
