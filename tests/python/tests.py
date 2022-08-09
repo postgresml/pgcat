@@ -3,8 +3,6 @@ import psycopg2
 import psutil
 import os
 import signal
-import subprocess
-from threading import Thread
 import time
 
 SHUTDOWN_TIMEOUT = 5
@@ -15,14 +13,18 @@ PGCAT_PORT = "6432"
 
 def pgcat_start():
     pg_cat_send_signal(signal.SIGTERM)
-    pgcat_start_command = "./target/debug/pgcat .circleci/pgcat.toml"
-    subprocess.Popen(pgcat_start_command.split())
+    os.system("./target/debug/pgcat .circleci/pgcat.toml &")
 
 
 def pg_cat_send_signal(signal: signal.Signals):
     for proc in psutil.process_iter(["pid", "name"]):
         if "pgcat" == proc.name():
             os.kill(proc.pid, signal)
+    if signal == signal.SIGTERM:
+        # Returns 0 if pgcat process exists
+        time.sleep(2)
+        if not os.system('pgrep pgcat'):
+            raise Exception("pgcat not closed after SIGTERM")
 
 
 def connect_normal_db(
@@ -67,8 +69,7 @@ def test_shutdown_logic():
 
     ##### NO ACTIVE QUERIES SIGINT HANDLING #####
     # Start pgcat
-    server = Thread(target=pgcat_start)
-    server.start()
+    pgcat_start()
 
     # Wait for server to fully start up
     time.sleep(2)
@@ -92,12 +93,15 @@ def test_shutdown_logic():
     else:
         # Fail if query execution succeeded
         raise Exception("Server not closed after sigint")
+
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    ##### END #####
 
     ##### HANDLE TRANSACTION WITH SIGINT #####
     # Start pgcat
-    server = Thread(target=pgcat_start)
-    server.start()
+    pgcat_start()
 
     # Wait for server to fully start up
     time.sleep(2)
@@ -120,11 +124,13 @@ def test_shutdown_logic():
         raise Exception("Server closed while in transaction", e.pgerror)
 
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    ##### END #####
 
     ##### HANDLE SHUTDOWN TIMEOUT WITH SIGINT #####
     # Start pgcat
-    server = Thread(target=pgcat_start)
-    server.start()
+    pgcat_start()
 
     # Wait for server to fully start up
     time.sleep(3)
@@ -151,6 +157,9 @@ def test_shutdown_logic():
         raise Exception("Server not closed after sigint and expected timeout")
 
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    ##### END #####
 
 
 test_normal_db_access()
