@@ -44,7 +44,6 @@ def connect_normal_db(
 def cleanup_conn(conn: psycopg2.extensions.connection, cur: psycopg2.extensions.cursor):
     cur.close()
     conn.close()
-    pg_cat_send_signal(signal.SIGTERM)
 
 
 def test_normal_db_access():
@@ -97,7 +96,11 @@ def test_shutdown_logic():
     else:
         # Fail if query execution succeeded
         raise Exception("Server not closed after sigint")
+
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    ##### END #####
 
     ##### HANDLE TRANSACTION WITH SIGINT #####
     # Start pgcat
@@ -125,6 +128,9 @@ def test_shutdown_logic():
         raise Exception("Server closed while in transaction", e.pgerror)
 
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    ##### END #####
 
     ##### HANDLE SHUTDOWN TIMEOUT WITH SIGINT #####
     # Start pgcat
@@ -156,6 +162,9 @@ def test_shutdown_logic():
         raise Exception("Server not closed after sigint and expected timeout")
 
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    ##### END #####
 
 
 test_normal_db_access()
