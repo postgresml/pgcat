@@ -23,6 +23,9 @@ def pg_cat_send_signal(signal: signal.Signals):
     for proc in psutil.process_iter(["pid", "name"]):
         if "pgcat" == proc.name():
             os.kill(proc.pid, signal)
+    if signal == signal.SIGTERM:
+        if os.system('pgrep pgcat'):
+            raise Exception("pgcat not closed after SIGTERM")
 
 
 def connect_normal_db(
@@ -40,6 +43,7 @@ def connect_normal_db(
 def cleanup_conn(conn: psycopg2.extensions.connection, cur: psycopg2.extensions.cursor):
     cur.close()
     conn.close()
+    pg_cat_send_signal(signal.SIGTERM)
 
 
 def test_normal_db_access():
