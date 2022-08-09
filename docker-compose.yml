@@ -14,3 +14,4 @@ services:
       - "${PWD}/examples/docker/pgcat.toml:/etc/pgcat/pgcat.toml"
     ports:
       - "6432:6432"
+      - "9090:9090"

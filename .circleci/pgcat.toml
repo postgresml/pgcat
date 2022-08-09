@@ -11,6 +11,9 @@ host = "0.0.0.0"
 # Port to run on, same as PgBouncer used in this example.
 port = 6432
 
+# enable prometheus exporter on port 9930
+enable_prometheus_exporter = true
+
 # How long to wait before aborting a server connection (ms).
 connect_timeout = 100
 

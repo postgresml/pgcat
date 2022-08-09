@@ -117,6 +117,7 @@ impl Default for User {
 pub struct General {
     pub host: String,
     pub port: i16,
+    pub enable_prometheus_exporter: Option<bool>,
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub shutdown_timeout: u64,
@@ -133,6 +134,7 @@ impl Default for General {
         General {
             host: String::from("localhost"),
             port: 5432,
+            enable_prometheus_exporter: Some(false),
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             shutdown_timeout: 60000,

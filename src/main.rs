@@ -45,6 +45,8 @@ use tokio::{
 };
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -55,6 +57,7 @@ mod constants;
 mod errors;
 mod messages;
 mod pool;
+mod prometheus;
 mod query_router;
 mod scram;
 mod server;
@@ -62,11 +65,10 @@ mod sharding;
 mod stats;
 mod tls;
 
-use config::{get_config, reload_config};
-use pool::{ClientServerMap, ConnectionPool};
-use stats::{Collector, Reporter, REPORTER};
-
-use crate::config::VERSION;
+use crate::config::{get_config, reload_config, VERSION};
+use crate::pool::{ClientServerMap, ConnectionPool};
+use crate::prometheus::start_metric_server;
+use crate::stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
@@ -95,6 +97,21 @@ async fn main() {
     };
 
     let config = get_config();
+
+    if let Some(true) = config.general.enable_prometheus_exporter {
+        let http_addr_str = format!("{}:{}", config.general.host, crate::prometheus::HTTP_PORT);
+        let http_addr = match SocketAddr::from_str(&http_addr_str) {
+            Ok(addr) => addr,
+            Err(err) => {
+                error!("Invalid http address: {}", err);
+                return;
+            }
+        };
+        tokio::task::spawn(async move {
+            start_metric_server(http_addr).await;
+        });
+    }
+
     let addr = format!("{}:{}", config.general.host, config.general.port);
 
     let listener = match TcpListener::bind(&addr).await {
