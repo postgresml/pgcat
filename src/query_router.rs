@@ -9,7 +9,7 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use crate::config::Role;
-use crate::pool::{ConnectionPool, PoolSettings};
+use crate::pool::PoolSettings;
 use crate::sharding::{Sharder, ShardingFunction};
 
 /// Regexes used to parse custom commands.
@@ -91,14 +91,18 @@ impl QueryRouter {
     }
 
     /// Create a new instance of the query router. Each client gets its own.
-    pub fn new(target_pool: ConnectionPool) -> QueryRouter {
+    pub fn new() -> QueryRouter {
         QueryRouter {
             active_shard: None,
             active_role: None,
-            query_parser_enabled: target_pool.settings.query_parser_enabled,
-            primary_reads_enabled: target_pool.settings.primary_reads_enabled,
-            pool_settings: target_pool.settings,
+            query_parser_enabled: false,
+            primary_reads_enabled: false,
+            pool_settings: PoolSettings::default(),
         }
+    }
+
+    pub fn update_pool_settings(&mut self, pool_settings: PoolSettings) {
+        self.pool_settings = pool_settings;
     }
 
     /// Try to parse a command and execute it.
@@ -363,6 +367,8 @@ impl QueryRouter {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::messages::simple_query;
     use bytes::BufMut;
@@ -370,7 +376,7 @@ mod test {
     #[test]
     fn test_defaults() {
         QueryRouter::setup();
-        let qr = QueryRouter::new(ConnectionPool::default());
+        let qr = QueryRouter::new();
 
         assert_eq!(qr.role(), None);
     }
@@ -378,7 +384,7 @@ mod test {
     #[test]
     fn test_infer_role_replica() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(ConnectionPool::default());
+        let mut qr = QueryRouter::new();
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
         assert_eq!(qr.query_parser_enabled(), true);
 
@@ -402,7 +408,7 @@ mod test {
     #[test]
     fn test_infer_role_primary() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(ConnectionPool::default());
+        let mut qr = QueryRouter::new();
 
         let queries = vec![
             simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
@@ -421,7 +427,7 @@ mod test {
     #[test]
     fn test_infer_role_primary_reads_enabled() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(ConnectionPool::default());
+        let mut qr = QueryRouter::new();
         let query = simple_query("SELECT * FROM items WHERE id = 5");
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO on")) != None);
 
@@ -432,7 +438,7 @@ mod test {
     #[test]
     fn test_infer_role_parse_prepared() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(ConnectionPool::default());
+        let mut qr = QueryRouter::new();
         qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'"));
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -523,7 +529,7 @@ mod test {
     #[test]
     fn test_try_execute_command() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(ConnectionPool::default());
+        let mut qr = QueryRouter::new();
 
         // SetShardingKey
         let query = simple_query("SET SHARDING KEY TO 13");
@@ -600,7 +606,7 @@ mod test {
     #[test]
     fn test_enable_query_parser() {
         QueryRouter::setup();
-        let mut qr = QueryRouter::new(ConnectionPool::default());
+        let mut qr = QueryRouter::new();
         let query = simple_query("SET SERVER ROLE TO 'auto'");
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -620,5 +626,44 @@ mod test {
         let query = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(query) != None);
         assert!(qr.query_parser_enabled());
+    }
+
+    #[test]
+    fn test_update_from_pool_settings() {
+        QueryRouter::setup();
+
+        let pool_settings = PoolSettings {
+            pool_mode: "transaction".to_string(),
+            shards: HashMap::default(),
+            user: crate::config::User::default(),
+            default_role: Role::Replica.to_string(),
+            query_parser_enabled: true,
+            primary_reads_enabled: false,
+            sharding_function: "pg_bigint_hash".to_string(),
+        };
+        let mut qr = QueryRouter::new();
+        assert_eq!(qr.active_role, None);
+        assert_eq!(qr.active_shard, None);
+        assert_eq!(qr.query_parser_enabled, false);
+        assert_eq!(qr.primary_reads_enabled, false);
+
+        // Internal state must not be changed due to this, only defaults
+        qr.update_pool_settings(pool_settings.clone());
+
+        assert_eq!(qr.active_role, None);
+        assert_eq!(qr.active_shard, None);
+        assert_eq!(qr.query_parser_enabled, false);
+        assert_eq!(qr.primary_reads_enabled, false);
+
+        let q1 = simple_query("SET SERVER ROLE TO 'primary'");
+        assert!(qr.try_execute_command(q1) != None);
+        assert_eq!(qr.active_role.unwrap(), Role::Primary);
+
+        let q2 = simple_query("SET SERVER ROLE TO 'default'");
+        assert!(qr.try_execute_command(q2) != None);
+        assert_eq!(
+            qr.active_role.unwrap().to_string(),
+            pool_settings.clone().default_role
+        );
     }
 }

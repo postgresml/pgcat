@@ -2,6 +2,7 @@
 
 require 'active_record'
 require 'pg'
+require 'toml'
 
 $stdout.sync = true
 
@@ -141,3 +142,62 @@ def test_server_parameters
 
   puts 'Server parameters ok'
 end
+
+
+class ConfigEditor
+  def initialize
+    @original_config_text = File.read('../../.circleci/pgcat.toml')
+    text_to_load = @original_config_text.gsub("5432", "\"5432\"")
+
+    @original_configs = TOML.load(text_to_load)
+  end
+
+  def original_configs
+    TOML.load(TOML::Generator.new(@original_configs).body)
+  end
+
+  def with_modified_configs(new_configs)
+    text_to_write = TOML::Generator.new(new_configs).body
+    text_to_write = text_to_write.gsub("\"5432\"", "5432")
+    File.write('../../.circleci/pgcat.toml', text_to_write)
+    yield
+  ensure
+    File.write('../../.circleci/pgcat.toml', @original_config_text)
+  end
+
+end
+
+
+def test_reload_pool_recycling
+  admin_conn = PG::connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
+  server_conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat")
+
+  server_conn.async_exec("BEGIN")
+  conf_editor = ConfigEditor.new
+  new_configs = conf_editor.original_configs
+
+  # swap shards
+  new_configs["pools"]["sharded_db"]["shards"]["0"]["database"] = "shard1"
+  new_configs["pools"]["sharded_db"]["shards"]["1"]["database"] = "shard0"
+
+  raise StandardError if server_conn.async_exec("SELECT current_database();")[0]["current_database"] != 'shard0'
+  conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
+  raise StandardError if server_conn.async_exec("SELECT current_database();")[0]["current_database"] != 'shard0'
+  server_conn.async_exec("COMMIT;")
+
+  # Transaction finished, client should get new configs
+  raise StandardError if server_conn.async_exec("SELECT current_database();")[0]["current_database"] != 'shard1'
+  server_conn.close()
+
+  # New connection should get new configs
+  server_conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat")
+  raise StandardError if server_conn.async_exec("SELECT current_database();")[0]["current_database"] != 'shard1'
+
+ensure
+  admin_conn.async_exec("RELOAD") # Go back to old state
+  admin_conn.close
+  server_conn.close
+  puts "Pool Recycling okay!"
+end
+
+test_reload_pool_recycling

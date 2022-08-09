@@ -496,6 +496,9 @@ where
             return Ok(Server::cancel(&address, &port, process_id, secret_key).await?);
         }
 
+        // The query router determines where the query is going to go,
+        // e.g. primary, replica, which shard.
+        let mut query_router = QueryRouter::new();
         let mut round_robin = 0;
 
         // Our custom protocol loop.
@@ -552,10 +555,7 @@ where
                         return Err(Error::ClientError);
                     }
                 };
-
-            // The query router determines where the query is going to go,
-            // e.g. primary, replica, which shard.
-            let mut query_router = QueryRouter::new(pool.clone());
+            query_router.update_pool_settings(pool.settings.clone());
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
