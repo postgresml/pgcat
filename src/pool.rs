@@ -324,8 +324,6 @@ impl ConnectionPool {
             let server = &mut *conn;
             let healthcheck_timeout = get_config().general.healthcheck_timeout;
 
-            self.stats.server_tested(server.process_id(), address.id);
-
             // Will return error if timestamp is greater than current system time, which it should never be set to
             let require_healthcheck =
                 server.last_healthcheck().elapsed().unwrap().as_millis() > 10000;
@@ -336,6 +334,8 @@ impl ConnectionPool {
                 self.stats.server_idle(conn.process_id(), address.id);
                 return Ok((conn, address.clone()));
             }
+
+            self.stats.server_tested(server.process_id(), address.id);
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
