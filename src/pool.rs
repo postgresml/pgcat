@@ -251,7 +251,7 @@ impl ConnectionPool {
 
     /// Get a connection from the pool.
     pub async fn get(
-        &mut self,
+        &self,
         shard: usize,           // shard number
         role: Option<Role>,     // primary or replica
         process_id: i32,        // client id
@@ -312,7 +312,7 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!("Banning replica {}, error: {:?}", index, err);
-                    self.ban(address, shard);
+                    self.ban(address, shard, process_id);
                     self.stats.client_disconnecting(process_id, address.id);
                     self.stats
                         .checkout_time(now.elapsed().as_micros(), process_id, address.id);
@@ -325,6 +325,21 @@ impl ConnectionPool {
             let healthcheck_timeout = get_config().general.healthcheck_timeout;
 
             self.stats.server_tested(server.process_id(), address.id);
+
+            // Will return error if timestamp is greater than current system time, which it should never be set to
+            let require_health_check = server
+                .latest_successful_server_interaction_timestamp()
+                .elapsed()
+                .unwrap()
+                .as_millis()
+                > 10000; // TODO: Make this configurable
+
+            if !require_health_check {
+                self.stats
+                    .checkout_time(now.elapsed().as_micros(), process_id, address.id);
+                self.stats.server_idle(conn.process_id(), address.id);
+                return Ok((conn, address.clone()));
+            }
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
@@ -348,10 +363,7 @@ impl ConnectionPool {
                         // Don't leave a bad connection in the pool.
                         server.mark_bad();
 
-                        self.ban(address, shard);
-                        self.stats.client_disconnecting(process_id, address.id);
-                        self.stats
-                            .checkout_time(now.elapsed().as_micros(), process_id, address.id);
+                        self.ban(address, shard, process_id);
                         continue;
                     }
                 },
@@ -362,10 +374,7 @@ impl ConnectionPool {
                     // Don't leave a bad connection in the pool.
                     server.mark_bad();
 
-                    self.ban(address, shard);
-                    self.stats.client_disconnecting(process_id, address.id);
-                    self.stats
-                        .checkout_time(now.elapsed().as_micros(), process_id, address.id);
+                    self.ban(address, shard, process_id);
                     continue;
                 }
             }
@@ -377,7 +386,11 @@ impl ConnectionPool {
     /// Ban an address (i.e. replica). It no longer will serve
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
-    pub fn ban(&self, address: &Address, shard: usize) {
+    pub fn ban(&self, address: &Address, shard: usize, process_id: i32) {
+        self.stats.client_disconnecting(process_id, address.id);
+        self.stats
+            .checkout_time(Instant::now().elapsed().as_micros(), process_id, address.id);
+
         error!("Banning {:?}", address);
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
