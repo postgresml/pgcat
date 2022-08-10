@@ -374,7 +374,7 @@ impl Server {
             Ok(_) => {
                 self.latest_successful_server_interaction_timestamp = SystemTime::now();
                 Ok(())
-            },
+            }
             Err(err) => {
                 error!("Terminating server because of: {:?}", err);
                 self.bad = true;
