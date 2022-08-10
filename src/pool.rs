@@ -283,6 +283,9 @@ impl ConnectionPool {
             return Err(Error::BadConfig);
         }
 
+        let healthcheck_timeout = get_config().general.healthcheck_timeout;
+        let healthcheck_delay = get_config().general.healthcheck_delay as u128;
+
         while allowed_attempts > 0 {
             // Round-robin replicas.
             round_robin += 1;
@@ -322,11 +325,10 @@ impl ConnectionPool {
 
             // // Check if this server is alive with a health check.
             let server = &mut *conn;
-            let healthcheck_timeout = get_config().general.healthcheck_timeout;
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
             let require_healthcheck =
-                server.last_healthcheck().elapsed().unwrap().as_millis() > 10000;
+                server.last_healthcheck().elapsed().unwrap().as_millis() > healthcheck_delay;
 
             if !require_healthcheck {
                 self.stats
