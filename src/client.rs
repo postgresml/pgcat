@@ -246,7 +246,7 @@ where
     }
 }
 
-/// Handle TLS connection negotation.
+/// Handle TLS connection negotiation.
 pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
@@ -259,14 +259,14 @@ pub async fn startup_tls(
     let mut stream = match tls.acceptor.accept(stream).await {
         Ok(stream) => stream,
 
-        // TLS negotitation failed.
+        // TLS negotiation failed.
         Err(err) => {
             error!("TLS negotiation failed: {:?}", err);
             return Err(Error::TlsError);
         }
     };
 
-    // TLS negotitation successful.
+    // TLS negotiation successful.
     // Continue with regular startup using encrypted connection.
     match get_startup::<TlsStream<TcpStream>>(&mut stream).await {
         // Got good startup message, proceeding like normal except we
