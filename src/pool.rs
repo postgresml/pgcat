@@ -327,14 +327,10 @@ impl ConnectionPool {
             self.stats.server_tested(server.process_id(), address.id);
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
-            let require_health_check = server
-                .latest_successful_server_interaction_timestamp()
-                .elapsed()
-                .unwrap()
-                .as_millis()
-                > 10000; // TODO: Make this configurable
+            let require_healthcheck =
+                server.last_healthcheck().elapsed().unwrap().as_millis() > 10000;
 
-            if !require_health_check {
+            if !require_healthcheck {
                 self.stats
                     .checkout_time(now.elapsed().as_micros(), process_id, address.id);
                 self.stats.server_idle(conn.process_id(), address.id);
