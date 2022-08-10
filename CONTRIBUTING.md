@@ -10,10 +10,4 @@ Happy hacking!
 
 ## TODOs
 
-A non-exhaustive list of things that would be useful to implement:
-
-#### Client authentication
-MD5 is probably sufficient, but maybe others too.
-
-#### Admin
-Admin database for stats collection and pooler administration. PgBouncer gives us a nice example on how to do that, specifically how to implement `RowDescription` and `DataRow` messages, [example here](https://github.com/pgbouncer/pgbouncer/blob/4f9ced8e63d317a6ff45c8b0efa876b32161f6db/src/admin.c#L813).
+See [Issues]([url](https://github.com/levkk/pgcat/issues)).
