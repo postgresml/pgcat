@@ -328,7 +328,7 @@ impl ConnectionPool {
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
             let require_healthcheck =
-                server.last_healthcheck().elapsed().unwrap().as_millis() > healthcheck_delay;
+                server.last_activity().elapsed().unwrap().as_millis() > healthcheck_delay;
 
             if !require_healthcheck {
                 self.stats
