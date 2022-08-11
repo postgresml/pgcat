@@ -7,11 +7,11 @@ use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
-use crate::config::get_config;
+use crate::config::{get_config, Address};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{get_pool, ClientServerMap};
+use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
@@ -246,7 +246,7 @@ where
     }
 }
 
-/// Handle TLS connection negotation.
+/// Handle TLS connection negotiation.
 pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
@@ -259,14 +259,14 @@ pub async fn startup_tls(
     let mut stream = match tls.acceptor.accept(stream).await {
         Ok(stream) => stream,
 
-        // TLS negotitation failed.
+        // TLS negotiation failed.
         Err(err) => {
             error!("TLS negotiation failed: {:?}", err);
             return Err(Error::TlsError);
         }
     };
 
-    // TLS negotitation successful.
+    // TLS negotiation successful.
     // Continue with regular startup using encrypted connection.
     match get_startup::<TlsStream<TcpStream>>(&mut stream).await {
         // Got good startup message, proceeding like normal except we
@@ -540,21 +540,21 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let mut pool =
-                match get_pool(self.target_pool_name.clone(), self.target_user_name.clone()) {
-                    Some(pool) => pool,
-                    None => {
-                        error_response(
-                            &mut self.write,
-                            &format!(
-                                "No pool configured for database: {:?}, user: {:?}",
-                                self.target_pool_name, self.target_user_name
-                            ),
-                        )
-                        .await?;
-                        return Err(Error::ClientError);
-                    }
-                };
+            let pool = match get_pool(self.target_pool_name.clone(), self.target_user_name.clone())
+            {
+                Some(pool) => pool,
+                None => {
+                    error_response(
+                        &mut self.write,
+                        &format!(
+                            "No pool configured for database: {:?}, user: {:?}",
+                            self.target_pool_name, self.target_user_name
+                        ),
+                    )
+                    .await?;
+                    return Err(Error::ClientError);
+                }
+            };
             query_router.update_pool_settings(pool.settings.clone());
             let current_shard = query_router.shard();
 
@@ -731,12 +731,26 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        server.send(original).await?;
+                        self.send_server_message(
+                            server,
+                            original,
+                            &address,
+                            query_router.shard(),
+                            &pool,
+                        )
+                        .await?;
 
                         // Read all data the server has to offer, which can be multiple messages
                         // buffered in 8196 bytes chunks.
                         loop {
-                            let response = server.recv().await?;
+                            let response = self
+                                .receive_server_message(
+                                    server,
+                                    &address,
+                                    query_router.shard(),
+                                    &pool,
+                                )
+                                .await?;
 
                             // Send server reply to the client.
                             match write_all_half(&mut self.write, response).await {
@@ -816,14 +830,28 @@ where
 
                         self.buffer.put(&original[..]);
 
-                        server.send(self.buffer.clone()).await?;
+                        self.send_server_message(
+                            server,
+                            self.buffer.clone(),
+                            &address,
+                            query_router.shard(),
+                            &pool,
+                        )
+                        .await?;
 
                         self.buffer.clear();
 
                         // Read all data the server has to offer, which can be multiple messages
                         // buffered in 8196 bytes chunks.
                         loop {
-                            let response = server.recv().await?;
+                            let response = self
+                                .receive_server_message(
+                                    server,
+                                    &address,
+                                    query_router.shard(),
+                                    &pool,
+                                )
+                                .await?;
 
                             match write_all_half(&mut self.write, response).await {
                                 Ok(_) => (),
@@ -857,15 +885,31 @@ where
                     'd' => {
                         // Forward the data to the server,
                         // don't buffer it since it can be rather large.
-                        server.send(original).await?;
+                        self.send_server_message(
+                            server,
+                            original,
+                            &address,
+                            query_router.shard(),
+                            &pool,
+                        )
+                        .await?;
                     }
 
                     // CopyDone or CopyFail
                     // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        server.send(original).await?;
+                        self.send_server_message(
+                            server,
+                            original,
+                            &address,
+                            query_router.shard(),
+                            &pool,
+                        )
+                        .await?;
 
-                        let response = server.recv().await?;
+                        let response = self
+                            .receive_server_message(server, &address, query_router.shard(), &pool)
+                            .await?;
 
                         match write_all_half(&mut self.write, response).await {
                             Ok(_) => (),
@@ -906,6 +950,39 @@ where
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
+    }
+
+    async fn send_server_message(
+        &self,
+        server: &mut Server,
+        message: BytesMut,
+        address: &Address,
+        shard: usize,
+        pool: &ConnectionPool,
+    ) -> Result<(), Error> {
+        match server.send(message).await {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                pool.ban(address, shard, self.process_id);
+                Err(err)
+            }
+        }
+    }
+
+    async fn receive_server_message(
+        &self,
+        server: &mut Server,
+        address: &Address,
+        shard: usize,
+        pool: &ConnectionPool,
+    ) -> Result<BytesMut, Error> {
+        match server.recv().await {
+            Ok(message) => Ok(message),
+            Err(err) => {
+                pool.ban(address, shard, self.process_id);
+                Err(err)
+            }
+        }
     }
 }
 

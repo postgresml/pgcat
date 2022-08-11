@@ -121,6 +121,7 @@ pub struct General {
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub shutdown_timeout: u64,
+    pub healthcheck_delay: u64,
     pub ban_time: i64,
     pub autoreload: bool,
     pub tls_certificate: Option<String>,
@@ -138,6 +139,7 @@ impl Default for General {
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             shutdown_timeout: 60000,
+            healthcheck_delay: 30000,
             ban_time: 60,
             autoreload: false,
             tls_certificate: None,
@@ -281,6 +283,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 "shutdown_timeout".to_string(),
                 config.general.shutdown_timeout.to_string(),
             ),
+            (
+                "healthcheck_delay".to_string(),
+                config.general.healthcheck_delay.to_string(),
+            ),
             ("ban_time".to_string(), config.general.ban_time.to_string()),
         ];
 
@@ -299,6 +305,7 @@ impl Config {
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
+        info!("Healthcheck delay: {}ms", self.general.healthcheck_delay);
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);

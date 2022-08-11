@@ -2,6 +2,7 @@
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace};
+use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -58,6 +59,9 @@ pub struct Server {
 
     /// Application name using the server at the moment.
     application_name: String,
+
+    // Last time that a successful server send or response happened
+    last_activity: SystemTime,
 }
 
 impl Server {
@@ -316,6 +320,7 @@ impl Server {
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
                         application_name: String::new(),
+                        last_activity: SystemTime::now(),
                     };
 
                     server.set_name("pgcat").await?;
@@ -366,7 +371,11 @@ impl Server {
             .data_sent(messages.len(), self.process_id, self.address.id);
 
         match write_all_half(&mut self.write, messages).await {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                // Successfully sent to server
+                self.last_activity = SystemTime::now();
+                Ok(())
+            }
             Err(err) => {
                 error!("Terminating server because of: {:?}", err);
                 self.bad = true;
@@ -413,7 +422,7 @@ impl Server {
                             self.in_transaction = false;
                         }
 
-                        // Some error occured, the transaction was rolled back.
+                        // Some error occurred, the transaction was rolled back.
                         'E' => {
                             self.in_transaction = true;
                         }
@@ -473,6 +482,9 @@ impl Server {
 
         // Clear the buffer for next query.
         self.buffer.clear();
+
+        // Successfully received data from server
+        self.last_activity = SystemTime::now();
 
         // Pass the data back to the client.
         Ok(bytes)
@@ -563,6 +575,11 @@ impl Server {
     /// Get the server's unique identifier.
     pub fn process_id(&self) -> i32 {
         self.process_id
+    }
+
+    // Get server's latest response timestamp
+    pub fn last_activity(&self) -> SystemTime {
+        self.last_activity
     }
 }
 

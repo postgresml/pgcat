@@ -48,6 +48,7 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | `connect_timeout`       | Maximum time to establish a connection to a server (milliseconds). If reached, the server is banned and the next target is attempted.      | `5000`                           |
 | `healthcheck_timeout`   | Maximum time to pass a health check (`SELECT 1`, milliseconds). If reached, the server is banned and the next target is attempted.         | `1000`                           |
 | `shutdown_timeout`   | Maximum time to give clients during shutdown before forcibly killing client connections (ms).      | `60000`                           |
+| `healthcheck_delay`   | How long to keep connection available for immediate re-use, without running a healthcheck query on it       | `30000`                           |
 | `ban_time`              | Ban time for a server (seconds). It won't be allowed to serve transactions until the ban expires; failover targets will be used instead.   | `60`                             |
 |                         |                                                                                                                                            |                                  |
 | **`user`**              |                                                                                                                                            |                                  |
@@ -252,6 +253,7 @@ The config can be reloaded by sending a `kill -s SIGHUP` to the process or by qu
 | `connect_timeout`       | yes                  |
 | `healthcheck_timeout`   | no                   |
 | `shutdown_timeout`      | no                   |
+| `healthcheck_delay`     | no                   |
 | `ban_time`              | no                   |
 | `user`                  | yes                  |
 | `shards`                | yes                  |
