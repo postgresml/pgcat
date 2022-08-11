@@ -61,7 +61,7 @@ pub struct Server {
     application_name: String,
 
     // Last time that a successful server send or response happened
-    last_healthcheck: SystemTime,
+    last_activity: SystemTime,
 }
 
 impl Server {
@@ -320,7 +320,7 @@ impl Server {
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
                         application_name: String::new(),
-                        last_healthcheck: SystemTime::now(),
+                        last_activity: SystemTime::now(),
                     };
 
                     server.set_name("pgcat").await?;
@@ -373,7 +373,7 @@ impl Server {
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => {
                 // Successfully sent to server
-                self.last_healthcheck = SystemTime::now();
+                self.last_activity = SystemTime::now();
                 Ok(())
             }
             Err(err) => {
@@ -484,7 +484,7 @@ impl Server {
         self.buffer.clear();
 
         // Successfully received data from server
-        self.last_healthcheck = SystemTime::now();
+        self.last_activity = SystemTime::now();
 
         // Pass the data back to the client.
         Ok(bytes)
@@ -578,8 +578,8 @@ impl Server {
     }
 
     // Get server's latest response timestamp
-    pub fn last_healthcheck(&self) -> SystemTime {
-        self.last_healthcheck
+    pub fn last_activity(&self) -> SystemTime {
+        self.last_activity
     }
 }
 
