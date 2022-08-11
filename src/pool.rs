@@ -337,6 +337,7 @@ impl ConnectionPool {
                 return Ok((conn, address.clone()));
             }
 
+            debug!("Running health check for replica {}", index);
             self.stats.server_tested(server.process_id(), address.id);
 
             match tokio::time::timeout(
