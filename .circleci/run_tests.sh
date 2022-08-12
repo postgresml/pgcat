@@ -122,6 +122,8 @@ sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' .circleci/pgcat.toml
 # Reload config test
 kill -SIGHUP $(pgrep pgcat)
 
+sleep 1
+
 # Prepared statements that will only work in session mode
 pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
 
