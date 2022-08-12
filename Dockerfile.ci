@@ -4,3 +4,5 @@ RUN sudo apt-get update && \
 	sudo apt-get upgrade curl
 RUN cargo install cargo-binutils rustfilt && \
 	rustup component add llvm-tools-preview
+RUN pip3 install psycopg2 && \
+	sudo gem install bundler
