@@ -24,7 +24,7 @@ healthcheck_timeout = 100
 healthcheck_delay = 30000
 
 # How much time to give clients during shutdown before forcibly killing client connections (ms).
-shutdown_timeout = 500
+shutdown_timeout = 5000
 
 # For how long to ban a server if it fails a health check (seconds).
 ban_time = 60 # Seconds
