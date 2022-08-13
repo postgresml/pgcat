@@ -499,7 +499,7 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-        let mut round_robin = 0;
+        let mut round_robin = rand::random();
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
