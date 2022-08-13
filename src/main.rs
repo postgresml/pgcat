@@ -126,12 +126,18 @@ async fn main() {
 
     config.show();
 
-    // Tracks which client is connected to which server for query cancellation.
-    let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
-
     // Statistics reporting.
     let (tx, rx) = mpsc::channel(100);
     REPORTER.store(Arc::new(Reporter::new(tx.clone())));
+
+    // Statistics collector
+    let mut stats_collector = Collector::new(rx, tx.clone());
+    tokio::task::spawn(async move {
+        stats_collector.collect().await;
+    });
+
+    // Tracks which client is connected to which server for query cancellation.
+    let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
     // Connection pool that allows to query all shards and replicas.
     match ConnectionPool::from_config(client_server_map.clone()).await {
@@ -142,17 +148,9 @@ async fn main() {
         }
     };
 
-    // Statistics collector task.
-    let collector_tx = tx.clone();
-
     // Save these for reloading
     let reload_client_server_map = client_server_map.clone();
     let autoreload_client_server_map = client_server_map.clone();
-
-    tokio::task::spawn(async move {
-        let mut stats_collector = Collector::new(rx, collector_tx);
-        stats_collector.collect().await;
-    });
 
     info!("Waiting for clients");
 

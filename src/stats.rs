@@ -1,12 +1,19 @@
 use arc_swap::ArcSwap;
+use cadence::{
+    prelude::*, BufferedUdpMetricSink, BufferedUnixMetricSink, NopMetricSink, QueuingMetricSink,
+    StatsdClient,
+};
 /// Statistics and reporting.
-use log::info;
+use log::{info, error};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::env;
+use std::net::UdpSocket;
+use std::os::unix::net::UnixDatagram;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::pool::get_number_of_addresses;
+use crate::{config::get_config, pool::get_number_of_addresses};
 
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
     Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
@@ -267,6 +274,47 @@ impl Reporter {
     }
 }
 
+fn new_statsd_client() -> StatsdClient {
+    let config = get_config();
+    if config.general.use_statsd {
+        let statsd_prefix =
+            env::var("STATSD_PREFIX").expect("Missing STATSD_PREFIX environment variable");
+
+        // Prefer to use socket over udp
+        let sink = match env::var("STATSD_SOCKET") {
+            Ok(statsd_sock) => {
+                let socket = UnixDatagram::unbound().unwrap();
+                socket.set_nonblocking(true).unwrap();
+                let buffered_sink = BufferedUnixMetricSink::from(statsd_sock, socket);
+                QueuingMetricSink::from(buffered_sink)
+            }
+            Err(_) => {
+                let statsd_host =
+                    env::var("STATSD_HOST").expect("Missing STATSD_HOST environment variable");
+                let statsd_port = env::var("STATSD_PORT")
+                    .expect("Missing STATSD_PORT environment variable")
+                    .parse::<u16>()
+                    .unwrap();
+                // Try to create
+                let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+                socket.set_nonblocking(true).unwrap();
+                let buffered_sink =
+                    BufferedUdpMetricSink::from((statsd_host, statsd_port), socket).unwrap();
+                QueuingMetricSink::from(buffered_sink)
+            }
+        };
+        info!("Started Statsd Client");
+        let statsd_builder = StatsdClient::builder(&statsd_prefix, sink);
+
+        // TODO: Add default tags to client
+        statsd_builder.build()
+    } else {
+        println!("NOT THERE!");
+        // No-op client
+        StatsdClient::from_sink("prefix", NopMetricSink)
+    }
+}
+
 /// The statistics collector which is receiving statistics
 /// from clients, servers, and the connection pool. There is
 /// only one collector (kind of like a singleton).
@@ -276,13 +324,18 @@ impl Reporter {
 pub struct Collector {
     rx: Receiver<Event>,
     tx: Sender<Event>,
+    statsd_client: StatsdClient,
 }
 
 impl Collector {
     /// Create a new collector instance. There should only be one instance
     /// at a time. This is ensured by mpsc which allows only one receiver.
     pub fn new(rx: Receiver<Event>, tx: Sender<Event>) -> Collector {
-        Collector { rx, tx }
+        Collector {
+            rx,
+            tx,
+            statsd_client: new_statsd_client(),
+        }
     }
 
     /// The statistics collection handler. It will collect statistics
@@ -384,6 +437,16 @@ impl Collector {
             match stat.name {
                 EventName::Query => {
                     let counter = stats.entry("total_query_count").or_insert(0);
+                    if self
+                        .statsd_client
+                        .incr_with_tags("query_count")
+                        .with_tag("my_key", "my_value")
+                        .try_send()
+                        .is_err()
+                    {
+                        error!("Error sending query metrics to client");
+                    }
+
                     *counter += stat.value;
                 }
 
