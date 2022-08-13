@@ -100,6 +100,7 @@ pub struct User {
     pub username: String,
     pub password: String,
     pub pool_size: u32,
+    pub statement_timeout: u64,
 }
 
 impl Default for User {
@@ -108,6 +109,7 @@ impl Default for User {
             username: String::from("postgres"),
             password: String::new(),
             pool_size: 15,
+            statement_timeout: 0,
         }
     }
 }
@@ -326,6 +328,7 @@ impl Config {
         };
 
         for (pool_name, pool_config) in &self.pools {
+            // TODO: Make this output prettier (maybe a table?)
             info!("--- Settings for pool {} ---", pool_name);
             info!(
                 "Pool size from all users: {}",
@@ -340,8 +343,17 @@ impl Config {
             info!("Sharding function: {}", pool_config.sharding_function);
             info!("Primary reads: {}", pool_config.primary_reads_enabled);
             info!("Query router: {}", pool_config.query_parser_enabled);
+
+            // TODO: Make this prettier.
             info!("Number of shards: {}", pool_config.shards.len());
             info!("Number of users: {}", pool_config.users.len());
+
+            for user in &pool_config.users {
+                info!(
+                    "{} pool size: {}, statement timeout: {}",
+                    user.1.username, user.1.pool_size, user.1.statement_timeout
+                );
+            }
         }
     }
 }

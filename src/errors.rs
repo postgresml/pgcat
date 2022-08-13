@@ -11,4 +11,5 @@ pub enum Error {
     AllServersDown,
     ClientError,
     TlsError,
+    StatementTimeout,
 }

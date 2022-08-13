@@ -976,11 +976,39 @@ where
         shard: usize,
         pool: &ConnectionPool,
     ) -> Result<BytesMut, Error> {
-        match server.recv().await {
-            Ok(message) => Ok(message),
-            Err(err) => {
-                pool.ban(address, shard, self.process_id);
-                Err(err)
+        if pool.settings.user.statement_timeout > 0 {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(pool.settings.user.statement_timeout),
+                server.recv(),
+            )
+            .await
+            {
+                Ok(result) => match result {
+                    Ok(message) => Ok(message),
+                    Err(err) => {
+                        server.mark_bad();
+                        pool.ban(address, shard, self.process_id);
+                        Err(err)
+                    }
+                },
+                Err(_) => {
+                    error!(
+                        "Statement timeout while talking to {:?} with user {}",
+                        address, pool.settings.user.username
+                    );
+                    pool.ban(address, shard, self.process_id);
+                    server.mark_bad();
+                    Err(Error::StatementTimeout)
+                }
+            }
+        } else {
+            match server.recv().await {
+                Ok(message) => Ok(message),
+                Err(err) => {
+                    pool.ban(address, shard, self.process_id);
+                    server.mark_bad();
+                    Err(err)
+                }
             }
         }
     }
