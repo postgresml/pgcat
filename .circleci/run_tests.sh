@@ -66,6 +66,18 @@ psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_te
 # Replica/primary selection & more sharding tests
 psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
 
+# Statement timeout tests
+sed -i 's/statement_timeout = 0/statement_timeout = 100/' .circleci/pgcat.toml
+kill -SIGHUP $(pgrep pgcat) # Reload config
+sleep 0.2
+
+# This should timeout
+(! psql -U sharding_user -e -h 127.0.0.1 -p 6432 -c 'select pg_sleep(0.5)')
+
+# Disable statement timeout
+sed -i 's/statement_timeout = 100/statement_timeout = 0/' .circleci/pgcat.toml
+kill -SIGHUP $(pgrep pgcat) # Reload config again
+
 #
 # ActiveRecord tests
 #

@@ -92,10 +92,14 @@ password = "sharding_user"
 # is the sum of pool_size across all users.
 pool_size = 9
 
+# Maximum query duration. Dangerous, but protetcts against DBs that died and a non-obvious way.
+statement_timeout = 0
+
 [pools.sharded_db.users.1]
 username = "other_user"
 password = "other_user"
 pool_size = 21
+statement_timeout = 15000
 
 # Shard 0
 [pools.sharded_db.shards.0]
@@ -133,6 +137,7 @@ sharding_function = "pg_bigint_hash"
 username = "simple_user"
 password = "simple_user"
 pool_size = 5
+statement_timeout = 0
 
 [pools.simple_db.shards.0]
 servers = [

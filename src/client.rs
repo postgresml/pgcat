@@ -499,7 +499,7 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-        let mut round_robin = 0;
+        let mut round_robin = rand::random();
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
@@ -970,17 +970,54 @@ where
     }
 
     async fn receive_server_message(
-        &self,
+        &mut self,
         server: &mut Server,
         address: &Address,
         shard: usize,
         pool: &ConnectionPool,
     ) -> Result<BytesMut, Error> {
-        match server.recv().await {
-            Ok(message) => Ok(message),
-            Err(err) => {
-                pool.ban(address, shard, self.process_id);
-                Err(err)
+        if pool.settings.user.statement_timeout > 0 {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(pool.settings.user.statement_timeout),
+                server.recv(),
+            )
+            .await
+            {
+                Ok(result) => match result {
+                    Ok(message) => Ok(message),
+                    Err(err) => {
+                        pool.ban(address, shard, self.process_id);
+                        error_response_terminal(
+                            &mut self.write,
+                            &format!("error receiving data from server: {:?}", err),
+                        )
+                        .await?;
+                        Err(err)
+                    }
+                },
+                Err(_) => {
+                    error!(
+                        "Statement timeout while talking to {:?} with user {}",
+                        address, pool.settings.user.username
+                    );
+                    server.mark_bad();
+                    pool.ban(address, shard, self.process_id);
+                    error_response_terminal(&mut self.write, "pool statement timeout").await?;
+                    Err(Error::StatementTimeout)
+                }
+            }
+        } else {
+            match server.recv().await {
+                Ok(message) => Ok(message),
+                Err(err) => {
+                    pool.ban(address, shard, self.process_id);
+                    error_response_terminal(
+                        &mut self.write,
+                        &format!("error receiving data from server: {:?}", err),
+                    )
+                    .await?;
+                    Err(err)
+                }
             }
         }
     }
