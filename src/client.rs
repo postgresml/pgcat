@@ -986,7 +986,6 @@ where
                 Ok(result) => match result {
                     Ok(message) => Ok(message),
                     Err(err) => {
-                        server.mark_bad();
                         pool.ban(address, shard, self.process_id);
                         error_response_terminal(
                             &mut self.write,
@@ -1011,7 +1010,6 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    server.mark_bad();
                     pool.ban(address, shard, self.process_id);
                     error_response_terminal(
                         &mut self.write,
