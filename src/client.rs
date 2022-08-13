@@ -988,7 +988,11 @@ where
                     Err(err) => {
                         server.mark_bad();
                         pool.ban(address, shard, self.process_id);
-                        error_response_terminal(&mut self.write, "pool statement timeout").await?;
+                        error_response_terminal(
+                            &mut self.write,
+                            &format!("error receiving data from server: {:?}", err),
+                        )
+                        .await?;
                         Err(err)
                     }
                 },
@@ -1009,7 +1013,11 @@ where
                 Err(err) => {
                     server.mark_bad();
                     pool.ban(address, shard, self.process_id);
-                    error_response_terminal(&mut self.write, "pool statement timeout").await?;
+                    error_response_terminal(
+                        &mut self.write,
+                        &format!("error receiving data from server: {:?}", err),
+                    )
+                    .await?;
                     Err(err)
                 }
             }
