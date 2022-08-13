@@ -21,7 +21,7 @@ connect_timeout = 5000
 healthcheck_timeout = 1000
 
 # How long to keep connection available for immediate re-use, without running a healthcheck query on it
-healthcheck_delay = 1000
+healthcheck_delay = 30000
 
 # How much time to give clients during shutdown before forcibly killing client connections (ms).
 shutdown_timeout = 60000
