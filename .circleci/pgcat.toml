@@ -88,7 +88,7 @@ password = "sharding_user"
 # The maximum number of connection from a single Pgcat process to any database in the cluster
 # is the sum of pool_size across all users.
 pool_size = 9
-statement_timeout = 30000
+statement_timeout = 0
 
 [pools.sharded_db.users.1]
 username = "other_user"
