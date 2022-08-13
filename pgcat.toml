@@ -90,7 +90,7 @@ password = "sharding_user"
 pool_size = 9
 
 # Maximum query duration. Dangerous, but protetcts against DBs that died and a non-obvious way.
-statement_timeout = 500
+statement_timeout = 0
 
 [pools.sharded_db.users.1]
 username = "other_user"
