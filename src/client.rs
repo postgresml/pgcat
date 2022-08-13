@@ -970,7 +970,7 @@ where
     }
 
     async fn receive_server_message(
-        &self,
+        &mut self,
         server: &mut Server,
         address: &Address,
         shard: usize,
@@ -988,6 +988,7 @@ where
                     Err(err) => {
                         server.mark_bad();
                         pool.ban(address, shard, self.process_id);
+                        error_response_terminal(&mut self.write, "pool statement timeout").await?;
                         Err(err)
                     }
                 },
@@ -996,8 +997,9 @@ where
                         "Statement timeout while talking to {:?} with user {}",
                         address, pool.settings.user.username
                     );
-                    pool.ban(address, shard, self.process_id);
                     server.mark_bad();
+                    pool.ban(address, shard, self.process_id);
+                    error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(Error::StatementTimeout)
                 }
             }
@@ -1005,8 +1007,9 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    pool.ban(address, shard, self.process_id);
                     server.mark_bad();
+                    pool.ban(address, shard, self.process_id);
+                    error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(err)
                 }
             }
