@@ -38,30 +38,34 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 
 ### Config
 
-| **Name**                | **Description**                                                                                                                            | **Examples**                     |
-|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
-| **`general`**           |                                                                                                                                            |                                  |
-| `host`                  | The pooler will run on this host, 0.0.0.0 means accessible from everywhere.                                                                | `0.0.0.0`                        |
-| `port`                  | The pooler will run on this port.                                                                                                          | `6432`                           |
-| `pool_size`             | Maximum allowed server connections per pool. Pools are separated for each user/shard/server role. The connections are allocated as needed. | `15`                             |
-| `pool_mode`             | The pool mode to use, i.e. `session` or `transaction`.                                                                                     | `transaction`                    |
-| `connect_timeout`       | Maximum time to establish a connection to a server (milliseconds). If reached, the server is banned and the next target is attempted.      | `5000`                           |
-| `healthcheck_timeout`   | Maximum time to pass a health check (`SELECT 1`, milliseconds). If reached, the server is banned and the next target is attempted.         | `1000`                           |
-| `shutdown_timeout`   | Maximum time to give clients during shutdown before forcibly killing client connections (ms).      | `60000`                           |
-| `healthcheck_delay`   | How long to keep connection available for immediate re-use, without running a healthcheck query on it       | `30000`                           |
-| `ban_time`              | Ban time for a server (seconds). It won't be allowed to serve transactions until the ban expires; failover targets will be used instead.   | `60`                             |
-|                         |                                                                                                                                            |                                  |
-| **`user`**              |                                                                                                                                            |                                  |
-| `name`                  | The user name.                                                                                                                             | `sharding_user`                  |
-| `password`              | The user password in plaintext.                                                                                                            | `hunter2`                        |
-|                         |                                                                                                                                            |                                  |
-| **`shards`**            | Shards are numerically numbered starting from 0; the order in the config is preserved by the pooler to route queries accordingly.          | `[shards.0]`                     |
-| `servers`               | List of servers to connect to and their roles. A server is: `[host, port, role]`, where `role` is either `primary` or `replica`.           | `["127.0.0.1", 5432, "primary"]` |
-| `database`              | The name of the database to connect to. This is the same on all servers that are part of one shard.                                        |                                  |
-| **`query_router`**      |                                                                                                                                            |                                  |
-| `default_role`          | Traffic is routed to this role by default (round-robin), unless the client specifies otherwise. Default is `any`, for any role available.  | `any`, `primary`, `replica`      |
-| `query_parser_enabled`  | Enable the query parser which will inspect incoming queries and route them to a primary or replicas.                                       | `false`                          |
-| `primary_reads_enabled` | Enable this to allow read queries on the primary; otherwise read queries are routed to the replicas.                                       | `true`                           |
+| **Name**                     | **Description**                                                                                                                            | **Examples**                     |
+|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
+| **`general`**                |                                                                                                                                            |                                  |
+| `host`                       | The pooler will run on this host, 0.0.0.0 means accessible from everywhere.                                                                | `0.0.0.0`                        |
+| `port`                       | The pooler will run on this port.                                                                                                          | `6432`                           |
+| `enable_prometheus_exporter` | Enable prometheus exporter which will export metrics in prometheus exposition format.                                                      | `true`                           |
+| `prometheus_exporter_port`   | Port at which prometheus exporter listens on.                                                                                              | `9930`                           |
+| `pool_size`                  | Maximum allowed server connections per pool. Pools are separated for each user/shard/server role. The connections are allocated as needed. | `15`                             |
+| `pool_mode`                  | The pool mode to use, i.e. `session` or `transaction`.                                                                                     | `transaction`                    |
+| `connect_timeout`            | Maximum time to establish a connection to a server (milliseconds). If reached, the server is banned and the next target is attempted.      | `5000`                           |
+| `healthcheck_timeout`        | Maximum time to pass a health check (`SELECT 1`, milliseconds). If reached, the server is banned and the next target is attempted.         | `1000`                           |
+| `shutdown_timeout`           | Maximum time to give clients during shutdown before forcibly killing client connections (ms).                                              | `60000`                          |
+| `healthcheck_delay`          | How long to keep connection available for immediate re-use, without running a healthcheck query on it                                      | `30000`                          |
+| `ban_time`                   | Ban time for a server (seconds). It won't be allowed to serve transactions until the ban expires; failover targets will be used instead.   | `60`                             |
+| `autoreload`                 | Enable auto-reload of config after fixed time-interval.                                                                                    | `false`                          |
+|                              |                                                                                                                                            |                                  |
+| **`user`**                   |                                                                                                                                            |                                  |
+| `name`                       | The user name.                                                                                                                             | `sharding_user`                  |
+| `password`                   | The user password in plaintext.                                                                                                            | `hunter2`                        |
+|                              |                                                                                                                                            |                                  |
+| **`shards`**                 | Shards are numerically numbered starting from 0; the order in the config is preserved by the pooler to route queries accordingly.          | `[shards.0]`                     |
+| `servers`                    | List of servers to connect to and their roles. A server is: `[host, port, role]`, where `role` is either `primary` or `replica`.           | `["127.0.0.1", 5432, "primary"]` |
+| `database`                   | The name of the database to connect to. This is the same on all servers that are part of one shard.                                        |                                  |
+|                              |                                                                                                                                            |                                  |
+| **`query_router`**           |                                                                                                                                            |                                  |
+| `default_role`               | Traffic is routed to this role by default (round-robin), unless the client specifies otherwise. Default is `any`, for any role available.  | `any`, `primary`, `replica`      |
+| `query_parser_enabled`       | Enable the query parser which will inspect incoming queries and route them to a primary or replicas.                                       | `false`                          |
+| `primary_reads_enabled`      | Enable this to allow read queries on the primary; otherwise read queries are routed to the replicas.                                       | `true`                           |
 
 ## Local development
 

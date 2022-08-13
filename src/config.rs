@@ -118,6 +118,7 @@ pub struct General {
     pub host: String,
     pub port: i16,
     pub enable_prometheus_exporter: Option<bool>,
+    pub prometheus_exporter_port: i16,
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub shutdown_timeout: u64,
@@ -136,6 +137,7 @@ impl Default for General {
             host: String::from("localhost"),
             port: 5432,
             enable_prometheus_exporter: Some(false),
+            prometheus_exporter_port: 9930,
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             shutdown_timeout: 60000,
@@ -271,6 +273,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
         let mut static_settings = vec![
             ("host".to_string(), config.general.host.to_string()),
             ("port".to_string(), config.general.port.to_string()),
+            (
+                "prometheus_exporter_port".to_string(),
+                config.general.prometheus_exporter_port.to_string(),
+            ),
             (
                 "connect_timeout".to_string(),
                 config.general.connect_timeout.to_string(),
