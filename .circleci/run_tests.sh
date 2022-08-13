@@ -68,7 +68,7 @@ psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_te
 
 # Statement timeout tests
 sed -i 's/statement_timeout = 0/statement_timeout = 100/' .circleci/pgcat.toml
-kill -SIGHUP $(pgrep pgcat) # reload config
+kill -SIGHUP $(pgrep pgcat) # Reload config
 sleep 0.2
 
 # This should timeout
@@ -76,6 +76,7 @@ sleep 0.2
 
 # Disable statement timeout
 sed -i 's/statement_timeout = 100/statement_timeout = 0/' .circleci/pgcat.toml
+kill -SIGHUP $(pgrep pgcat) # Reload config again
 
 #
 # ActiveRecord tests
