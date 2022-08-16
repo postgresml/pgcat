@@ -80,21 +80,21 @@ impl Reporter {
         Reporter { tx: tx }
     }
 
+    /// Send statistics to the task keeping track of stats.
     fn send(&self, event: Event) {
         let name = event.name;
         let result = self.tx.try_send(event);
 
         match result {
-            Ok(_) => trace!("{:?} event reported successfully", name),
+            Ok(_) => trace!(
+                "{:?} event reported successfully, capacity: {}",
+                name,
+                self.tx.capacity()
+            ),
 
             Err(err) => match err {
-                TrySendError::Full { .. } => {
-                    error!("{:?} event dropped, buffer full", name);
-                }
-
-                TrySendError::Closed { .. } => {
-                    error!("{:?} event dropped, channel closed", name);
-                }
+                TrySendError::Full { .. } => error!("{:?} event dropped, buffer full", name),
+                TrySendError::Closed { .. } => error!("{:?} event dropped, channel closed", name),
             },
         };
     }
