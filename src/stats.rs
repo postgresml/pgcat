@@ -350,10 +350,6 @@ impl Collector {
         // Average update times
         let mut last_updated_avg: HashMap<usize, SystemTime> = HashMap::new();
 
-        for address_id in 0..get_number_of_addresses() {
-            last_updated_avg.insert(address_id, SystemTime::now());
-        }
-
         // Flush stats to StatsD and calculate averages every 15 seconds.
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
