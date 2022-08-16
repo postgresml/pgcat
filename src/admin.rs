@@ -44,7 +44,7 @@ where
 
     trace!("Admin query: {}", query);
 
-    let query_parts: Vec<&str> = query.split_whitespace().collect();
+    let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
     match query_parts[0] {
         "RELOAD" => {
