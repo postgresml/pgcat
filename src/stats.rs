@@ -305,6 +305,24 @@ impl Collector {
         Collector { rx, tx }
     }
 
+    fn send(tx: &Sender<Event>, event: Event) {
+        let name = event.name;
+        let result = tx.try_send(event);
+
+        match result {
+            Ok(_) => trace!(
+                "{:?} event reported successfully, capacity: {}",
+                name,
+                tx.capacity()
+            ),
+
+            Err(err) => match err {
+                TrySendError::Full { .. } => error!("{:?} event dropped, buffer full", name),
+                TrySendError::Closed { .. } => error!("{:?} event dropped, channel closed", name),
+            },
+        };
+    }
+
     /// The statistics collection handler. It will collect statistics
     /// for `address_id`s starting at 0 up to `addresses`.
     pub async fn collect(&mut self) {
@@ -354,12 +372,15 @@ impl Collector {
                 interval.tick().await;
                 let address_count = get_number_of_addresses();
                 for address_id in 0..address_count {
-                    let _ = tx.try_send(Event {
-                        name: EventName::UpdateStats,
-                        value: 0,
-                        process_id: -1,
-                        address_id: address_id,
-                    });
+                    Self::send(
+                        &tx,
+                        Event {
+                            name: EventName::UpdateStats,
+                            value: 0,
+                            process_id: -1,
+                            address_id: address_id,
+                        },
+                    );
                 }
             }
         });
@@ -372,12 +393,15 @@ impl Collector {
                 interval.tick().await;
                 let address_count = get_number_of_addresses();
                 for address_id in 0..address_count {
-                    let _ = tx.try_send(Event {
-                        name: EventName::UpdateAverages,
-                        value: 0,
-                        process_id: -1,
-                        address_id: address_id,
-                    });
+                    Self::send(
+                        &tx,
+                        Event {
+                            name: EventName::UpdateAverages,
+                            value: 0,
+                            process_id: -1,
+                            address_id: address_id,
+                        },
+                    );
                 }
             }
         });
