@@ -1,7 +1,7 @@
 use arc_swap::ArcSwap;
 use cadence::{
     prelude::*, BufferedUdpMetricSink, BufferedUnixMetricSink, NopMetricSink, QueuingMetricSink,
-    StatsdClient,
+    StatsdClient, MetricBuilder, Counter
 };
 /// Statistics and reporting.
 use log::{info, error, trace};
@@ -294,6 +294,27 @@ impl Reporter {
     }
 }
 
+trait SendStat {
+    fn send_increment(&self, name: &str, tags: HashMap<&str, &str>);
+
+    fn send_stat(&self, metric_builder: MetricBuilder<Counter>) {
+        // TODO: Move tagging logic here
+        if metric_builder.try_send().is_err() {
+            error!("Error sending query metrics to client");
+        }
+    }
+}
+
+impl SendStat for StatsdClient {
+    fn send_increment(&self, name: &str, tags: HashMap<&str, &str>) {
+        let mut metric_builder = self.incr_with_tags(name);
+        for (key, value) in tags.iter() {
+            metric_builder = metric_builder.with_tag(key, value);
+        }
+        self.send_stat(metric_builder);
+    }
+}
+
 fn new_statsd_client() -> StatsdClient {
     let config = get_config();
     if config.general.use_statsd {
@@ -457,15 +478,8 @@ impl Collector {
             match stat.name {
                 EventName::Query => {
                     let counter = stats.entry("total_query_count").or_insert(0);
-                    if self
-                        .statsd_client
-                        .incr_with_tags("query_count")
-                        .with_tag("my_key", "my_value")
-                        .try_send()
-                        .is_err()
-                    {
-                        error!("Error sending query metrics to client");
-                    }
+
+                    self.statsd_client.send_increment("query_count", HashMap::from([("my_key", "my_value"), ("other_key", "other_value")]));
 
                     *counter += stat.value;
                 }
@@ -588,7 +602,7 @@ impl Collector {
 
                 EventName::UpdateAverages => {
                     // Calculate averages
-                    for stat in &[
+                    for stat in [
                         "avg_query_count",
                         "avg_query_time",
                         "avg_recv",
@@ -598,7 +612,7 @@ impl Collector {
                         "avg_wait_time",
                     ] {
                         let total_name = match stat {
-                            &"avg_recv" => "total_received".to_string(), // Because PgBouncer is saving bytes
+                            "avg_recv" => "total_received".to_string(), // Because PgBouncer is saving bytes
                             _ => stat.replace("avg_", "total_"),
                         };
 
