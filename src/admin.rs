@@ -174,6 +174,7 @@ where
     let columns = vec![
         ("database", DataType::Text),
         ("user", DataType::Text),
+        ("cl_idle", DataType::Numeric),
         ("cl_active", DataType::Numeric),
         ("cl_waiting", DataType::Numeric),
         ("cl_cancel_req", DataType::Numeric),
