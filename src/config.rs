@@ -100,6 +100,7 @@ pub struct User {
     pub username: String,
     pub password: String,
     pub pool_size: u32,
+    pub statement_timeout: u64,
 }
 
 impl Default for User {
@@ -108,6 +109,7 @@ impl Default for User {
             username: String::from("postgres"),
             password: String::new(),
             pool_size: 15,
+            statement_timeout: 0,
         }
     }
 }
@@ -118,6 +120,7 @@ pub struct General {
     pub host: String,
     pub port: i16,
     pub enable_prometheus_exporter: Option<bool>,
+    pub prometheus_exporter_port: i16,
     pub connect_timeout: u64,
     pub healthcheck_timeout: u64,
     pub shutdown_timeout: u64,
@@ -137,6 +140,7 @@ impl Default for General {
             host: String::from("localhost"),
             port: 5432,
             enable_prometheus_exporter: Some(false),
+            prometheus_exporter_port: 9930,
             connect_timeout: 5000,
             healthcheck_timeout: 1000,
             shutdown_timeout: 60000,
@@ -274,6 +278,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
             ("host".to_string(), config.general.host.to_string()),
             ("port".to_string(), config.general.port.to_string()),
             (
+                "prometheus_exporter_port".to_string(),
+                config.general.prometheus_exporter_port.to_string(),
+            ),
+            (
                 "connect_timeout".to_string(),
                 config.general.connect_timeout.to_string(),
             ),
@@ -328,6 +336,7 @@ impl Config {
         };
 
         for (pool_name, pool_config) in &self.pools {
+            // TODO: Make this output prettier (maybe a table?)
             info!("--- Settings for pool {} ---", pool_name);
             info!(
                 "Pool size from all users: {}",
@@ -342,8 +351,17 @@ impl Config {
             info!("Sharding function: {}", pool_config.sharding_function);
             info!("Primary reads: {}", pool_config.primary_reads_enabled);
             info!("Query router: {}", pool_config.query_parser_enabled);
+
+            // TODO: Make this prettier.
             info!("Number of shards: {}", pool_config.shards.len());
             info!("Number of users: {}", pool_config.users.len());
+
+            for user in &pool_config.users {
+                info!(
+                    "{} pool size: {}, statement timeout: {}",
+                    user.1.username, user.1.pool_size, user.1.statement_timeout
+                );
+            }
         }
     }
 }

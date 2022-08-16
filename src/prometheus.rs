@@ -10,8 +10,6 @@ use crate::config::Address;
 use crate::pool::get_all_pools;
 use crate::stats::get_stats;
 
-pub const HTTP_PORT: usize = 9930;
-
 struct MetricHelpType {
     help: &'static str,
     ty: &'static str,
