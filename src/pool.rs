@@ -120,6 +120,8 @@ impl ConnectionPool {
                             role: role,
                             replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
+                            username: user_info.username.clone(),
+                            poolname: pool_name.clone(),
                         };
 
                         address_id += 1;

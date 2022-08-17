@@ -64,6 +64,8 @@ pub struct Address {
     pub database: String,
     pub role: Role,
     pub replica_number: usize,
+    pub username: String,
+    pub poolname: String,
 }
 
 impl Default for Address {
@@ -76,6 +78,9 @@ impl Default for Address {
             replica_number: 0,
             database: String::from("database"),
             role: Role::Replica,
+            username: String::from("username"),
+            poolname: String::from("poolname"),
+
         }
     }
 }
