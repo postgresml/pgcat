@@ -80,7 +80,6 @@ impl Default for Address {
             role: Role::Replica,
             username: String::from("username"),
             poolname: String::from("poolname"),
-
         }
     }
 }
