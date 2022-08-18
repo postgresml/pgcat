@@ -790,7 +790,7 @@ where
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
                         if server.in_transaction() {
-                            warn!("Client disconnect in transaction, resetting connection");
+                            warn!("Client disconnected in transaction, resetting server connection");
                             server.query("ROLLBACK").await?;
                             server.query("DISCARD ALL").await?;
                             server.set_name("pgcat").await?;
