@@ -759,9 +759,13 @@ where
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
                         if server.in_transaction() {
-                            server.query("ROLLBACK").await?;
-                            server.query("DISCARD ALL").await?;
-                            server.set_name("pgcat").await?;
+                            // server.query("ROLLBACK").await?;
+                            // server.query("DISCARD ALL").await?;
+                            // server.set_name("pgcat").await?;
+
+                            // TODO: Figure out a clever way to ensure
+                            // the server has no more messages for us.
+                            server.mark_bad();
                         }
 
                         self.release();
