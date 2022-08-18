@@ -5,7 +5,7 @@ use cadence::{
     QueuingMetricSink, StatsdClient,
 };
 /// Statistics and reporting.
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -307,7 +307,7 @@ trait SendStat {
     fn submit_count_stat(&self, metric_builder: MetricBuilder<cadence::Counter>) {
         // TODO: Move tagging logic here
         if metric_builder.try_send().is_err() {
-            error!("Error sending query metrics to client");
+            warn!("Error sending query metrics to client");
         }
     }
 }
@@ -326,14 +326,14 @@ impl SendStat for StatsdClient {
     fn send_time(&self, name: &str, time: u64) {
         let metric_builder = self.time_with_tags(name, time);
         if metric_builder.try_send().is_err() {
-            error!("Error sending query metrics to client");
+            warn!("Error sending query metrics to client");
         }
     }
 
     fn send_gauge(&self, name: &str, value: u64) {
         let metric_builder = self.gauge_with_tags(name, value);
         if metric_builder.try_send().is_err() {
-            error!("Error sending query metrics to client");
+            warn!("Error sending query metrics to client");
         }
     }
 }

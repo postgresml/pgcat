@@ -703,7 +703,7 @@ where
                             // Clean up the server and re-use it.
                             // This prevents connection thrashing by bad clients.
                             if server.in_transaction() {
-                                warn!("Client disconnected in transaction, resetting server connection");
+                                warn!("Could not read from client with server still in transaction, resetting connection");
                                 server.query("ROLLBACK").await?;
                                 server.query("DISCARD ALL").await?;
                                 server.set_name("pgcat").await?;
@@ -790,7 +790,7 @@ where
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
                         if server.in_transaction() {
-                            warn!("Client disconnected in transaction, resetting server connection");
+                            warn!("Client terminate received with server in transaction, resetting connection");
                             server.query("ROLLBACK").await?;
                             server.query("DISCARD ALL").await?;
                             server.set_name("pgcat").await?;
