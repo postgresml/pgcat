@@ -1,10 +1,11 @@
 use arc_swap::ArcSwap;
+use cadence;
 use cadence::{
-    prelude::*, BufferedUdpMetricSink, BufferedUnixMetricSink, NopMetricSink, QueuingMetricSink,
-    StatsdClient, MetricBuilder, Counter
+    prelude::*, BufferedUdpMetricSink, BufferedUnixMetricSink, MetricBuilder, NopMetricSink,
+    QueuingMetricSink, StatsdClient,
 };
 /// Statistics and reporting.
-use log::{info, error, trace};
+use log::{error, info, trace};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -160,7 +161,7 @@ impl Reporter {
 
     /// Time spent waiting to get a healthy connection from the pool
     /// for a server identified by `address_id`.
-    /// Measured in milliseconds.
+    /// Measured in microseconds.
     pub fn checkout_time(&self, ms: u128, process_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::CheckoutTime,
@@ -295,9 +296,15 @@ impl Reporter {
 }
 
 trait SendStat {
-    fn send_increment(&self, name: &str, tags: HashMap<&str, &str>);
+    fn send_increment(&self, name: &str);
 
-    fn send_stat(&self, metric_builder: MetricBuilder<Counter>) {
+    fn send_count(&self, name: &str, count: i64);
+
+    fn send_time(&self, name: &str, time: u64);
+
+    fn send_gauge(&self, name: &str, value: u64);
+
+    fn submit_count_stat(&self, metric_builder: MetricBuilder<cadence::Counter>) {
         // TODO: Move tagging logic here
         if metric_builder.try_send().is_err() {
             error!("Error sending query metrics to client");
@@ -306,12 +313,28 @@ trait SendStat {
 }
 
 impl SendStat for StatsdClient {
-    fn send_increment(&self, name: &str, tags: HashMap<&str, &str>) {
-        let mut metric_builder = self.incr_with_tags(name);
-        for (key, value) in tags.iter() {
-            metric_builder = metric_builder.with_tag(key, value);
+    fn send_increment(&self, name: &str) {
+        let metric_builder: MetricBuilder<cadence::Counter> = self.incr_with_tags(name);
+        self.submit_count_stat(metric_builder);
+    }
+
+    fn send_count(&self, name: &str, count: i64) {
+        let metric_builder = self.count_with_tags(name, count);
+        self.submit_count_stat(metric_builder);
+    }
+
+    fn send_time(&self, name: &str, time: u64) {
+        let metric_builder = self.time_with_tags(name, time);
+        if metric_builder.try_send().is_err() {
+            error!("Error sending query metrics to client");
         }
-        self.send_stat(metric_builder);
+    }
+
+    fn send_gauge(&self, name: &str, value: u64) {
+        let metric_builder = self.gauge_with_tags(name, value);
+        if metric_builder.try_send().is_err() {
+            error!("Error sending query metrics to client");
+        }
     }
 }
 
@@ -350,7 +373,6 @@ fn new_statsd_client() -> StatsdClient {
         // TODO: Add default tags to client
         statsd_builder.build()
     } else {
-        println!("NOT THERE!");
         // No-op client
         StatsdClient::from_sink("prefix", NopMetricSink)
     }
@@ -477,29 +499,37 @@ impl Collector {
             // Some are counters, some are gauges...
             match stat.name {
                 EventName::Query => {
+                    self.statsd_client.send_increment("query_count");
+
                     let counter = stats.entry("total_query_count").or_insert(0);
-
-                    self.statsd_client.send_increment("query_count", HashMap::from([("my_key", "my_value"), ("other_key", "other_value")]));
-
                     *counter += stat.value;
                 }
 
                 EventName::Transaction => {
+                    self.statsd_client.send_increment("tx_count");
+
                     let counter = stats.entry("total_xact_count").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataSent => {
+                    self.statsd_client.send_count("bytes_sent", stat.value);
+
                     let counter = stats.entry("total_sent").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataReceived => {
+                    self.statsd_client.send_count("bytes_received", stat.value);
+
                     let counter = stats.entry("total_received").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::CheckoutTime => {
+                    self.statsd_client
+                        .send_time("server_checkout_time", stat.value as u64);
+
                     let counter = stats.entry("total_wait_time").or_insert(0);
                     *counter += stat.value;
 
@@ -579,6 +609,7 @@ impl Collector {
                     // Update latest stats used in SHOW STATS
                     let mut guard = LATEST_STATS.lock();
                     for (key, value) in stats.iter() {
+                        self.statsd_client.send_gauge(key, value.clone() as u64);
                         let entry = guard.entry(stat.address_id).or_insert(HashMap::new());
                         entry.insert(key.to_string(), value.clone());
                     }
