@@ -730,7 +730,15 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, original, server, &address, query_router.shard(), &pool).await?;
+                        self.send_and_receive_loop(
+                            code,
+                            original,
+                            server,
+                            &address,
+                            query_router.shard(),
+                            &pool,
+                        )
+                        .await?;
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
@@ -792,10 +800,17 @@ where
 
                         self.buffer.put(&original[..]);
 
-                        self.send_and_receive_loop(code, self.buffer.clone(), server, &address, query_router.shard(), &pool).await?;
+                        self.send_and_receive_loop(
+                            code,
+                            self.buffer.clone(),
+                            server,
+                            &address,
+                            query_router.shard(),
+                            &pool,
+                        )
+                        .await?;
 
                         self.buffer.clear();
-
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, address.id);
@@ -888,7 +903,6 @@ where
         shard: usize,
         pool: &ConnectionPool,
     ) -> Result<(), Error> {
-
         debug!("Sending {} to server", code);
 
         self.send_server_message(server, message, &address, shard, &pool)
