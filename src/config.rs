@@ -131,7 +131,7 @@ pub struct General {
     pub tls_private_key: Option<String>,
     pub admin_username: String,
     pub admin_password: String,
-    pub use_statsd: bool,
+    pub enable_statsd: bool,
 }
 
 impl Default for General {
@@ -151,7 +151,7 @@ impl Default for General {
             tls_private_key: None,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
-            use_statsd: false,
+            enable_statsd: false,
         }
     }
 }

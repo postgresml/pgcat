@@ -340,7 +340,7 @@ impl SendStat for StatsdClient {
 
 fn new_statsd_client() -> StatsdClient {
     let config = get_config();
-    if config.general.use_statsd {
+    if config.general.enable_statsd {
         let statsd_prefix =
             env::var("STATSD_PREFIX").expect("Missing STATSD_PREFIX environment variable");
 

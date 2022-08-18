@@ -45,6 +45,7 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | `port`                       | The pooler will run on this port.                                                                                                          | `6432`                           |
 | `enable_prometheus_exporter` | Enable prometheus exporter which will export metrics in prometheus exposition format.                                                      | `true`                           |
 | `prometheus_exporter_port`   | Port at which prometheus exporter listens on.                                                                                              | `9930`                           |
+| `enable_statsd` | Enable statsd metrics which can                                                      | `false`                           |
 | `pool_size`                  | Maximum allowed server connections per pool. Pools are separated for each user/shard/server role. The connections are allocated as needed. | `15`                             |
 | `pool_mode`                  | The pool mode to use, i.e. `session` or `transaction`.                                                                                     | `transaction`                    |
 | `connect_timeout`            | Maximum time to establish a connection to a server (milliseconds). If reached, the server is banned and the next target is attempted.      | `5000`                           |
@@ -66,6 +67,22 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | `default_role`               | Traffic is routed to this role by default (round-robin), unless the client specifies otherwise. Default is `any`, for any role available.  | `any`, `primary`, `replica`      |
 | `query_parser_enabled`       | Enable the query parser which will inspect incoming queries and route them to a primary or replicas.                                       | `false`                          |
 | `primary_reads_enabled`      | Enable this to allow read queries on the primary; otherwise read queries are routed to the replicas.                                       | `true`                           |
+
+## Statsd Configuration
+If `enable_statsd` is set to true, then the following environment variables will need to be set:
+
+`STATSD_PREFIX`: Prefix for all metrics (eg. "pgcat.")
+
+Unix Socket:
+
+`STATSD_SOCKET`: Unix socket path to connect to (eg. "/run/statsd.sock")
+
+UDP:
+
+`STATSD_HOST`: Host of statsd server (eg. "localhost")
+
+`STATSD_PORT`: Port of statsd server (eg. "8125")
+
 
 ## Local development
 
