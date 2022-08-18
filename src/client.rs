@@ -1,6 +1,6 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -703,6 +703,7 @@ where
                             // Clean up the server and re-use it.
                             // This prevents connection thrashing by bad clients.
                             if server.in_transaction() {
+                                warn!("Client disconnect in transaction, resetting connection");
                                 server.query("ROLLBACK").await?;
                                 server.query("DISCARD ALL").await?;
                                 server.set_name("pgcat").await?;
@@ -789,6 +790,7 @@ where
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
                         if server.in_transaction() {
+                            warn!("Client disconnect in transaction, resetting connection");
                             server.query("ROLLBACK").await?;
                             server.query("DISCARD ALL").await?;
                             server.set_name("pgcat").await?;
