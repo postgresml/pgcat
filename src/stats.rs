@@ -340,6 +340,10 @@ impl SendStat for StatsdClient {
 
 fn new_statsd_client() -> StatsdClient {
     let config = get_config();
+
+    // Queue with a maximum capacity of 128K elements
+    const QUEUE_SIZE: usize = 128 * 1024;
+
     if config.general.enable_statsd {
         let statsd_prefix =
             env::var("STATSD_PREFIX").expect("Missing STATSD_PREFIX environment variable");
@@ -350,7 +354,7 @@ fn new_statsd_client() -> StatsdClient {
                 let socket = UnixDatagram::unbound().unwrap();
                 socket.set_nonblocking(true).unwrap();
                 let buffered_sink = BufferedUnixMetricSink::from(statsd_sock, socket);
-                QueuingMetricSink::from(buffered_sink)
+                QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE)
             }
             Err(_) => {
                 let statsd_host =
@@ -364,7 +368,7 @@ fn new_statsd_client() -> StatsdClient {
                 socket.set_nonblocking(true).unwrap();
                 let buffered_sink =
                     BufferedUdpMetricSink::from((statsd_host, statsd_port), socket).unwrap();
-                QueuingMetricSink::from(buffered_sink)
+                QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE)
             }
         };
         info!("Started Statsd Client");
