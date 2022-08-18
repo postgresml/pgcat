@@ -114,12 +114,14 @@ impl ConnectionPool {
 
                         let address = Address {
                             id: address_id,
-                            database: pool_name.clone(),
+                            database: shard.database.clone(),
                             host: server.0.clone(),
                             port: server.1.to_string(),
                             role: role,
                             replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
+                            username: user_info.username.clone(),
+                            poolname: pool_name.clone(),
                         };
 
                         address_id += 1;
@@ -333,7 +335,7 @@ impl ConnectionPool {
             if !require_healthcheck {
                 self.stats
                     .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                self.stats.server_idle(conn.process_id(), address.id);
+                self.stats.server_active(conn.process_id(), address.id);
                 return Ok((conn, address.clone()));
             }
 
@@ -352,7 +354,7 @@ impl ConnectionPool {
                     Ok(_) => {
                         self.stats
                             .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                        self.stats.server_idle(conn.process_id(), address.id);
+                        self.stats.server_active(conn.process_id(), address.id);
                         return Ok((conn, address.clone()));
                     }
 

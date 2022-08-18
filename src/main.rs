@@ -133,7 +133,7 @@ async fn main() {
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
     // Statistics reporting.
-    let (tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100_000);
     REPORTER.store(Arc::new(Reporter::new(tx.clone())));
 
     // Connection pool that allows to query all shards and replicas.

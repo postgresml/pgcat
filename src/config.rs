@@ -64,6 +64,8 @@ pub struct Address {
     pub database: String,
     pub role: Role,
     pub replica_number: usize,
+    pub username: String,
+    pub poolname: String,
 }
 
 impl Default for Address {
@@ -76,6 +78,8 @@ impl Default for Address {
             replica_number: 0,
             database: String::from("database"),
             role: Role::Replica,
+            username: String::from("username"),
+            poolname: String::from("poolname"),
         }
     }
 }
@@ -84,11 +88,11 @@ impl Address {
     /// Address name (aka database) used in `SHOW STATS`, `SHOW DATABASES`, and `SHOW POOLS`.
     pub fn name(&self) -> String {
         match self.role {
-            Role::Primary => format!("{}_shard_{}_primary", self.database, self.shard),
+            Role::Primary => format!("{}_shard_{}_primary", self.poolname, self.shard),
 
             Role::Replica => format!(
                 "{}_shard_{}_replica_{}",
-                self.database, self.shard, self.replica_number
+                self.poolname, self.shard, self.replica_number
             ),
         }
     }
