@@ -606,10 +606,14 @@ impl Collector {
                         };
                     }
 
+                    // Send state stats to statsd
+                    for (key, value) in stats.iter() {
+                        self.statsd_client.send_gauge(key, value.clone() as u64);
+                    }
+
                     // Update latest stats used in SHOW STATS
                     let mut guard = LATEST_STATS.lock();
                     for (key, value) in stats.iter() {
-                        self.statsd_client.send_gauge(key, value.clone() as u64);
                         let entry = guard.entry(stat.address_id).or_insert(HashMap::new());
                         entry.insert(key.to_string(), value.clone());
                     }
