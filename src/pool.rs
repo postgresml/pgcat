@@ -114,12 +114,14 @@ impl ConnectionPool {
 
                         let address = Address {
                             id: address_id,
-                            database: pool_name.clone(),
+                            database: shard.database.clone(),
                             host: server.0.clone(),
                             port: server.1.to_string(),
                             role: role,
                             replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
+                            username: user_info.username.clone(),
+                            poolname: pool_name.clone(),
                         };
 
                         address_id += 1;
