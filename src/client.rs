@@ -35,6 +35,10 @@ pub struct Client<S, T> {
     /// better than a stock buffer.
     write: T,
 
+    /// Internal buffer, where we place messages until we have to flush
+    /// them to the backend.
+    buffer: BytesMut,
+
     /// Address
     addr: std::net::SocketAddr,
 
@@ -411,6 +415,7 @@ where
             read: BufReader::new(read),
             write: write,
             addr,
+            buffer: BytesMut::with_capacity(8196),
             cancel_mode: false,
             transaction_mode: transaction_mode,
             process_id: process_id,
@@ -442,6 +447,7 @@ where
             read: BufReader::new(read),
             write: write,
             addr,
+            buffer: BytesMut::with_capacity(8196),
             cancel_mode: true,
             transaction_mode: false,
             process_id: process_id,
@@ -697,10 +703,14 @@ where
                             // Client disconnected inside a transaction.
                             // Clean up the server and re-use it.
                             // This prevents connection thrashing by bad clients.
-                            if server.in_transaction() || has_buffered_packets {
+                            if server.in_transaction() {
                                 server.query("ROLLBACK").await?;
                                 server.query("DISCARD ALL").await?;
                                 server.set_name("pgcat").await?;
+                            }
+
+                            if has_buffered_packets {
+                                self.buffer.clear();
                             }
 
                             return Err(err);
@@ -754,10 +764,14 @@ where
                         // connection before releasing into the pool.
                         // Pgbouncer closes the connection which leads to
                         // connection thrashing when clients misbehave.
-                        if server.in_transaction() || has_buffered_packets {
+                        if server.in_transaction() {
                             server.query("ROLLBACK").await?;
                             server.query("DISCARD ALL").await?;
                             server.set_name("pgcat").await?;
+                        }
+
+                        if has_buffered_packets {
+                            self.buffer.clear();
                         }
 
                         self.release();
@@ -768,56 +782,28 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        self.send_server_message(
-                            server,
-                            original,
-                            &address,
-                            query_router.shard(),
-                            &pool,
-                        )
-                        .await?;
+                        self.buffer.put(&original[..]);
                         has_buffered_packets = true;
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        self.send_server_message(
-                            server,
-                            original,
-                            &address,
-                            query_router.shard(),
-                            &pool,
-                        )
-                        .await?;
+                        self.buffer.put(&original[..]);
                         has_buffered_packets = true;
                     }
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        self.send_server_message(
-                            server,
-                            original,
-                            &address,
-                            query_router.shard(),
-                            &pool,
-                        )
-                        .await?;
+                        self.buffer.put(&original[..]);
                         has_buffered_packets = true;
                     }
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        self.send_server_message(
-                            server,
-                            original,
-                            &address,
-                            query_router.shard(),
-                            &pool,
-                        )
-                        .await?;
+                        self.buffer.put(&original[..]);
                         has_buffered_packets = true;
                     }
 
@@ -826,9 +812,11 @@ where
                     'S' => {
                         debug!("Sending query to server");
 
+                        self.buffer.put(&original[..]);
+
                         self.send_and_receive_loop(
                             code,
-                            original,
+                            self.buffer.clone(),
                             server,
                             &address,
                             query_router.shard(),
@@ -836,6 +824,7 @@ where
                         )
                         .await?;
 
+                        self.buffer.clear();
                         has_buffered_packets = false;
 
                         if !server.in_transaction() {
