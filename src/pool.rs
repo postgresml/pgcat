@@ -1,6 +1,6 @@
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use bb8::{ManageConnection, Pool, PooledConnection};
+use bb8::{ManageConnection, Pool, PooledConnection, RunError};
 use bytes::BytesMut;
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
@@ -316,12 +316,19 @@ impl ConnectionPool {
             let mut conn = match self.databases[shard][index].get().await {
                 Ok(conn) => conn,
                 Err(err) => {
-                    error!("Banning replica {}, error: {:?}", index, err);
-                    self.ban(address, shard, process_id);
-                    self.stats.client_disconnecting(process_id, address.id);
-                    self.stats
-                        .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                    continue;
+
+                    match err {
+                        RunError::TimedOut => {
+                            warn!("Timed out trying to get connection from replica {}", index);
+                            continue;
+                        }
+                        RunError::User(err) => {
+                            error!("Could not get connection from pool, banning replica {}, error: {:?}", index, err);
+                            self.ban(address, shard, process_id);
+                            self.stats.client_disconnecting(process_id, address.id);
+                            continue;
+                        }
+                    }
                 }
             };
 
