@@ -316,7 +316,6 @@ impl ConnectionPool {
             let mut conn = match self.databases[shard][index].get().await {
                 Ok(conn) => conn,
                 Err(err) => {
-
                     match err {
                         RunError::TimedOut => {
                             warn!("Timed out trying to get connection from replica {}", index);
