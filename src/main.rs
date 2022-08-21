@@ -490,6 +490,7 @@ mod test {
                 }
                 sleep(time::Duration::from_millis(500));
             }
+            println!("Logs from failed process {}", self.get_logs());
             panic!("Server was never ready!");
         }
     }
