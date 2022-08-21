@@ -268,7 +268,7 @@ impl ConnectionPool {
                 None => break,
             };
 
-            if self.is_banned(&address, shard, role) {
+            if self.is_banned(&address, address.shard, role) {
                 continue;
             }
 
@@ -340,10 +340,10 @@ impl ConnectionPool {
                 },
 
                 // Health check timed out.
-                Err(_) => {
+                Err(err) => {
                     error!(
-                        "Banning instance {:?} because of health check timeout",
-                        address
+                        "Banning instance {:?} because of health check timeout, {:?}",
+                        address, err
                     );
                     // Don't leave a bad connection in the pool.
                     server.mark_bad();
