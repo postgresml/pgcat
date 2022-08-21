@@ -13,6 +13,7 @@ use toml;
 
 use crate::errors::Error;
 use crate::tls::{load_certs, load_keys};
+use crate::{ClientServerMap, ConnectionPool};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -524,6 +525,28 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
+pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
+    let old_config = get_config();
+    match parse(&old_config.path).await {
+        Ok(()) => (),
+        Err(err) => {
+            error!("Config reload error: {:?}", err);
+            return Err(Error::BadConfig);
+        }
+    };
+    let new_config = get_config();
+
+    if old_config.pools != new_config.pools {
+        info!("Pool configuration changed, re-creating server pools");
+        ConnectionPool::from_config(client_server_map).await?;
+        Ok(true)
+    } else if old_config != new_config {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -533,6 +556,7 @@ mod test {
         parse("pgcat.toml").await.unwrap();
 
         assert_eq!(get_config().path, "pgcat.toml".to_string());
+
         assert_eq!(get_config().general.ban_time, 60);
         assert_eq!(get_config().pools.len(), 2);
         assert_eq!(get_config().pools["sharded_db"].shards.len(), 3);

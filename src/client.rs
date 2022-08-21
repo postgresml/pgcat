@@ -630,11 +630,7 @@ where
 
             // Grab a server from the pool.
             let connection = match pool
-                .get(
-                    query_router.shard(),
-                    query_router.role(),
-                    self.process_id
-                )
+                .get(query_router.shard(), query_router.role(), self.process_id)
                 .await
             {
                 Ok(conn) => {
