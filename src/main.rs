@@ -341,7 +341,6 @@ fn format_duration(duration: &chrono::Duration) -> String {
     format!("{}d {}:{}:{}", days, hours, minutes, seconds)
 }
 
-
 mod test {
     extern crate postgres;
 
@@ -638,8 +637,7 @@ mod test {
 
     #[test]
     fn test_failover_load_balancing() {
-        let (main_pgcat, mut proxy_instances) =
-            single_shard_setup(3, String::from("shard0"), None);
+        let (main_pgcat, mut proxy_instances) = single_shard_setup(3, String::from("shard0"), None);
 
         let mut replica2 = proxy_instances.pop().unwrap();
         let mut replica1 = proxy_instances.pop().unwrap();
