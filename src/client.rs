@@ -663,7 +663,6 @@ where
                     .client_disconnecting(self.process_id, last_address_id);
             }
             self.stats.client_active(self.process_id, address.id);
-            self.stats.server_active(server.process_id(), address.id);
 
             self.last_address_id = Some(address.id);
             self.last_server_id = Some(server.process_id());
@@ -727,43 +726,15 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_server_message(
-                            server,
+                        self.send_and_receive_loop(
+                            code,
                             original,
+                            server,
                             &address,
                             query_router.shard(),
                             &pool,
                         )
                         .await?;
-
-                        // Read all data the server has to offer, which can be multiple messages
-                        // buffered in 8196 bytes chunks.
-                        loop {
-                            let response = self
-                                .receive_server_message(
-                                    server,
-                                    &address,
-                                    query_router.shard(),
-                                    &pool,
-                                )
-                                .await?;
-
-                            // Send server reply to the client.
-                            match write_all_half(&mut self.write, response).await {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    server.mark_bad();
-                                    return Err(err);
-                                }
-                            };
-
-                            if !server.is_data_available() {
-                                break;
-                            }
-                        }
-
-                        // Report query executed statistics.
-                        self.stats.query(self.process_id, address.id);
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
@@ -772,7 +743,6 @@ where
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
-                                self.stats.server_idle(server.process_id(), address.id);
                                 break;
                             }
                         }
@@ -826,9 +796,10 @@ where
 
                         self.buffer.put(&original[..]);
 
-                        self.send_server_message(
-                            server,
+                        self.send_and_receive_loop(
+                            code,
                             self.buffer.clone(),
+                            server,
                             &address,
                             query_router.shard(),
                             &pool,
@@ -837,41 +808,12 @@ where
 
                         self.buffer.clear();
 
-                        // Read all data the server has to offer, which can be multiple messages
-                        // buffered in 8196 bytes chunks.
-                        loop {
-                            let response = self
-                                .receive_server_message(
-                                    server,
-                                    &address,
-                                    query_router.shard(),
-                                    &pool,
-                                )
-                                .await?;
-
-                            match write_all_half(&mut self.write, response).await {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    server.mark_bad();
-                                    return Err(err);
-                                }
-                            };
-
-                            if !server.is_data_available() {
-                                break;
-                            }
-                        }
-
-                        // Report query executed statistics.
-                        self.stats.query(self.process_id, address.id);
-
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, address.id);
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
-                                self.stats.server_idle(server.process_id(), address.id);
                                 break;
                             }
                         }
@@ -921,7 +863,6 @@ where
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
                             if self.transaction_mode {
-                                self.stats.server_idle(server.process_id(), address.id);
                                 break;
                             }
                         }
@@ -937,6 +878,7 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
+            self.stats.server_idle(server.process_id(), address.id);
             self.release();
             self.stats.client_idle(self.process_id, address.id);
         }
@@ -946,6 +888,46 @@ where
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
+    }
+
+    async fn send_and_receive_loop(
+        &mut self,
+        code: char,
+        message: BytesMut,
+        server: &mut Server,
+        address: &Address,
+        shard: usize,
+        pool: &ConnectionPool,
+    ) -> Result<(), Error> {
+        debug!("Sending {} to server", code);
+
+        self.send_server_message(server, message, &address, shard, &pool)
+            .await?;
+
+        // Read all data the server has to offer, which can be multiple messages
+        // buffered in 8196 bytes chunks.
+        loop {
+            let response = self
+                .receive_server_message(server, &address, shard, &pool)
+                .await?;
+
+            match write_all_half(&mut self.write, response).await {
+                Ok(_) => (),
+                Err(err) => {
+                    server.mark_bad();
+                    return Err(err);
+                }
+            };
+
+            if !server.is_data_available() {
+                break;
+            }
+        }
+
+        // Report query executed statistics.
+        self.stats.query(self.process_id, address.id);
+
+        Ok(())
     }
 
     async fn send_server_message(
