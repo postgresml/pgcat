@@ -114,12 +114,14 @@ impl ConnectionPool {
 
                         let address = Address {
                             id: address_id,
-                            database: pool_name.clone(),
+                            database: shard.database.clone(),
                             host: server.0.clone(),
                             port: server.1.to_string(),
                             role: role,
                             replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
+                            username: user_info.username.clone(),
+                            poolname: pool_name.clone(),
                         };
 
                         address_id += 1;
@@ -199,16 +201,9 @@ impl ConnectionPool {
     /// the pooler starts up.
     async fn validate(&mut self) -> Result<(), Error> {
         let mut server_infos = Vec::new();
-        let stats = self.stats.clone();
-
         for shard in 0..self.shards() {
-            let mut round_robin = 0;
-
-            for _ in 0..self.servers(shard) {
-                // To keep stats consistent.
-                let fake_process_id = 0;
-
-                let connection = match self.get(shard, None, fake_process_id, round_robin).await {
+            for index in 0..self.servers(shard) {
+                let connection = match self.databases[shard][index].get().await {
                     Ok(conn) => conn,
                     Err(err) => {
                         error!("Shard {} down or misconfigured: {:?}", shard, err);
@@ -216,25 +211,20 @@ impl ConnectionPool {
                     }
                 };
 
-                let proxy = connection.0;
-                let address = connection.1;
+                let proxy = connection;
                 let server = &*proxy;
                 let server_info = server.server_info();
-
-                stats.client_disconnecting(fake_process_id, address.id);
 
                 if server_infos.len() > 0 {
                     // Compare against the last server checked.
                     if server_info != server_infos[server_infos.len() - 1] {
                         warn!(
                             "{:?} has different server configuration than the last server",
-                            address
+                            proxy.address()
                         );
                     }
                 }
-
                 server_infos.push(server_info);
-                round_robin += 1;
             }
         }
 
@@ -252,13 +242,13 @@ impl ConnectionPool {
     /// Get a connection from the pool.
     pub async fn get(
         &self,
-        shard: usize,           // shard number
-        role: Option<Role>,     // primary or replica
-        process_id: i32,        // client id
-        mut round_robin: usize, // round robin offset
+        shard: usize,                  // shard number
+        role: Option<Role>,            // primary or replica
+        process_id: i32,               // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
         let addresses = &self.addresses[shard];
+
 
         let mut allowed_attempts = match role {
             // Primary-specific queries get one attempt, if the primary is down,
@@ -287,10 +277,7 @@ impl ConnectionPool {
         let healthcheck_delay = get_config().general.healthcheck_delay as u128;
 
         while allowed_attempts > 0 {
-            // Round-robin replicas.
-            round_robin += 1;
-
-            let index = round_robin % addresses.len();
+            let index = rand::random::<usize>() % addresses.len();
             let address = &addresses[index];
 
             // Make sure you're getting a primary or a replica
@@ -300,12 +287,12 @@ impl ConnectionPool {
                 continue;
             }
 
-            allowed_attempts -= 1;
-
             // Don't attempt to connect to banned servers.
             if self.is_banned(address, shard, role) {
                 continue;
             }
+
+            allowed_attempts -= 1;
 
             // Indicate we're waiting on a server connection from a pool.
             self.stats.client_waiting(process_id, address.id);
@@ -333,7 +320,7 @@ impl ConnectionPool {
             if !require_healthcheck {
                 self.stats
                     .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                self.stats.server_idle(conn.process_id(), address.id);
+                self.stats.server_active(conn.process_id(), address.id);
                 return Ok((conn, address.clone()));
             }
 
@@ -352,7 +339,7 @@ impl ConnectionPool {
                     Ok(_) => {
                         self.stats
                             .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                        self.stats.server_idle(conn.process_id(), address.id);
+                        self.stats.server_active(conn.process_id(), address.id);
                         return Ok((conn, address.clone()));
                     }
 

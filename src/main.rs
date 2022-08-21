@@ -36,6 +36,7 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
+use config::parse;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
@@ -65,7 +66,8 @@ mod sharding;
 mod stats;
 mod tls;
 
-use crate::config::{get_config, reload_config, VERSION};
+use crate::config::{get_config, VERSION};
+use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
@@ -133,7 +135,7 @@ async fn main() {
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
     // Statistics reporting.
-    let (tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100_000);
     REPORTER.store(Arc::new(Reporter::new(tx.clone())));
 
     // Connection pool that allows to query all shards and replicas.
@@ -339,4 +341,26 @@ fn format_duration(duration: &chrono::Duration) -> String {
     let days = duration.num_days().to_string();
 
     format!("{}d {}:{}:{}", days, hours, minutes, seconds)
+}
+
+async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
+    let old_config = get_config();
+    match parse(&old_config.path).await {
+        Ok(()) => (),
+        Err(err) => {
+            error!("Config reload error: {:?}", err);
+            return Err(Error::BadConfig);
+        }
+    };
+    let new_config = get_config();
+
+    if old_config.pools != new_config.pools {
+        info!("Pool configuration changed, re-creating server pools");
+        ConnectionPool::from_config(client_server_map).await?;
+        Ok(true)
+    } else if old_config != new_config {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }

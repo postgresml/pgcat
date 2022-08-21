@@ -13,7 +13,6 @@ use toml;
 
 use crate::errors::Error;
 use crate::tls::{load_certs, load_keys};
-use crate::{ClientServerMap, ConnectionPool};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -64,6 +63,8 @@ pub struct Address {
     pub database: String,
     pub role: Role,
     pub replica_number: usize,
+    pub username: String,
+    pub poolname: String,
 }
 
 impl Default for Address {
@@ -76,6 +77,8 @@ impl Default for Address {
             replica_number: 0,
             database: String::from("database"),
             role: Role::Replica,
+            username: String::from("username"),
+            poolname: String::from("poolname"),
         }
     }
 }
@@ -84,11 +87,11 @@ impl Address {
     /// Address name (aka database) used in `SHOW STATS`, `SHOW DATABASES`, and `SHOW POOLS`.
     pub fn name(&self) -> String {
         match self.role {
-            Role::Primary => format!("{}_shard_{}_primary", self.database, self.shard),
+            Role::Primary => format!("{}_shard_{}_primary", self.poolname, self.shard),
 
             Role::Replica => format!(
                 "{}_shard_{}_replica_{}",
-                self.database, self.shard, self.replica_number
+                self.poolname, self.shard, self.replica_number
             ),
         }
     }
@@ -521,28 +524,6 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
-    let old_config = get_config();
-    match parse(&old_config.path).await {
-        Ok(()) => (),
-        Err(err) => {
-            error!("Config reload error: {:?}", err);
-            return Err(Error::BadConfig);
-        }
-    };
-    let new_config = get_config();
-
-    if old_config.pools != new_config.pools {
-        info!("Pool configuration changed, re-creating server pools");
-        ConnectionPool::from_config(client_server_map).await?;
-        Ok(true)
-    } else if old_config != new_config {
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -552,7 +533,6 @@ mod test {
         parse("pgcat.toml").await.unwrap();
 
         assert_eq!(get_config().path, "pgcat.toml".to_string());
-
         assert_eq!(get_config().general.ban_time, 60);
         assert_eq!(get_config().pools.len(), 2);
         assert_eq!(get_config().pools["sharded_db"].shards.len(), 3);

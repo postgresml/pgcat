@@ -3,12 +3,12 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::{info, trace};
 use std::collections::HashMap;
 
-use crate::config::{get_config, reload_config, VERSION};
+use crate::config::{get_config, VERSION};
 use crate::errors::Error;
-use crate::messages::*;
 use crate::pool::get_all_pools;
 use crate::stats::get_stats;
 use crate::ClientServerMap;
+use crate::{messages::*, reload_config};
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
@@ -44,32 +44,45 @@ where
 
     trace!("Admin query: {}", query);
 
-    if query.starts_with("SHOW STATS") {
-        trace!("SHOW STATS");
-        show_stats(stream).await
-    } else if query.starts_with("RELOAD") {
-        trace!("RELOAD");
-        reload(stream, client_server_map).await
-    } else if query.starts_with("SHOW CONFIG") {
-        trace!("SHOW CONFIG");
-        show_config(stream).await
-    } else if query.starts_with("SHOW DATABASES") {
-        trace!("SHOW DATABASES");
-        show_databases(stream).await
-    } else if query.starts_with("SHOW POOLS") {
-        trace!("SHOW POOLS");
-        show_pools(stream).await
-    } else if query.starts_with("SHOW LISTS") {
-        trace!("SHOW LISTS");
-        show_lists(stream).await
-    } else if query.starts_with("SHOW VERSION") {
-        trace!("SHOW VERSION");
-        show_version(stream).await
-    } else if query.starts_with("SET ") {
-        trace!("SET");
-        ignore_set(stream).await
-    } else {
-        error_response(stream, "Unsupported query against the admin database").await
+    let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
+
+    match query_parts[0] {
+        "RELOAD" => {
+            trace!("RELOAD");
+            reload(stream, client_server_map).await
+        }
+        "SET" => {
+            trace!("SET");
+            ignore_set(stream).await
+        }
+        "SHOW" => match query_parts[1] {
+            "CONFIG" => {
+                trace!("SHOW CONFIG");
+                show_config(stream).await
+            }
+            "DATABASES" => {
+                trace!("SHOW DATABASES");
+                show_databases(stream).await
+            }
+            "LISTS" => {
+                trace!("SHOW LISTS");
+                show_lists(stream).await
+            }
+            "POOLS" => {
+                trace!("SHOW POOLS");
+                show_pools(stream).await
+            }
+            "STATS" => {
+                trace!("SHOW STATS");
+                show_stats(stream).await
+            }
+            "VERSION" => {
+                trace!("SHOW VERSION");
+                show_version(stream).await
+            }
+            _ => error_response(stream, "Unsupported SHOW query against the admin database").await,
+        },
+        _ => error_response(stream, "Unsupported query against the admin database").await,
     }
 }
 
@@ -174,6 +187,7 @@ where
     let columns = vec![
         ("database", DataType::Text),
         ("user", DataType::Text),
+        ("cl_idle", DataType::Numeric),
         ("cl_active", DataType::Numeric),
         ("cl_waiting", DataType::Numeric),
         ("cl_cancel_req", DataType::Numeric),

@@ -3,8 +3,6 @@ name = "pgcat"
 version = "0.6.0-alpha1"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
@@ -33,3 +31,7 @@ tokio-rustls = "0.23"
 rustls-pemfile = "1"
 hyper = { version = "0.14", features = ["full"] }
 phf = { version = "0.10", features = ["macros"] }
+
+[dev-dependencies]
+postgres = "0.19.3"
+
