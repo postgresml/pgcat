@@ -341,6 +341,7 @@ fn format_duration(duration: &chrono::Duration) -> String {
     format!("{}d {}:{}:{}", days, hours, minutes, seconds)
 }
 
+#[cfg(test)]
 mod test {
     extern crate postgres;
 
