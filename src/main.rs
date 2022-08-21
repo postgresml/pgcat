@@ -484,7 +484,7 @@ mod test {
                 "postgres://sharding_user:sharding_user@localhost:{}/shard0",
                 self.port
             );
-            for _ in 0..10 {
+            for _ in 0..30 {
                 if Client::connect(&conn_str, NoTls).is_ok() {
                     return;
                 }
@@ -496,8 +496,8 @@ mod test {
     impl Drop for PgcatInstance {
         fn drop(&mut self) {
             self.stop();
-            //fs::remove_file(self.config_filename.clone()).unwrap();
-            //fs::remove_file(self.log_file.clone()).unwrap();
+            fs::remove_file(self.config_filename.clone()).unwrap();
+            fs::remove_file(self.log_file.clone()).unwrap();
         }
     }
 
@@ -611,7 +611,9 @@ mod test {
 
     #[test]
     fn test_basic_load_balancing() {
-        let (main_pgcat, mut proxy_instances) = single_shard_setup(3, String::from("shard0"), None);
+        let num_replicas: i32 = 2;
+        let (main_pgcat, mut proxy_instances) =
+            single_shard_setup(num_replicas, String::from("shard0"), None);
 
         let conn_str = format!(
             "postgres://sharding_user:sharding_user@localhost:{}/shard0",
@@ -630,7 +632,7 @@ mod test {
             }
         }
 
-        let expected_share = total_count / 4;
+        let expected_share = total_count / (num_replicas + 1);
         for proxy in proxy_instances.iter_mut() {
             value_within_range(expected_share, proxy.end_recording_query_count() as i32);
         }
@@ -638,7 +640,9 @@ mod test {
 
     #[test]
     fn test_failover_load_balancing() {
-        let (main_pgcat, mut proxy_instances) = single_shard_setup(3, String::from("shard0"), None);
+        let num_replicas: i32 = 2;
+        let (main_pgcat, mut proxy_instances) =
+            single_shard_setup(num_replicas, String::from("shard0"), None);
 
         let mut replica2 = proxy_instances.pop().unwrap();
         let mut replica1 = proxy_instances.pop().unwrap();
@@ -664,7 +668,7 @@ mod test {
                 continue;
             }
         }
-        let expected_share = total_count / 3;
+        let expected_share = total_count / num_replicas;
 
         value_within_range(expected_share, primary.end_recording_query_count() as i32);
         value_within_range(expected_share, replica0.end_recording_query_count() as i32);
@@ -674,6 +678,7 @@ mod test {
 
     #[test]
     fn test_load_balancing_with_query_routing() {
+        let num_replicas: i32 = 2;
         let (main_pgcat, mut proxy_instances) = single_shard_setup(3, String::from("shard0"), None);
         let mut cfg = main_pgcat.current_config();
         cfg.pools.get_mut("shard0").unwrap().primary_reads_enabled = false;
@@ -706,7 +711,7 @@ mod test {
                 continue;
             }
         }
-        let expected_share = total_count / 3;
+        let expected_share = total_count / num_replicas;
         value_within_range(expected_share, replica0.end_recording_query_count() as i32);
         value_within_range(expected_share, replica1.end_recording_query_count() as i32);
         value_within_range(expected_share, replica2.end_recording_query_count() as i32);

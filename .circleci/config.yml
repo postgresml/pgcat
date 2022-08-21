@@ -43,7 +43,7 @@ jobs:
           command: "cargo build"
       - run:
           name: "Tests"
-          command: "cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
+          command: "cargo build && cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
       - store_artifacts:
           path: /tmp/cov
           destination: coverage-data
