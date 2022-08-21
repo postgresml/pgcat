@@ -3,12 +3,12 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::{info, trace};
 use std::collections::HashMap;
 
-use crate::config::{get_config, VERSION};
+use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
+use crate::messages::*;
 use crate::pool::get_all_pools;
 use crate::stats::get_stats;
 use crate::ClientServerMap;
-use crate::{messages::*, reload_config};
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
