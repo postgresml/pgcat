@@ -6,6 +6,8 @@ use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -118,7 +120,7 @@ impl ConnectionPool {
                             host: server.0.clone(),
                             port: server.1.to_string(),
                             role: role,
-                            replica_number,
+                            instance_index: replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
                             username: user_info.username.clone(),
                             poolname: pool_name.clone(),
@@ -247,61 +249,41 @@ impl ConnectionPool {
         process_id: i32,    // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
-        let addresses = &self.addresses[shard];
+        let mut candidates: Vec<Address> = self.addresses[shard]
+            .clone()
+            .into_iter()
+            .filter(|address| address.role == role)
+            .collect();
 
-        let mut allowed_attempts = match role {
-            // Primary-specific queries get one attempt, if the primary is down,
-            // nothing we should do about it I think. It's dangerous to retry
-            // write queries.
-            Some(Role::Primary) => 1,
-
-            // Replicas get to try as many times as there are replicas
-            // and connections in the pool.
-            _ => addresses.len(),
-        };
-
-        debug!("Allowed attempts for {:?}: {}", role, allowed_attempts);
-
-        let exists = match role {
-            Some(role) => addresses.iter().filter(|addr| addr.role == role).count() > 0,
-            None => true,
-        };
-
-        if !exists {
-            error!("Requested role {:?}, but none are configured", role);
-            return Err(Error::BadConfig);
-        }
+        // Random load balancing
+        candidates.shuffle(&mut thread_rng());
 
         let healthcheck_timeout = get_config().general.healthcheck_timeout;
         let healthcheck_delay = get_config().general.healthcheck_delay as u128;
 
-        while allowed_attempts > 0 {
-            let index = rand::random::<usize>() % addresses.len();
-            let address = &addresses[index];
+        while !candidates.is_empty() {
+            // Get the next candidate
+            let address = match candidates.pop() {
+                Some(address) => address,
+                None => break,
+            };
 
-            // Make sure you're getting a primary or a replica
-            // as per request. If no specific role is requested, the first
-            // available will be chosen.
-            if address.role != role {
+            if self.is_banned(&address, shard, role) {
                 continue;
             }
-
-            // Don't attempt to connect to banned servers.
-            if self.is_banned(address, shard, role) {
-                continue;
-            }
-
-            allowed_attempts -= 1;
 
             // Indicate we're waiting on a server connection from a pool.
             self.stats.client_waiting(process_id, address.id);
 
             // Check if we can connect
-            let mut conn = match self.databases[shard][index].get().await {
+            let mut conn = match self.databases[address.shard][address.instance_index]
+                .get()
+                .await
+            {
                 Ok(conn) => conn,
                 Err(err) => {
-                    error!("Banning replica {}, error: {:?}", index, err);
-                    self.ban(address, shard, process_id);
+                    error!("Banning instance {:?}, error: {:?}", address, err);
+                    self.ban(&address, address.shard, process_id);
                     self.stats.client_disconnecting(process_id, address.id);
                     self.stats
                         .checkout_time(now.elapsed().as_micros(), process_id, address.id);
@@ -343,29 +325,34 @@ impl ConnectionPool {
                     }
 
                     // Health check failed.
-                    Err(_) => {
-                        error!("Banning replica {} because of failed health check", index);
+                    Err(err) => {
+                        error!(
+                            "Banning instance {:?} because of failed health check, {:?}",
+                            address, err
+                        );
 
                         // Don't leave a bad connection in the pool.
                         server.mark_bad();
 
-                        self.ban(address, shard, process_id);
+                        self.ban(&address, address.shard, process_id);
                         continue;
                     }
                 },
 
                 // Health check timed out.
                 Err(_) => {
-                    error!("Banning replica {} because of health check timeout", index);
+                    error!(
+                        "Banning instance {:?} because of health check timeout",
+                        address
+                    );
                     // Don't leave a bad connection in the pool.
                     server.mark_bad();
 
-                    self.ban(address, shard, process_id);
+                    self.ban(&address, address.shard, process_id);
                     continue;
                 }
             }
         }
-
         return Err(Error::AllServersDown);
     }
 
