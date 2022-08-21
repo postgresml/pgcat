@@ -40,7 +40,7 @@ jobs:
           command: "cargo install cargo-binutils rustfilt && rustup component add llvm-tools-preview"
       - run:
           name: "Build"
-          command: "cargo build"
+          command: "cargo build --workspace"
       - run:
           name: "Tests"
           command: "cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
