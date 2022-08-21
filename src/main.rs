@@ -611,9 +611,9 @@ mod test {
 
     #[test]
     fn test_basic_load_balancing() {
-        let num_replicas: i32 = 2;
+        let num_replicas: i32 = 3;
         let (main_pgcat, mut proxy_instances) =
-            single_shard_setup(num_replicas, String::from("shard0"), None);
+            single_shard_setup(num_replicas as u8, String::from("shard0"), None);
 
         let conn_str = format!(
             "postgres://sharding_user:sharding_user@localhost:{}/shard0",
@@ -640,9 +640,9 @@ mod test {
 
     #[test]
     fn test_failover_load_balancing() {
-        let num_replicas: i32 = 2;
+        let num_replicas: i32 = 3;
         let (main_pgcat, mut proxy_instances) =
-            single_shard_setup(num_replicas, String::from("shard0"), None);
+            single_shard_setup(num_replicas as u8, String::from("shard0"), None);
 
         let mut replica2 = proxy_instances.pop().unwrap();
         let mut replica1 = proxy_instances.pop().unwrap();
@@ -678,7 +678,7 @@ mod test {
 
     #[test]
     fn test_load_balancing_with_query_routing() {
-        let num_replicas: i32 = 2;
+        let num_replicas: i32 = 3;
         let (main_pgcat, mut proxy_instances) = single_shard_setup(3, String::from("shard0"), None);
         let mut cfg = main_pgcat.current_config();
         cfg.pools.get_mut("shard0").unwrap().primary_reads_enabled = false;
