@@ -763,7 +763,6 @@ where
                         }
 
                         self.release();
-                        self.connected_to_server = false;
 
                         return Ok(());
                     }
