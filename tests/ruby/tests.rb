@@ -205,42 +205,50 @@ test_reload_pool_recycling
 
 
 
-require 'pg'
-require 'stringio'
 def with_captured_stdout_stderr
-  original_stdout = $stdout
-  original_stderr = $stderr
-
-  $stdout = StringIO.new
-  $stderr = StringIO.new
+  sout = STDOUT.clone
+  serr = STDERR.clone
+  STDOUT.reopen("/tmp/out.txt", "w+")
+  STDERR.reopen("/tmp/err.txt", "w+")
   yield
-  return $stdout.string, $stderr.string
+  return File.read('/tmp/out.txt'), File.read('/tmp/err.txt')
 ensure
-  $stdout = original_stdout
-  $stderr = original_stderr
+  STDOUT.reopen(sout)
+  STDERR.reopen(serr)
 end
 
-require 'pg'
-require 'stringio'
 def test_extended_protocol_pooler_errors
-  conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat"
+  admin_conn = PG::connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
+
+  conf_editor = ConfigEditor.new
+  new_configs = conf_editor.original_configs
+
+  # shorter timeouts
+  new_configs["connect_timeout"] = 100
+  conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
+
+  conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db"
   conn_under_test = PG::connect(conn_str)
-  200.times do
+  50.times do
     Thread.new do
       conn = PG::connect(conn_str)
-      conn.async_exec("SELECT pg_sleep(8)")
+      conn.async_exec("SELECT pg_sleep(8)") rescue PG::SystemError
     ensure
       conn&.close
     end
   end
-  sleep 5
-  #stdout, std_err = with_captured_stdout_stderr do
-    10.times do |i|
+
+  sleep 1
+  stdout, stderr = with_captured_stdout_stderr do
+    2.times do |i|
       conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
       sleep 2
     end
-  #end
+  end
+
+  raise StandardError if stderr.include?("arrived from server while idle")
 ensure
+  admin_conn.async_exec("RELOAD") # Reset state
   conn_under_test&.close
 end
 
