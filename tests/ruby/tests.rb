@@ -226,7 +226,7 @@ def test_extended_protocol_pooler_errors
   # shorter timeouts
   new_configs["connect_timeout"] = 100
   new_configs["ban_time"] = 1
-  new_configs["pools"]["sharded_db"]["users"]["sharding_user"]["pool_size"] = 1
+  new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
 
   conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
 
