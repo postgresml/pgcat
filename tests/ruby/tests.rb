@@ -248,6 +248,7 @@ def test_extended_protocol_pooler_errors
   end
 
   raise StandardError if stderr.include?("arrived from server while idle")
+  puts "Pool checkout errors not breaking clients passed"
 ensure
   sleep 1
   admin_conn.async_exec("RELOAD") # Reset state
