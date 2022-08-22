@@ -227,9 +227,6 @@ def test_extended_protocol_pooler_errors
   new_configs["general"]["ban_time"] = 1
   new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
   new_configs["pools"]["sharded_db"]["users"]["1"]["pool_size"] = 1
-  new_configs["pools"]["sharded_db"]["shards"]["0"]["servers"] = [["127.0.0.1", 5432, "primary"]]
-  new_configs["pools"]["sharded_db"]["shards"]["1"]["servers"] = []
-  new_configs["pools"]["sharded_db"]["shards"]["2"]["servers"] = []
 
   conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
 
@@ -246,7 +243,7 @@ def test_extended_protocol_pooler_errors
 
   sleep 1
   #stdout, stderr = with_captured_stdout_stderr do
-    4.times do |i|
+    10.times do |i|
       conn_under_test.exec_params("SELECT #{i} + $1", [i])
       sleep 1
     rescue PG::SystemError
