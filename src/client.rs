@@ -1011,10 +1011,10 @@ impl<S, T> Drop for Client<S, T> {
 
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
-        if self.connected_to_server {
-            if let Some(address_id) = self.last_address_id {
-                self.stats.client_disconnecting(self.process_id, address_id);
+        if let Some(address_id) = self.last_address_id {
+            self.stats.client_disconnecting(self.process_id, address_id);
 
+            if self.connected_to_server {
                 if let Some(process_id) = self.last_server_id {
                     self.stats.server_idle(process_id, address_id);
                 }
