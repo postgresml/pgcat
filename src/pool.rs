@@ -102,6 +102,7 @@ impl ConnectionPool {
                     let shard = &pool_config.shards[&shard_idx];
                     let mut pools = Vec::new();
                     let mut servers = Vec::new();
+                    let mut address_index = 0;
                     let mut replica_number = 0;
 
                     for server in shard.servers.iter() {
@@ -120,13 +121,15 @@ impl ConnectionPool {
                             host: server.0.clone(),
                             port: server.1.to_string(),
                             role: role,
-                            instance_index: replica_number,
+                            address_index,
+                            replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
                             username: user_info.username.clone(),
                             poolname: pool_name.clone(),
                         };
 
                         address_id += 1;
+                        address_index += 1;
 
                         if role == Role::Replica {
                             replica_number += 1;
@@ -276,7 +279,7 @@ impl ConnectionPool {
             self.stats.client_waiting(process_id, address.id);
 
             // Check if we can connect
-            let mut conn = match self.databases[address.shard][address.instance_index]
+            let mut conn = match self.databases[address.shard][address.address_index]
                 .get()
                 .await
             {
