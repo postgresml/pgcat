@@ -232,7 +232,7 @@ def test_extended_protocol_pooler_errors
 
   conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db"
   conn_under_test = PG::connect(conn_str)
-  5.times do
+  50.times do
     Thread.new do
       conn = PG::connect(conn_str)
       conn.async_exec("SELECT pg_sleep(4)") rescue PG::SystemError
