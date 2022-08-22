@@ -73,6 +73,9 @@ pub struct Client<S, T> {
     /// Last server process id we talked to.
     last_server_id: Option<i32>,
 
+    /// Connected to server
+    connected_to_server: bool,
+
     /// Name of the server pool for this client (This comes from the database name in the connection string)
     target_pool_name: String,
 
@@ -429,6 +432,7 @@ where
             target_pool_name: target_pool_name.clone(),
             target_user_name: target_user_name.clone(),
             shutdown_event_receiver: shutdown_event_receiver,
+            connected_to_server: false,
         });
     }
 
@@ -461,6 +465,7 @@ where
             target_pool_name: String::from("undefined"),
             target_user_name: String::from("undefined"),
             shutdown_event_receiver: shutdown_event_receiver,
+            connected_to_server: false,
         });
     }
 
@@ -652,6 +657,7 @@ where
             // Server is assigned to the client in case the client wants to
             // cancel a query later.
             server.claim(self.process_id, self.secret_key);
+            self.connected_to_server = true;
 
             // Update statistics.
             if let Some(last_address_id) = self.last_address_id {
@@ -757,6 +763,7 @@ where
                         }
 
                         self.release();
+                        self.connected_to_server = false;
 
                         return Ok(());
                     }
@@ -875,6 +882,7 @@ where
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
             self.stats.server_idle(server.process_id(), address.id);
+            self.connected_to_server = false;
             self.release();
             self.stats.client_idle(self.process_id, address.id);
         }
@@ -1002,15 +1010,16 @@ impl<S, T> Drop for Client<S, T> {
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
 
-        // Update statistics.
-        if let Some(address_id) = self.last_address_id {
-            self.stats.client_disconnecting(self.process_id, address_id);
+        // Dirty shutdown
+        // TODO: refactor, this is not the best way to handle state management.
+        if self.connected_to_server {
+            if let Some(address_id) = self.last_address_id {
+                self.stats.client_disconnecting(self.process_id, address_id);
 
-            if let Some(process_id) = self.last_server_id {
-                self.stats.server_idle(process_id, address_id);
+                if let Some(process_id) = self.last_server_id {
+                    self.stats.server_idle(process_id, address_id);
+                }
             }
         }
-
-        // self.release();
     }
 }
