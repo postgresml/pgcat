@@ -198,7 +198,6 @@ ensure
   admin_conn.close
   server_conn.close
   puts "Pool Recycling okay!"
-  puts "Pool Recycling okay!"
 end
 
 test_reload_pool_recycling
@@ -247,7 +246,11 @@ def test_extended_protocol_pooler_errors
       conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
       sleep 1
     end
+    puts "done!"
   end
+
+  print(stderr)
+  print(stdout)
 
   raise StandardError if stderr.include?("arrived from server while idle")
   puts "Pool checkout errors not breaking clients passed"
