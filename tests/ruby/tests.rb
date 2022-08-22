@@ -226,6 +226,10 @@ def test_extended_protocol_pooler_errors
   new_configs["general"]["connect_timeout"] = 50
   new_configs["general"]["ban_time"] = 1
   new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+  new_configs["pools"]["sharded_db"]["users"]["1"]["pool_size"] = 1
+  new_configs["pools"]["sharded_db"]["shards"]["0"]["servers"] = [["127.0.0.1", "5432", "primary"]]
+  new_configs["pools"]["sharded_db"]["shards"]["1"]["servers"] = []
+  new_configs["pools"]["sharded_db"]["shards"]["2"]["servers"] = []
 
   conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
 
