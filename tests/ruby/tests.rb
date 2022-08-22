@@ -235,7 +235,7 @@ def test_extended_protocol_pooler_errors
   50.times do
     Thread.new do
       conn = PG::connect(conn_str)
-      conn.async_exec("SELECT pg_sleep(4)") rescue PG::SystemError
+      conn.async_exec("SELECT pg_sleep(15)") rescue PG::SystemError
     ensure
       conn&.close
     end
