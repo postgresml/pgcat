@@ -232,22 +232,23 @@ def test_extended_protocol_pooler_errors
   50.times do
     Thread.new do
       conn = PG::connect(conn_str)
-      conn.async_exec("SELECT pg_sleep(8)") rescue PG::SystemError
+      conn.async_exec("SELECT pg_sleep(4)") rescue PG::SystemError
     ensure
       conn&.close
     end
   end
 
-  sleep 1
+  sleep 0.5
   stdout, stderr = with_captured_stdout_stderr do
-    2.times do |i|
+    3.times do |i|
       conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
-      sleep 2
+      sleep 1
     end
   end
 
   raise StandardError if stderr.include?("arrived from server while idle")
 ensure
+  sleep 1
   admin_conn.async_exec("RELOAD") # Reset state
   conn_under_test&.close
 end
