@@ -225,6 +225,7 @@ def test_extended_protocol_pooler_errors
 
   # shorter timeouts
   new_configs["connect_timeout"] = 100
+  new_configs["ban_time"] = 1
   conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
 
   conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db"
