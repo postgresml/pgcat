@@ -198,6 +198,50 @@ ensure
   admin_conn.close
   server_conn.close
   puts "Pool Recycling okay!"
+  puts "Pool Recycling okay!"
 end
 
 test_reload_pool_recycling
+
+
+
+require 'pg'
+require 'stringio'
+def with_captured_stdout_stderr
+  original_stdout = $stdout
+  original_stderr = $stderr
+
+  $stdout = StringIO.new
+  $stderr = StringIO.new
+  yield
+  return $stdout.string, $stderr.string
+ensure
+  $stdout = original_stdout
+  $stderr = original_stderr
+end
+
+require 'pg'
+require 'stringio'
+def test_extended_protocol_pooler_errors
+  conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat"
+  conn_under_test = PG::connect(conn_str)
+  200.times do
+    Thread.new do
+      conn = PG::connect(conn_str)
+      conn.async_exec("SELECT pg_sleep(8)")
+    ensure
+      conn&.close
+    end
+  end
+  sleep 5
+  #stdout, std_err = with_captured_stdout_stderr do
+    10.times do |i|
+      conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
+      sleep 2
+    end
+  #end
+ensure
+  conn_under_test&.close
+end
+
+test_extended_protocol_pooler_errors
