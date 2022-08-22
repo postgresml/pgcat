@@ -240,11 +240,13 @@ def test_extended_protocol_pooler_errors
     end
   end
 
-  sleep 0.5
+  sleep 1
   #stdout, stderr = with_captured_stdout_stderr do
-    3.times do |i|
-      conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
+    4.times do |i|
+      conn_under_test.exec_params("SELECT #{i} + $1", [i])
       sleep 1
+    rescue PG::SystemError
+      puts "Failed to grab connection from pool"
     end
     puts "done!"
   #end
