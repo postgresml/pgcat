@@ -226,11 +226,13 @@ def test_extended_protocol_pooler_errors
   # shorter timeouts
   new_configs["connect_timeout"] = 100
   new_configs["ban_time"] = 1
+  new_configs["pools"]["sharded_db"]["users"]["sharding_user"]["pool_size"] = 1
+
   conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
 
   conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db"
   conn_under_test = PG::connect(conn_str)
-  50.times do
+  5.times do
     Thread.new do
       conn = PG::connect(conn_str)
       conn.async_exec("SELECT pg_sleep(4)") rescue PG::SystemError
