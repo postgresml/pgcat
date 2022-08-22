@@ -241,16 +241,16 @@ def test_extended_protocol_pooler_errors
   end
 
   sleep 0.5
-  stdout, stderr = with_captured_stdout_stderr do
+  #stdout, stderr = with_captured_stdout_stderr do
     3.times do |i|
       conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
       sleep 1
     end
     puts "done!"
-  end
+  #end
 
-  print(stderr)
-  print(stdout)
+  #print(stderr)
+  #print(stdout)
 
   raise StandardError if stderr.include?("arrived from server while idle")
   puts "Pool checkout errors not breaking clients passed"
