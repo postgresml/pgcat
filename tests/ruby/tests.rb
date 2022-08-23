@@ -5,6 +5,90 @@ require 'pg'
 require 'toml'
 
 $stdout.sync = true
+$stderr.sync = true
+
+class ConfigEditor
+  def initialize
+    @original_config_text = File.read('../../.circleci/pgcat.toml')
+    text_to_load = @original_config_text.gsub("5432", "\"5432\"")
+
+    @original_configs = TOML.load(text_to_load)
+  end
+
+  def original_configs
+    TOML.load(TOML::Generator.new(@original_configs).body)
+  end
+
+  def with_modified_configs(new_configs)
+    text_to_write = TOML::Generator.new(new_configs).body
+    text_to_write = text_to_write.gsub("\"5432\"", "5432")
+    File.write('../../.circleci/pgcat.toml', text_to_write)
+    yield
+  ensure
+    File.write('../../.circleci/pgcat.toml', @original_config_text)
+  end
+end
+
+def with_captured_stdout_stderr
+  sout = STDOUT.clone
+  serr = STDERR.clone
+  STDOUT.reopen("/tmp/out.txt", "w+")
+  STDERR.reopen("/tmp/err.txt", "w+")
+  STDOUT.sync = true
+  STDERR.sync = true
+  yield
+  return File.read('/tmp/out.txt'), File.read('/tmp/err.txt')
+ensure
+  STDOUT.reopen(sout)
+  STDERR.reopen(serr)
+end
+
+
+def test_extended_protocol_pooler_errors
+  admin_conn = PG::connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
+
+  conf_editor = ConfigEditor.new
+  new_configs = conf_editor.original_configs
+
+  # shorter timeouts
+  new_configs["general"]["connect_timeout"] = 500
+  new_configs["general"]["ban_time"] = 1
+  new_configs["general"]["shutdown_timeout"] = 1
+  new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+  new_configs["pools"]["sharded_db"]["users"]["1"]["pool_size"] = 1
+
+  conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
+
+  conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db"
+  10.times do
+    Thread.new do
+      conn = PG::connect(conn_str)
+      conn.async_exec("SELECT pg_sleep(5)") rescue PG::SystemError
+    ensure
+      conn&.close
+    end
+  end
+
+  sleep(0.5)
+  conn_under_test = PG::connect(conn_str)
+  stdout, stderr = with_captured_stdout_stderr do
+    5.times do |i|
+      conn_under_test.async_exec("SELECT 1") rescue PG::SystemError
+      conn_under_test.exec_params("SELECT #{i} + $1", [i]) rescue PG::SystemError
+      sleep 1
+    end
+  end
+
+  raise StandardError, "Libpq got unexpected messages while idle" if stderr.include?("arrived from server while idle")
+  puts "Pool checkout errors not breaking clients passed"
+ensure
+  sleep 1
+  admin_conn.async_exec("RELOAD") # Reset state
+  conn_under_test&.close
+end
+
+test_extended_protocol_pooler_errors
+exit 0
 
 # Uncomment these two to see all queries.
 # ActiveRecord.verbose_query_logs = true
@@ -144,30 +228,6 @@ def test_server_parameters
 end
 
 
-class ConfigEditor
-  def initialize
-    @original_config_text = File.read('../../.circleci/pgcat.toml')
-    text_to_load = @original_config_text.gsub("5432", "\"5432\"")
-
-    @original_configs = TOML.load(text_to_load)
-  end
-
-  def original_configs
-    TOML.load(TOML::Generator.new(@original_configs).body)
-  end
-
-  def with_modified_configs(new_configs)
-    text_to_write = TOML::Generator.new(new_configs).body
-    text_to_write = text_to_write.gsub("\"5432\"", "5432")
-    File.write('../../.circleci/pgcat.toml', text_to_write)
-    yield
-  ensure
-    File.write('../../.circleci/pgcat.toml', @original_config_text)
-  end
-
-end
-
-
 def test_reload_pool_recycling
   admin_conn = PG::connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
   server_conn = PG::connect("postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db?application_name=testing_pgcat")
@@ -204,63 +264,3 @@ test_reload_pool_recycling
 
 
 
-def with_captured_stdout_stderr
-  sout = STDOUT.clone
-  serr = STDERR.clone
-  STDOUT.reopen("/tmp/out.txt", "w+")
-  STDERR.reopen("/tmp/err.txt", "w+")
-  yield
-  return File.read('/tmp/out.txt'), File.read('/tmp/err.txt')
-ensure
-  STDOUT.reopen(sout)
-  STDERR.reopen(serr)
-end
-
-def test_extended_protocol_pooler_errors
-  admin_conn = PG::connect("postgres://admin_user:admin_pass@127.0.0.1:6432/pgcat")
-
-  conf_editor = ConfigEditor.new
-  new_configs = conf_editor.original_configs
-
-  # shorter timeouts
-  new_configs["general"]["connect_timeout"] = 50
-  new_configs["general"]["ban_time"] = 1
-  new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
-  new_configs["pools"]["sharded_db"]["users"]["1"]["pool_size"] = 1
-
-  conf_editor.with_modified_configs(new_configs) { admin_conn.async_exec("RELOAD") }
-
-  conn_str = "postgres://sharding_user:sharding_user@127.0.0.1:6432/sharded_db"
-  conn_under_test = PG::connect(conn_str)
-  50.times do
-    Thread.new do
-      conn = PG::connect(conn_str)
-      conn.async_exec("SELECT pg_sleep(15)") rescue PG::SystemError
-    ensure
-      conn&.close
-    end
-  end
-
-  sleep 1
-  #stdout, stderr = with_captured_stdout_stderr do
-    10.times do |i|
-      conn_under_test.exec_params("SELECT #{i} + $1", [i])
-      sleep 1
-    rescue PG::SystemError
-      puts "Failed to grab connection from pool"
-    end
-    puts "done!"
-  #end
-
-  #print(stderr)
-  #print(stdout)
-
-  #raise StandardError if stderr.include?("arrived from server while idle")
-  puts "Pool checkout errors not breaking clients passed"
-ensure
-  sleep 1
-  admin_conn.async_exec("RELOAD") # Reset state
-  conn_under_test&.close
-end
-
-test_extended_protocol_pooler_errors
