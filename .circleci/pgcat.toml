@@ -125,7 +125,7 @@ database = "shard2"
 
 
 [pools.simple_db]
-pool_mode = "transaction"
+pool_mode = "simple_db"
 default_role = "primary"
 query_parser_enabled = true
 primary_reads_enabled = true
