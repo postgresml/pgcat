@@ -644,9 +644,17 @@ where
                     conn
                 }
                 Err(err) => {
-                    error!("Could not get connection from pool: {:?}", err);
-                    error_response(&mut self.write, "could not get connection from the pool")
-                        .await?;
+                    // Clients do not expect to get SystemError followed by ReadyForQuery in the middle
+                    // of extended protocol submission. So we will hold off on sending the actual error
+                    // message to the client until we get 'S' message
+                    match message[0] as char {
+                        'P' | 'B' | 'E' | 'D' => (),
+                        _ =>  {
+                            error!("Could not get connection from pool: {:?}", err);
+                            error_response(&mut self.write, "could not get connection from the pool")
+                                .await?;
+                        }
+                    }
                     continue;
                 }
             };
