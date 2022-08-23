@@ -88,7 +88,6 @@ ensure
 end
 
 test_extended_protocol_pooler_errors
-exit 0
 
 # Uncomment these two to see all queries.
 # ActiveRecord.verbose_query_logs = true

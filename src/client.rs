@@ -649,10 +649,13 @@ where
                     // message to the client until we get 'S' message
                     match message[0] as char {
                         'P' | 'B' | 'E' | 'D' => (),
-                        _ =>  {
+                        _ => {
                             error!("Could not get connection from pool: {:?}", err);
-                            error_response(&mut self.write, "could not get connection from the pool")
-                                .await?;
+                            error_response(
+                                &mut self.write,
+                                "could not get connection from the pool",
+                            )
+                            .await?;
                         }
                     }
                     continue;

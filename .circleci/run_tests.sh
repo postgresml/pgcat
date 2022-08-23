@@ -129,13 +129,13 @@ toxiproxy-cli toxic remove --toxicName latency_downstream postgres_replica
 start_pgcat "info"
 
 # Test session mode (and config reload)
-sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' .circleci/pgcat.toml
+sed -i '0,/simple_db/s/pool_mode = "transaction"/pool_mode = "session"/' .circleci/pgcat.toml
 
 # Reload config test
 kill -SIGHUP $(pgrep pgcat)
 
 # Revert settings after reload. Makes test runs idempotent
-sed -i 's/pool_mode = "session"/pool_mode = "transaction"/' .circleci/pgcat.toml
+sed -i '0,/simple_db/s/pool_mode = "session"/pool_mode = "transaction"/' .circleci/pgcat.toml
 
 sleep 1
 
