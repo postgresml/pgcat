@@ -83,14 +83,14 @@ pub struct Client<S, T> {
     target_user_name: String,
 
     /// Used to notify clients about an impending shutdown
-    shutdown_event_receiver: Receiver<()>,
+    shutdown_event_receiver: Option<Receiver<()>>,
 }
 
 /// Client entrypoint.
 pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
-    shutdown_event_receiver: Receiver<()>,
+    shutdown_event_receiver: Option<Receiver<()>>,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -253,7 +253,7 @@ where
 pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
-    shutdown_event_receiver: Receiver<()>,
+    shutdown_event_receiver: Option<Receiver<()>>,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -306,7 +306,7 @@ where
         addr: std::net::SocketAddr,
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
-        shutdown_event_receiver: Receiver<()>,
+        shutdown_event_receiver: Option<Receiver<()>>,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let stats = get_reporter();
@@ -328,6 +328,12 @@ where
             .filter(|db| *db == &target_pool_name)
             .count()
             == 1;
+
+        let shutdown_receiver = if admin {
+            None
+        } else {
+            shutdown_event_receiver
+        };
 
         // Generate random backend ID and secret key
         let process_id: i32 = rand::random();
@@ -431,7 +437,7 @@ where
             last_server_id: None,
             target_pool_name: target_pool_name.clone(),
             target_user_name: target_user_name.clone(),
-            shutdown_event_receiver: shutdown_event_receiver,
+            shutdown_event_receiver: shutdown_receiver,
             connected_to_server: false,
         });
     }
@@ -443,7 +449,7 @@ where
         addr: std::net::SocketAddr,
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
-        shutdown_event_receiver: Receiver<()>,
+        _shutdown_event_receiver: Option<Receiver<()>>,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
@@ -464,7 +470,7 @@ where
             last_server_id: None,
             target_pool_name: String::from("undefined"),
             target_user_name: String::from("undefined"),
-            shutdown_event_receiver: shutdown_event_receiver,
+            shutdown_event_receiver: None,
             connected_to_server: false,
         });
     }
@@ -520,12 +526,18 @@ where
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
 
-            let mut message = tokio::select! {
-                _ = self.shutdown_event_receiver.recv() => {
-                    error_response_terminal(&mut self.write, &format!("terminating connection due to administrator command")).await?;
-                    return Ok(())
+            let mut message = match self.shutdown_event_receiver.as_mut() {
+                Some(rx) => {
+                    tokio::select! {
+                        _ = rx.recv() => {
+                            error_response_terminal(&mut self.write, &format!("terminating connection due to administrator command")).await?;
+                            return Ok(())
+                        }
+
+                        message_result = read_message(&mut self.read) => message_result?
+                    }
                 },
-                message_result = read_message(&mut self.read) => message_result?
+                None => read_message(&mut self.read).await?
             };
 
             // Avoid taking a server if the client just wants to disconnect.

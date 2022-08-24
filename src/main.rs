@@ -201,7 +201,7 @@ async fn main() {
                 match client::client_entrypoint(
                     socket,
                     client_server_map,
-                    client_shutdown_handler_rx,
+                    Some(client_shutdown_handler_rx),
                 )
                 .await
                 {
@@ -221,6 +221,48 @@ async fn main() {
                 };
                 // Drop this transmitter so receiver knows that the task is completed
                 drop(dummy_tx);
+            });
+        }
+        
+        drop(shutdown_event_tx_clone);
+        
+        loop {
+            let client_server_map = client_server_map.clone();
+
+            // Listen for shutdown event and client connection at the same time
+            let (socket, addr) = match listener.accept().await {
+                Ok((socket, addr)) => (socket, addr),
+                Err(err) => {
+                    error!("{:?}", err);
+                    continue;
+                }
+            };
+
+            // Handle client.
+            tokio::task::spawn(async move {
+                let start = chrono::offset::Utc::now().naive_utc();
+
+                match client::client_entrypoint(
+                    socket,
+                    client_server_map,
+                    None,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        let duration = chrono::offset::Utc::now().naive_utc() - start;
+
+                        info!(
+                            "Client {:?} disconnected, session duration: {}",
+                            addr,
+                            format_duration(&duration)
+                        );
+                    }
+
+                    Err(err) => {
+                        debug!("Client disconnected with error {:?}", err);
+                    }
+                };
             });
         }
     });
