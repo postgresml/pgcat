@@ -335,9 +335,6 @@ fn format_duration(duration: &chrono::Duration) -> String {
     format!("{}d {}:{}:{}", days, hours, minutes, seconds)
 }
 
-
-
-
 async fn all_clients_evicted() {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
     loop {
