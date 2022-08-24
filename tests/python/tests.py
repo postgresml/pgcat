@@ -186,8 +186,6 @@ def test_shutdown_logic():
     # Start pgcat
     pgcat_start()
 
-    print("GOOD STUFF")
-
     # Create client connection and begin transaction
     transaction_conn, transaction_cur = connect_db(autocommit=True)
     transaction_cur.execute("BEGIN;")

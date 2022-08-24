@@ -335,15 +335,18 @@ fn format_duration(duration: &chrono::Duration) -> String {
     format!("{}d {}:{}:{}", days, hours, minutes, seconds)
 }
 
+
+
+
 async fn all_clients_evicted() {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
     loop {
-        interval.tick().await;
         let num_clients = ACTIVE_NON_ADMIN_CLIENTS.load(Ordering::Relaxed);
 
         if num_clients == 0 {
             info!("All clients evicted");
             break;
         }
+        interval.tick().await;
     }
 }
