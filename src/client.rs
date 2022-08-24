@@ -110,7 +110,14 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown_event_receiver, admin_only).await {
+                match startup_tls(
+                    stream,
+                    client_server_map,
+                    shutdown_event_receiver,
+                    admin_only,
+                )
+                .await
+                {
                     Ok(mut client) => {
                         info!("Client {:?} connected (TLS)", addr);
 
@@ -334,18 +341,18 @@ where
             .filter(|db| *db == &target_pool_name)
             .count()
             == 1;
-        
+
         // Only accepting admin connections, but connection attempt to non-admin server
         if admin_only && !admin {
-            error_response_terminal(&mut write, &format!("terminating connection due to administrator command")).await?;
-            return Err(Error::SocketError)
+            error_response_terminal(
+                &mut write,
+                &format!("terminating connection due to administrator command"),
+            )
+            .await?;
+            return Err(Error::SocketError);
         }
 
-        let shutdown_receiver = if admin {
-            None
-        } else {
-            shutdown_event_receiver
-        };
+        let shutdown_receiver = if admin { None } else { shutdown_event_receiver };
 
         // Generate random backend ID and secret key
         let process_id: i32 = rand::random();
@@ -548,8 +555,8 @@ where
 
                         message_result = read_message(&mut self.read) => message_result?
                     }
-                },
-                None => read_message(&mut self.read).await?
+                }
+                None => read_message(&mut self.read).await?,
             };
 
             // Avoid taking a server if the client just wants to disconnect.

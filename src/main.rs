@@ -224,9 +224,9 @@ async fn main() {
                 drop(dummy_tx);
             });
         }
-        
+
         drop(shutdown_event_tx_clone);
-        
+
         loop {
             let client_server_map = client_server_map.clone();
 
@@ -243,14 +243,7 @@ async fn main() {
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
 
-                match client::client_entrypoint(
-                    socket,
-                    client_server_map,
-                    None,
-                    true
-                )
-                .await
-                {
+                match client::client_entrypoint(socket, client_server_map, None, true).await {
                     Ok(_) => {
                         let duration = chrono::offset::Utc::now().naive_utc() - start;
 
