@@ -202,6 +202,7 @@ async fn main() {
                     socket,
                     client_server_map,
                     Some(client_shutdown_handler_rx),
+                    false,
                 )
                 .await
                 {
@@ -246,6 +247,7 @@ async fn main() {
                     socket,
                     client_server_map,
                     None,
+                    true
                 )
                 .await
                 {

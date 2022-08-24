@@ -91,6 +91,7 @@ pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown_event_receiver: Option<Receiver<()>>,
+    admin_only: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -109,7 +110,7 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown_event_receiver).await {
+                match startup_tls(stream, client_server_map, shutdown_event_receiver, admin_only).await {
                     Ok(mut client) => {
                         info!("Client {:?} connected (TLS)", addr);
 
@@ -140,6 +141,7 @@ pub async fn client_entrypoint(
                             bytes,
                             client_server_map,
                             shutdown_event_receiver,
+                            admin_only,
                         )
                         .await
                         {
@@ -170,6 +172,7 @@ pub async fn client_entrypoint(
                 bytes,
                 client_server_map,
                 shutdown_event_receiver,
+                admin_only,
             )
             .await
             {
@@ -254,6 +257,7 @@ pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown_event_receiver: Option<Receiver<()>>,
+    admin_only: bool,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -284,6 +288,7 @@ pub async fn startup_tls(
                 bytes,
                 client_server_map,
                 shutdown_event_receiver,
+                admin_only,
             )
             .await
         }
@@ -307,6 +312,7 @@ where
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown_event_receiver: Option<Receiver<()>>,
+        admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let stats = get_reporter();
@@ -328,6 +334,12 @@ where
             .filter(|db| *db == &target_pool_name)
             .count()
             == 1;
+        
+        // Only accepting admin connections, but connection attempt to non-admin server
+        if admin_only && !admin {
+            error_response_terminal(&mut write, &format!("terminating connection due to administrator command")).await?;
+            return Err(Error::SocketError)
+        }
 
         let shutdown_receiver = if admin {
             None
