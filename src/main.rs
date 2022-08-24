@@ -167,6 +167,8 @@ async fn main() {
     tokio::task::spawn(async move {
         // Creates event subscriber for shutdown event, this is dropped when shutdown event is broadcast
         let mut listener_shutdown_event_rx = shutdown_event_tx_clone.subscribe();
+
+        // Main loop which uses the shutdown event channels to coordinate shutdown events for non-admin clients
         loop {
             let client_server_map = client_server_map.clone();
 
@@ -225,8 +227,11 @@ async fn main() {
             });
         }
 
+        // This drop is used to indicate to shutdown event receiver that there are no more transmitters in use
+        // this is the signal for the shutdown to complete
         drop(shutdown_event_tx_clone);
 
+        // This loop is used to accept only admin connections and doesn't make use of the shutdown event channels
         loop {
             let client_server_map = client_server_map.clone();
 
