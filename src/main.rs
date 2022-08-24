@@ -50,6 +50,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use std::sync::atomic::Ordering;
+
 mod admin;
 mod client;
 mod config;
@@ -65,6 +67,7 @@ mod sharding;
 mod stats;
 mod tls;
 
+use crate::client::ACTIVE_NON_ADMIN_CLIENTS;
 use crate::config::{get_config, reload_config, VERSION};
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
@@ -159,9 +162,11 @@ async fn main() {
 
     info!("Waiting for clients");
 
-    let (shutdown_event_tx, mut shutdown_event_rx) = broadcast::channel::<()>(1);
+    let (shutdown_event_tx, _) = broadcast::channel::<()>(1);
 
     let shutdown_event_tx_clone = shutdown_event_tx.clone();
+
+    let mut admin_only = false;
 
     // Client connection loop.
     tokio::task::spawn(async move {
@@ -173,8 +178,9 @@ async fn main() {
             // Listen for shutdown event and client connection at the same time
             let (socket, addr) = tokio::select! {
                 _ = listener_shutdown_event_rx.recv() => {
-                    // Exits client connection loop which drops listener, listener_shutdown_event_rx and shutdown_event_tx_clone
-                    break;
+                    // Once shutdown event is received, only allow admin clients to connect
+                    admin_only = true;
+                    continue;
                 }
 
                 listener_response = listener.accept() => {
@@ -191,9 +197,6 @@ async fn main() {
             // Used to signal shutdown
             let client_shutdown_handler_rx = shutdown_event_tx_clone.subscribe();
 
-            // Used to signal that the task has completed
-            let dummy_tx = shutdown_event_tx_clone.clone();
-
             // Handle client.
             tokio::task::spawn(async move {
                 let start = chrono::offset::Utc::now().naive_utc();
@@ -202,6 +205,7 @@ async fn main() {
                     socket,
                     client_server_map,
                     client_shutdown_handler_rx,
+                    admin_only,
                 )
                 .await
                 {
@@ -219,8 +223,6 @@ async fn main() {
                         debug!("Client disconnected with error {:?}", err);
                     }
                 };
-                // Drop this transmitter so receiver knows that the task is completed
-                drop(dummy_tx);
             });
         }
     });
@@ -274,28 +276,20 @@ async fn main() {
 
             // Broadcast that client tasks need to finish
             shutdown_event_tx.send(()).unwrap();
-            // Closes transmitter
-            drop(shutdown_event_tx);
 
-            // This is in a loop because the first event that the receiver receives will be the shutdown event
-            // This is not what we are waiting for instead, we want the receiver to send an error once all senders are closed which is reached after the shutdown event is received
-            loop {
-                match tokio::time::timeout(
-                    tokio::time::Duration::from_millis(config.general.shutdown_timeout),
-                    shutdown_event_rx.recv(),
-                )
-                .await
-                {
-                    Ok(res) => match res {
-                        Ok(_) => {}
-                        Err(_) => break,
-                    },
-                    Err(_) => {
-                        info!("Timed out while waiting for clients to shutdown");
-                        break;
-                    }
+            // Wait for all clients to be evicted or force shutdown if timeout is reached
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(config.general.shutdown_timeout),
+                all_clients_evicted(),
+            )
+            .await
+            {
+                Ok(_) => {},
+                Err(_) => {
+                    info!("Timed out while waiting for clients to shutdown");
                 }
             }
+
         },
         _ = term_signal.recv() => (),
     }
@@ -339,4 +333,17 @@ fn format_duration(duration: &chrono::Duration) -> String {
     let days = duration.num_days().to_string();
 
     format!("{}d {}:{}:{}", days, hours, minutes, seconds)
+}
+
+async fn all_clients_evicted() {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+    loop {
+        interval.tick().await;
+        let num_clients = ACTIVE_NON_ADMIN_CLIENTS.load(Ordering::Relaxed);
+
+        if num_clients == 0 {
+            info!("All clients evicted");
+            break;
+        }
+    }
 }

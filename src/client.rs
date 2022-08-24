@@ -19,6 +19,10 @@ use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub static ACTIVE_NON_ADMIN_CLIENTS: AtomicUsize = AtomicUsize::new(0);
+
 /// Type of connection received from client.
 enum ClientConnectionType {
     Startup,
@@ -91,6 +95,7 @@ pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown_event_receiver: Receiver<()>,
+    admin_only: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -109,7 +114,14 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown_event_receiver).await {
+                match startup_tls(
+                    stream,
+                    client_server_map,
+                    shutdown_event_receiver,
+                    admin_only,
+                )
+                .await
+                {
                     Ok(mut client) => {
                         info!("Client {:?} connected (TLS)", addr);
 
@@ -140,6 +152,7 @@ pub async fn client_entrypoint(
                             bytes,
                             client_server_map,
                             shutdown_event_receiver,
+                            admin_only,
                         )
                         .await
                         {
@@ -170,6 +183,7 @@ pub async fn client_entrypoint(
                 bytes,
                 client_server_map,
                 shutdown_event_receiver,
+                admin_only,
             )
             .await
             {
@@ -254,6 +268,7 @@ pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown_event_receiver: Receiver<()>,
+    admin_only: bool,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -284,6 +299,7 @@ pub async fn startup_tls(
                 bytes,
                 client_server_map,
                 shutdown_event_receiver,
+                admin_only,
             )
             .await
         }
@@ -307,6 +323,7 @@ where
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown_event_receiver: Receiver<()>,
+        admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let stats = get_reporter();
@@ -328,6 +345,21 @@ where
             .filter(|db| *db == &target_pool_name)
             .count()
             == 1;
+
+        // Only allow admin connection when in admin mode
+        if admin_only && !admin {
+            debug!("Rejecting non-admin connection to {} when in admin only mode", target_pool_name);
+            error_response_terminal(
+                &mut write,
+                &format!("terminating connection due to administrator command"),
+            )
+            .await?;
+            return Err(Error::SocketError);
+        }
+
+        if !admin {
+            ACTIVE_NON_ADMIN_CLIENTS.fetch_add(1, Ordering::Relaxed);
+        }
 
         // Generate random backend ID and secret key
         let process_id: i32 = rand::random();
@@ -520,12 +552,18 @@ where
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
 
-            let mut message = tokio::select! {
-                _ = self.shutdown_event_receiver.recv() => {
-                    error_response_terminal(&mut self.write, &format!("terminating connection due to administrator command")).await?;
-                    return Ok(())
-                },
-                message_result = read_message(&mut self.read) => message_result?
+            // Admin clients don't care about the shutdown and continue behaving normally
+            let mut message = if self.admin {
+                read_message(&mut self.read).await?
+            } else {
+                // Want to interrupt waiting on new message from client when shutdown event is sent
+                tokio::select! {
+                    _ = self.shutdown_event_receiver.recv() => {
+                        error_response_terminal(&mut self.write, &format!("terminating connection due to administrator command")).await?;
+                        return Ok(())
+                    },
+                    message_result = read_message(&mut self.read) => message_result?
+                }
             };
 
             // Avoid taking a server if the client just wants to disconnect.
@@ -1017,6 +1055,11 @@ where
 
 impl<S, T> Drop for Client<S, T> {
     fn drop(&mut self) {
+
+        if !self.admin {
+            ACTIVE_NON_ADMIN_CLIENTS.fetch_sub(1, Ordering::Relaxed);
+        }
+
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
 

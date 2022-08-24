@@ -14,6 +14,7 @@ PGCAT_PORT = "6432"
 def pgcat_start():
     pg_cat_send_signal(signal.SIGTERM)
     os.system("./target/debug/pgcat .circleci/pgcat.toml &")
+    time.sleep(2)
 
 
 def pg_cat_send_signal(signal: signal.Signals):
@@ -27,11 +28,22 @@ def pg_cat_send_signal(signal: signal.Signals):
             raise Exception("pgcat not closed after SIGTERM")
 
 
-def connect_normal_db(
+def connect_db(
     autocommit: bool = False,
+    admin: bool = False,
 ) -> Tuple[psycopg2.extensions.connection, psycopg2.extensions.cursor]:
+
+    if admin:
+        user = "admin_user"
+        password = "admin_pass"
+        db = "pgcat"
+    else:
+        user = "sharding_user"
+        password = "sharding_user"
+        db = "sharded_db"
+
     conn = psycopg2.connect(
-        f"postgres://sharding_user:sharding_user@{PGCAT_HOST}:{PGCAT_PORT}/sharded_db?application_name=testing_pgcat"
+        f"postgres://{user}:{password}@{PGCAT_HOST}:{PGCAT_PORT}/{db}?application_name=testing_pgcat"
     )
     conn.autocommit = autocommit
     cur = conn.cursor()
@@ -45,7 +57,7 @@ def cleanup_conn(conn: psycopg2.extensions.connection, cur: psycopg2.extensions.
 
 
 def test_normal_db_access():
-    conn, cur = connect_normal_db()
+    conn, cur = connect_db()
     cur.execute("SELECT 1")
     res = cur.fetchall()
     print(res)
@@ -53,11 +65,7 @@ def test_normal_db_access():
 
 
 def test_admin_db_access():
-    conn = psycopg2.connect(
-        f"postgres://admin_user:admin_pass@{PGCAT_HOST}:{PGCAT_PORT}/pgcat"
-    )
-    conn.autocommit = True  # BEGIN/COMMIT is not supported by admin db
-    cur = conn.cursor()
+    conn, cur = connect_db(autocommit=True, admin=True)
 
     cur.execute("SHOW POOLS")
     res = cur.fetchall()
@@ -67,101 +75,178 @@ def test_admin_db_access():
 
 def test_shutdown_logic():
 
-    ##### NO ACTIVE QUERIES SIGINT HANDLING #####
+    # # - - - - - - - - - - - - - - - - - -
+    # # NO ACTIVE QUERIES SIGINT HANDLING
+
+    # # Start pgcat
+    # pgcat_start()
+
+
+
+    # # Create client connection and send query (not in transaction)
+    # conn, cur = connect_db(autocommit=True)
+
+    # cur.execute("BEGIN;")
+    # cur.execute("SELECT 1;")
+    # cur.execute("COMMIT;")
+
+    # # Send sigint to pgcat
+    # pg_cat_send_signal(signal.SIGINT)
+    # time.sleep(1)
+
+    # # Check that any new queries fail after sigint since server should close with no active transactions
+    # try:
+    #     cur.execute("SELECT 1;")
+    # except psycopg2.OperationalError as e:
+    #     pass
+    # else:
+    #     # Fail if query execution succeeded
+    #     raise Exception("Server not closed after sigint")
+
+    # cleanup_conn(conn, cur)
+    # pg_cat_send_signal(signal.SIGTERM)
+
+    # # - - - - - - - - - - - - - - - - - -
+    # # HANDLE TRANSACTION WITH SIGINT
+
+    # # Start pgcat
+    # pgcat_start()
+
+
+
+    # # Create client connection and begin transaction
+    # conn, cur = connect_db(autocommit=True)
+
+    # cur.execute("BEGIN;")
+    # cur.execute("SELECT 1;")
+
+    # # Send sigint to pgcat while still in transaction
+    # pg_cat_send_signal(signal.SIGINT)
+    # time.sleep(1)
+
+    # # Check that any new queries succeed after sigint since server should still allow transaction to complete
+    # try:
+    #     cur.execute("SELECT 1;")
+    # except psycopg2.OperationalError as e:
+    #     # Fail if query fails since server closed
+    #     raise Exception("Server closed while in transaction", e.pgerror)
+
+    # cleanup_conn(conn, cur)
+    # pg_cat_send_signal(signal.SIGTERM)
+
+    # - - - - - - - - - - - - - - - - - -
+    # NO NEW NON-ADMIN CONNECTIONS DURING SHUTDOWN
     # Start pgcat
     pgcat_start()
-
-    # Wait for server to fully start up
-    time.sleep(2)
-
-    # Create client connection and send query (not in transaction)
-    conn, cur = connect_normal_db(True)
-
-    cur.execute("BEGIN;")
-    cur.execute("SELECT 1;")
-    cur.execute("COMMIT;")
-
-    # Send sigint to pgcat
-    pg_cat_send_signal(signal.SIGINT)
-    time.sleep(1)
-
-    # Check that any new queries fail after sigint since server should close with no active transactions
-    try:
-        cur.execute("SELECT 1;")
-    except psycopg2.OperationalError as e:
-        pass
-    else:
-        # Fail if query execution succeeded
-        raise Exception("Server not closed after sigint")
-
-    cleanup_conn(conn, cur)
-    pg_cat_send_signal(signal.SIGTERM)
-
-    ##### END #####
-
-    ##### HANDLE TRANSACTION WITH SIGINT #####
-    # Start pgcat
-    pgcat_start()
-
-    # Wait for server to fully start up
-    time.sleep(2)
 
     # Create client connection and begin transaction
-    conn, cur = connect_normal_db(True)
+    transaction_conn, transaction_cur = connect_db(autocommit=True)
 
-    cur.execute("BEGIN;")
-    cur.execute("SELECT 1;")
+    transaction_cur.execute("BEGIN;")
+    transaction_cur.execute("SELECT 1;")
 
     # Send sigint to pgcat while still in transaction
     pg_cat_send_signal(signal.SIGINT)
     time.sleep(1)
 
-    # Check that any new queries succeed after sigint since server should still allow transaction to complete
     try:
-        cur.execute("SELECT 1;")
-    except psycopg2.OperationalError as e:
-        # Fail if query fails since server closed
-        raise Exception("Server closed while in transaction", e.pgerror)
-
-    cleanup_conn(conn, cur)
-    pg_cat_send_signal(signal.SIGTERM)
-
-    ##### END #####
-
-    ##### HANDLE SHUTDOWN TIMEOUT WITH SIGINT #####
-    # Start pgcat
-    pgcat_start()
-
-    # Wait for server to fully start up
-    time.sleep(3)
-
-    # Create client connection and begin transaction, which should prevent server shutdown unless shutdown timeout is reached
-    conn, cur = connect_normal_db(True)
-
-    cur.execute("BEGIN;")
-    cur.execute("SELECT 1;")
-
-    # Send sigint to pgcat while still in transaction
-    pg_cat_send_signal(signal.SIGINT)
-
-    # pgcat shutdown timeout is set to SHUTDOWN_TIMEOUT seconds, so we sleep for SHUTDOWN_TIMEOUT + 1 seconds
-    time.sleep(SHUTDOWN_TIMEOUT + 1)
-
-    # Check that any new queries succeed after sigint since server should still allow transaction to complete
-    try:
-        cur.execute("SELECT 1;")
+        conn, cur = connect_db(autocommit=True)
+        cleanup_conn(conn, cur)
     except psycopg2.OperationalError as e:
         pass
     else:
-        # Fail if query execution succeeded
-        raise Exception("Server not closed after sigint and expected timeout")
+        raise Exception("Able connect to database during shutdown")
 
-    cleanup_conn(conn, cur)
+    cleanup_conn(transaction_conn, transaction_cur)
     pg_cat_send_signal(signal.SIGTERM)
 
-    ##### END #####
+    # - - - - - - - - - - - - - - - - - -
+    # ALLOW NEW ADMIN CONNECTIONS DURING SHUTDOWN
+    # Start pgcat
+    pgcat_start()
+
+    # Create client connection and begin transaction
+    transaction_conn, transaction_cur = connect_db(autocommit=True)
+
+    transaction_cur.execute("BEGIN;")
+    transaction_cur.execute("SELECT 1;")
+
+    # Send sigint to pgcat while still in transaction
+    pg_cat_send_signal(signal.SIGINT)
+    time.sleep(1)
+
+    try:
+        conn, cur = connect_db(autocommit=True, admin=True)
+        cur.execute("SHOW DATABASES;")
+        cleanup_conn(conn, cur)
+    except psycopg2.OperationalError as e:
+        raise Exception(e)
+
+    cleanup_conn(transaction_conn, transaction_cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    # - - - - - - - - - - - - - - - - - -
+    # ADMIN CONNECTIONS CONTINUING TO WORK AFTER SHUTDOWN
+    # Start pgcat
+    pgcat_start()
+
+    print("GOOD STUFF")
+
+    # Create client connection and begin transaction
+    transaction_conn, transaction_cur = connect_db(autocommit=True)
+    transaction_cur.execute("BEGIN;")
+    transaction_cur.execute("SELECT 1;")
+
+    admin_conn, admin_cur = connect_db(autocommit=True, admin=True)
+    admin_cur.execute("SHOW DATABASES;")
+
+    # Send sigint to pgcat while still in transaction
+    pg_cat_send_signal(signal.SIGINT)
+    time.sleep(1)
+
+    try:
+        admin_cur.execute("SHOW DATABASES;")
+        cleanup_conn(conn, cur)
+    except psycopg2.OperationalError as e:
+        raise Exception(e)
+
+    cleanup_conn(transaction_conn, transaction_cur)
+    cleanup_conn(admin_conn, admin_cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    # # - - - - - - - - - - - - - - - - - -
+    # # HANDLE SHUTDOWN TIMEOUT WITH SIGINT
+
+    # # Start pgcat
+    # pgcat_start()
+
+    # # Create client connection and begin transaction, which should prevent server shutdown unless shutdown timeout is reached
+    # conn, cur = connect_db(autocommit=True)
+
+    # cur.execute("BEGIN;")
+    # cur.execute("SELECT 1;")
+
+    # # Send sigint to pgcat while still in transaction
+    # pg_cat_send_signal(signal.SIGINT)
+
+    # # pgcat shutdown timeout is set to SHUTDOWN_TIMEOUT seconds, so we sleep for SHUTDOWN_TIMEOUT + 1 seconds
+    # time.sleep(SHUTDOWN_TIMEOUT + 1)
+
+    # # Check that any new queries succeed after sigint since server should still allow transaction to complete
+    # try:
+    #     cur.execute("SELECT 1;")
+    # except psycopg2.OperationalError as e:
+    #     pass
+    # else:
+    #     # Fail if query execution succeeded
+    #     raise Exception("Server not closed after sigint and expected timeout")
+
+    # cleanup_conn(conn, cur)
+    # pg_cat_send_signal(signal.SIGTERM)
+
+    # # - - - - - - - - - - - - - - - - - -
 
 
-test_normal_db_access()
-test_admin_db_access()
+# test_normal_db_access()
+# test_admin_db_access()
 test_shutdown_logic()
