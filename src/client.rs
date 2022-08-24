@@ -348,7 +348,10 @@ where
 
         // Only allow admin connection when in admin mode
         if admin_only && !admin {
-            debug!("Rejecting non-admin connection to {} when in admin only mode", target_pool_name);
+            debug!(
+                "Rejecting non-admin connection to {} when in admin only mode",
+                target_pool_name
+            );
             error_response_terminal(
                 &mut write,
                 &format!("terminating connection due to administrator command"),
@@ -1055,7 +1058,6 @@ where
 
 impl<S, T> Drop for Client<S, T> {
     fn drop(&mut self) {
-
         if !self.admin {
             ACTIVE_NON_ADMIN_CLIENTS.fetch_sub(1, Ordering::Relaxed);
         }
