@@ -202,8 +202,8 @@ async fn main() {
                 admin_only = true;
 
                 // Broadcast that client tasks need to finish
-                shutdown_tx.send(()).unwrap();
-                drain_tx.send(total_clients).await.unwrap();
+                shutdown_tx.send(());
+                let _ = drain_tx.send(total_clients).await;
 
                 let drain_tx = drain_tx.clone();
 
@@ -219,7 +219,7 @@ async fn main() {
                     // We're done waiting.
                     error!("Timed out waiting for clients");
 
-                    drain_tx.send(0).await.unwrap();
+                    let _ = drain_tx.send(0).await;
                 });
             },
 
@@ -249,7 +249,6 @@ async fn main() {
                         socket,
                         client_server_map,
                         shutdown_rx,
-                        drain_tx.clone(),
                         admin_only,
                     )
                     .await
@@ -288,7 +287,7 @@ async fn main() {
             }
 
             remaining_clients = drain_rx.recv() => {
-                let remaining_clients = remaining_clients.unwrap();
+                let remaining_clients = remaining_clients.unwrap_or(0);
 
                 if remaining_clients == 0 {
                     exit_tx.send(()).await.unwrap();
