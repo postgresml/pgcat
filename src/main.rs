@@ -158,7 +158,7 @@ async fn main() {
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
     let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
-    let (drain_tx, mut drain_rx) = mpsc::channel::<usize>(1);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<u8>(1);
     let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
     info!("Waiting for clients");
@@ -249,6 +249,7 @@ async fn main() {
                         socket,
                         client_server_map,
                         shutdown_rx,
+                        drain_tx.clone(),
                         admin_only,
                     )
                     .await
@@ -286,11 +287,12 @@ async fn main() {
                 break;
             }
 
-            remaining_clients = drain_rx.recv() => {
-                let remaining_clients = remaining_clients.unwrap_or(0);
+            client_ping = drain_rx.recv() => {
+                let client_ping = client_ping.unwrap_or(0);
+                total_clients += 1;
 
-                if remaining_clients == 0 && admin_only {
-                    exit_tx.send(()).await.unwrap();
+                if total_clients == 0 && admin_only || client_ping == 0 {
+                    let _ = exit_tx.send(()).await;
                 }
             }
         }
