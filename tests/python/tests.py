@@ -43,7 +43,8 @@ def connect_db(
         db = "sharded_db"
 
     conn = psycopg2.connect(
-        f"postgres://{user}:{password}@{PGCAT_HOST}:{PGCAT_PORT}/{db}?application_name=testing_pgcat"
+        f"postgres://{user}:{password}@{PGCAT_HOST}:{PGCAT_PORT}/{db}?application_name=testing_pgcat",
+        connect_timeout=2,
     )
     conn.autocommit = autocommit
     cur = conn.cursor()
