@@ -9,7 +9,7 @@ function start_pgcat() {
     pid=$(pgrep pgcat)
     kill -s SIGTERM ${pid} || true
 
-    if [[! -z $pid ]]; then
+    if [[ ! -z $pid ]]; then
         timeout 5.1 tail --pid=${pid} -f /dev/null
     fi
     RUST_LOG=${1} ./target/debug/pgcat .circleci/pgcat.toml &
