@@ -576,11 +576,18 @@ where
 
             let mut message = tokio::select! {
                 _ = self.shutdown.recv() => {
-                    error_response_terminal(
-                        &mut self.write,
-                        &format!("terminating connection due to administrator command")
-                    ).await?;
-                    return Ok(())
+                    if !self.admin {
+                        error_response_terminal(
+                            &mut self.write,
+                            &format!("terminating connection due to administrator command")
+                        ).await?;
+                        return Ok(())
+                    }
+
+                    // Admin clients ignore shutdown.
+                    else {
+                        read_message(&mut self.read).await?
+                    }
                 },
                 message_result = read_message(&mut self.read) => message_result?
             };
