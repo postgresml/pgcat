@@ -59,7 +59,6 @@ pub struct Client<S, T> {
     client_server_map: ClientServerMap,
 
     /// Client parameters, e.g. user, client_encoding, etc.
-    #[allow(dead_code)]
     parameters: HashMap<String, String>,
 
     /// Statistics
@@ -87,6 +86,8 @@ pub struct Client<S, T> {
     shutdown: Receiver<()>,
 
     /// Notify we're done.
+
+    #[allow(dead_code)]
     drain: Sender<()>,
 }
 
