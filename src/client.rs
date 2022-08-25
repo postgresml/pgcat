@@ -84,9 +84,6 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
-
-    // Allow only admin connections.
-    admin_only: bool,
 }
 
 /// Client entrypoint.
@@ -224,17 +221,7 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with cancel query request.
-            match Client::cancel(
-                read,
-                write,
-                addr,
-                bytes,
-                client_server_map,
-                shutdown,
-                admin_only,
-            )
-            .await
-            {
+            match Client::cancel(read, write, addr, bytes, client_server_map, shutdown).await {
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
@@ -384,6 +371,20 @@ where
             .count()
             == 1;
 
+        // Kick any client that's not admin while we're in admin-only mode.
+        if !admin && admin_only {
+            debug!(
+                "Rejecting non-admin connection to {} when in admin only mode",
+                pool_name
+            );
+            error_response_terminal(
+                &mut write,
+                &format!("terminating connection due to administrator command"),
+            )
+            .await?;
+            return Err(Error::ShuttingDown);
+        }
+
         // Generate random backend ID and secret key
         let process_id: i32 = rand::random();
         let secret_key: i32 = rand::random();
@@ -494,7 +495,6 @@ where
             username: username.clone(),
             shutdown,
             connected_to_server: false,
-            admin_only,
         });
     }
 
@@ -506,7 +506,6 @@ where
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
-        admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
@@ -529,7 +528,6 @@ where
             username: String::from("undefined"),
             shutdown,
             connected_to_server: false,
-            admin_only,
         });
     }
 
@@ -563,16 +561,6 @@ where
             // and secret_key and then closes it for security reasons. No other interactions
             // take place.
             return Ok(Server::cancel(&address, port, process_id, secret_key).await?);
-        }
-
-        // Kick any client that's not admin while we're in admin-only mode.
-        if !self.admin && self.admin_only {
-            error_response_terminal(
-                &mut self.write,
-                &format!("terminating connection due to administrator command"),
-            )
-            .await?;
-            return Err(Error::ShuttingDown);
         }
 
         // The query router determines where the query is going to go,
