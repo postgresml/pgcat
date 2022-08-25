@@ -85,11 +85,6 @@ pub struct Client<S, T> {
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
 
-    /// Notify we're done.
-
-    #[allow(dead_code)]
-    drain: Sender<u8>,
-
     // Allow only admin connections.
     admin_only: bool,
 }
@@ -99,7 +94,7 @@ pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
-    drain: Sender<u8>,
+    drain: Sender<i8>,
     admin_only: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
@@ -119,11 +114,21 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown, drain, admin_only).await {
+                match startup_tls(stream, client_server_map, shutdown, admin_only).await {
                     Ok(mut client) => {
                         info!("Client {:?} connected (TLS)", addr);
 
-                        client.handle().await
+                        if !client.is_admin() {
+                            let _ = drain.send(1).await;
+                        }
+
+                        let result = client.handle().await;
+
+                        if !client.is_admin() {
+                            let _ = drain.send(-1).await;
+                        }
+
+                        result
                     }
                     Err(err) => Err(err),
                 }
@@ -150,7 +155,6 @@ pub async fn client_entrypoint(
                             bytes,
                             client_server_map,
                             shutdown,
-                            drain,
                             admin_only,
                         )
                         .await
@@ -158,7 +162,17 @@ pub async fn client_entrypoint(
                             Ok(mut client) => {
                                 info!("Client {:?} connected (plain)", addr);
 
-                                client.handle().await
+                                if !client.is_admin() {
+                                    let _ = drain.send(1).await;
+                                }
+
+                                let result = client.handle().await;
+
+                                if !client.is_admin() {
+                                    let _ = drain.send(-1).await;
+                                }
+
+                                result
                             }
                             Err(err) => Err(err),
                         }
@@ -182,7 +196,6 @@ pub async fn client_entrypoint(
                 bytes,
                 client_server_map,
                 shutdown,
-                drain,
                 admin_only,
             )
             .await
@@ -190,7 +203,17 @@ pub async fn client_entrypoint(
                 Ok(mut client) => {
                     info!("Client {:?} connected (plain)", addr);
 
-                    client.handle().await
+                    if client.is_admin() {
+                        let _ = drain.send(1).await;
+                    }
+
+                    let result = client.handle().await;
+
+                    if !client.is_admin() {
+                        let _ = drain.send(-1).await;
+                    }
+
+                    result
                 }
                 Err(err) => Err(err),
             }
@@ -208,7 +231,6 @@ pub async fn client_entrypoint(
                 bytes,
                 client_server_map,
                 shutdown,
-                drain,
                 admin_only,
             )
             .await
@@ -216,7 +238,17 @@ pub async fn client_entrypoint(
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
-                    client.handle().await
+                    if client.is_admin() {
+                        let _ = drain.send(1).await;
+                    }
+
+                    let result = client.handle().await;
+
+                    if !client.is_admin() {
+                        let _ = drain.send(-1).await;
+                    }
+
+                    result
                 }
 
                 Err(err) => Err(err),
@@ -270,7 +302,6 @@ pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
-    drain: Sender<u8>,
     admin_only: bool,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
@@ -302,7 +333,6 @@ pub async fn startup_tls(
                 bytes,
                 client_server_map,
                 shutdown,
-                drain,
                 admin_only,
             )
             .await
@@ -318,6 +348,10 @@ where
     S: tokio::io::AsyncRead + std::marker::Unpin,
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
+    pub fn is_admin(&self) -> bool {
+        self.admin
+    }
+
     /// Handle Postgres client startup after TLS negotiation is complete
     /// or over plain text.
     pub async fn startup(
@@ -327,7 +361,6 @@ where
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
-        drain: Sender<u8>,
         admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
@@ -442,16 +475,6 @@ where
 
         trace!("Startup OK");
 
-        if !admin {
-            match drain.send(1).await {
-                Ok(_) => (),
-                Err(err) => {
-                    error!("Client error: {:?}", err);
-                    return Err(Error::ClientError);
-                }
-            };
-        }
-
         return Ok(Client {
             read: BufReader::new(read),
             write: write,
@@ -471,7 +494,6 @@ where
             username: username.clone(),
             shutdown,
             connected_to_server: false,
-            drain,
             admin_only,
         });
     }
@@ -484,7 +506,6 @@ where
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
-        drain: Sender<u8>,
         admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
@@ -508,7 +529,6 @@ where
             username: String::from("undefined"),
             shutdown,
             connected_to_server: false,
-            drain,
             admin_only,
         });
     }

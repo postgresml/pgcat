@@ -158,7 +158,7 @@ async fn main() {
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
     let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
-    let (drain_tx, mut drain_rx) = mpsc::channel::<u8>(1);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<i8>(2048);
     let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
     info!("Waiting for clients");
@@ -203,9 +203,8 @@ async fn main() {
 
                 // Broadcast that client tasks need to finish
                 let _ = shutdown_tx.send(());
-                let _ = drain_tx.send(total_clients).await;
-
-                let drain_tx = drain_tx.clone();
+                let exit_tx = exit_tx.clone();
+                let _ = drain_tx.send(0).await;
 
                 tokio::task::spawn(async move {
                     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(config.general.shutdown_timeout));
@@ -219,7 +218,7 @@ async fn main() {
                     // We're done waiting.
                     error!("Timed out waiting for clients");
 
-                    let _ = drain_tx.send(0).await;
+                    let _ = exit_tx.send(()).await;
                 });
             },
 
@@ -238,10 +237,6 @@ async fn main() {
                 let drain_tx = drain_tx.clone();
                 let client_server_map = client_server_map.clone();
 
-                if !admin_only {
-                    total_clients += 1;
-                }
-
                 tokio::task::spawn(async move {
                     let start = chrono::offset::Utc::now().naive_utc();
 
@@ -249,12 +244,13 @@ async fn main() {
                         socket,
                         client_server_map,
                         shutdown_rx,
-                        drain_tx.clone(),
+                        drain_tx,
                         admin_only,
                     )
                     .await
                     {
-                        Ok(_) => {
+                        Ok(()) => {
+
                             let duration = chrono::offset::Utc::now().naive_utc() - start;
 
                             info!(
@@ -262,8 +258,6 @@ async fn main() {
                                 addr,
                                 format_duration(&duration)
                             );
-
-                            total_clients -= 1;
                         }
 
                         Err(err) => {
@@ -271,15 +265,13 @@ async fn main() {
                                 // Don't count the clients we rejected.
                                 Error::ShuttingDown => (),
                                 _ => {
-                                    total_clients -= 1;
+                                    // drain_tx.send(-1).await.unwrap();
                                 }
                             }
 
                             debug!("Client disconnected with error {:?}", err);
                         }
                     };
-
-                    let _ = drain_tx.send(total_clients).await;
                 });
             }
 
@@ -288,10 +280,10 @@ async fn main() {
             }
 
             client_ping = drain_rx.recv() => {
-                let client_ping = client_ping.unwrap_or(0);
-                total_clients += 1;
+                let client_ping = client_ping.unwrap();
+                total_clients += client_ping;
 
-                if total_clients == 0 && admin_only || client_ping == 0 {
+                if total_clients == 0 && admin_only {
                     let _ = exit_tx.send(()).await;
                 }
             }
