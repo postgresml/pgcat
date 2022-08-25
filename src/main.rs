@@ -202,7 +202,7 @@ async fn main() {
                 admin_only = true;
 
                 // Broadcast that client tasks need to finish
-                shutdown_tx.send(());
+                let _ = shutdown_tx.send(());
                 let _ = drain_tx.send(total_clients).await;
 
                 let drain_tx = drain_tx.clone();
@@ -289,7 +289,7 @@ async fn main() {
             remaining_clients = drain_rx.recv() => {
                 let remaining_clients = remaining_clients.unwrap_or(0);
 
-                if remaining_clients == 0 {
+                if remaining_clients == 0 && admin_only {
                     exit_tx.send(()).await.unwrap();
                 }
             }
