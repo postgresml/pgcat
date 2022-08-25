@@ -10,7 +10,7 @@ use sqlparser::parser::Parser;
 
 use crate::config::Role;
 use crate::pool::PoolSettings;
-use crate::sharding::{Sharder, ShardingFunction};
+use crate::sharding::Sharder;
 
 /// Regexes used to parse custom commands.
 const CUSTOM_SQL_REGEXES: [&str; 7] = [
@@ -55,11 +55,13 @@ pub struct QueryRouter {
     /// Include the primary into the replica pool for reads.
     primary_reads_enabled: bool,
 
+    /// Pool configuration.
     pool_settings: PoolSettings,
 }
 
 impl QueryRouter {
-    /// One-time initialization of regexes.
+    /// One-time initialization of regexes
+    /// that parse our custom SQL protocol.
     pub fn setup() -> bool {
         let set = match RegexSet::new(&CUSTOM_SQL_REGEXES) {
             Ok(rgx) => rgx,
@@ -74,10 +76,7 @@ impl QueryRouter {
             .map(|rgx| Regex::new(rgx).unwrap())
             .collect();
 
-        // Impossible
-        if list.len() != set.len() {
-            return false;
-        }
+        assert_eq!(list.len(), set.len());
 
         match CUSTOM_SQL_REGEX_LIST.set(list) {
             Ok(_) => true,
@@ -90,7 +89,8 @@ impl QueryRouter {
         }
     }
 
-    /// Create a new instance of the query router. Each client gets its own.
+    /// Create a new instance of the query router.
+    /// Each client gets its own.
     pub fn new() -> QueryRouter {
         QueryRouter {
             active_shard: None,
@@ -101,6 +101,7 @@ impl QueryRouter {
         }
     }
 
+    /// Pool settings can change because of a config reload.
     pub fn update_pool_settings(&mut self, pool_settings: PoolSettings) {
         self.pool_settings = pool_settings;
     }
@@ -135,19 +136,6 @@ impl QueryRouter {
             debug!("Regular query, not a command");
             return None;
         }
-
-        let sharding_function = match self.pool_settings.sharding_function.as_ref() {
-            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
-            "sha1" => ShardingFunction::Sha1,
-            _ => unreachable!(),
-        };
-
-        let default_server_role = match self.pool_settings.default_role.as_ref() {
-            "any" => None,
-            "primary" => Some(Role::Primary),
-            "replica" => Some(Role::Replica),
-            _ => unreachable!(),
-        };
 
         let command = match matches[0] {
             0 => Command::SetShardingKey,
@@ -200,7 +188,10 @@ impl QueryRouter {
 
         match command {
             Command::SetShardingKey => {
-                let sharder = Sharder::new(self.pool_settings.shards.len(), sharding_function);
+                let sharder = Sharder::new(
+                    self.pool_settings.shards,
+                    self.pool_settings.sharding_function,
+                );
                 let shard = sharder.shard(value.parse::<i64>().unwrap());
                 self.active_shard = Some(shard);
                 value = shard.to_string();
@@ -208,7 +199,7 @@ impl QueryRouter {
 
             Command::SetShard => {
                 self.active_shard = match value.to_ascii_uppercase().as_ref() {
-                    "ANY" => Some(rand::random::<usize>() % self.pool_settings.shards.len()),
+                    "ANY" => Some(rand::random::<usize>() % self.pool_settings.shards),
                     _ => Some(value.parse::<usize>().unwrap()),
                 };
             }
@@ -236,7 +227,7 @@ impl QueryRouter {
                     }
 
                     "default" => {
-                        self.active_role = default_server_role;
+                        self.active_role = self.pool_settings.default_role;
                         self.query_parser_enabled = self.query_parser_enabled;
                         self.active_role
                     }
@@ -367,10 +358,10 @@ impl QueryRouter {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::messages::simple_query;
+    use crate::pool::PoolMode;
+    use crate::sharding::ShardingFunction;
     use bytes::BufMut;
 
     #[test]
@@ -633,13 +624,13 @@ mod test {
         QueryRouter::setup();
 
         let pool_settings = PoolSettings {
-            pool_mode: "transaction".to_string(),
-            shards: HashMap::default(),
+            pool_mode: PoolMode::Transaction,
+            shards: 0,
             user: crate::config::User::default(),
-            default_role: Role::Replica.to_string(),
+            default_role: Some(Role::Replica),
             query_parser_enabled: true,
             primary_reads_enabled: false,
-            sharding_function: "pg_bigint_hash".to_string(),
+            sharding_function: ShardingFunction::PgBigintHash,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -661,9 +652,6 @@ mod test {
 
         let q2 = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(q2) != None);
-        assert_eq!(
-            qr.active_role.unwrap().to_string(),
-            pool_settings.clone().default_role
-        );
+        assert_eq!(qr.active_role.unwrap(), pool_settings.clone().default_role);
     }
 }

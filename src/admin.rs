@@ -265,11 +265,11 @@ where
     for (_, pool) in get_all_pools() {
         let pool_config = pool.settings.clone();
         for shard in 0..pool.shards() {
-            let database_name = &pool_config.shards[&shard.to_string()].database;
+            let database_name = &pool.address(shard, 0).database;
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
                 let pool_state = pool.pool_state(shard, server);
-                let banned = pool.is_banned(address, shard, Some(address.role));
+                let banned = pool.is_banned(address, Some(address.role));
 
                 res.put(data_row(&vec![
                     address.name(),                         // name

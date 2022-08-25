@@ -75,7 +75,7 @@ impl Server {
         stats: Reporter,
     ) -> Result<Server, Error> {
         let mut stream =
-            match TcpStream::connect(&format!("{}:{}", &address.host, &address.port)).await {
+            match TcpStream::connect(&format!("{}:{}", &address.host, address.port)).await {
                 Ok(stream) => stream,
                 Err(err) => {
                     error!("Could not connect to server: {}", err);
@@ -342,7 +342,7 @@ impl Server {
     /// Uses a separate connection that's not part of the connection pool.
     pub async fn cancel(
         host: &str,
-        port: &str,
+        port: u16,
         process_id: i32,
         secret_key: i32,
     ) -> Result<(), Error> {
@@ -529,7 +529,7 @@ impl Server {
                 self.process_id,
                 self.secret_key,
                 self.address.host.clone(),
-                self.address.port.clone(),
+                self.address.port,
             ),
         );
     }
