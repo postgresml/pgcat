@@ -373,6 +373,10 @@ where
 
         // Kick any client that's not admin while we're in admin-only mode.
         if !admin && admin_only {
+            debug!(
+                "Rejecting non-admin connection to {} when in admin only mode",
+                pool_name
+            );
             error_response_terminal(
                 &mut write,
                 &format!("terminating connection due to administrator command"),
