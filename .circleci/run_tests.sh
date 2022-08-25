@@ -6,12 +6,7 @@ set -o xtrace
 # Start PgCat with a particular log level
 # for inspection.
 function start_pgcat() {
-    pid=$(pgrep pgcat)
-    kill -s SIGTERM ${pid} || true
-
-    if [[ ! -z $pid ]]; then
-        timeout 5.1 tail --pid=${pid} -f /dev/null
-    fi
+    kill -s SIGINT $(pgrep pgcat) || true
     RUST_LOG=${1} ./target/debug/pgcat .circleci/pgcat.toml &
     sleep 1
 }
