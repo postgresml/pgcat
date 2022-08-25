@@ -384,6 +384,16 @@ where
             .count()
             == 1;
 
+        // Kick any client that's not admin while we're in admin-only mode.
+        if !admin && admin_only {
+            error_response_terminal(
+                &mut write,
+                &format!("terminating connection due to administrator command"),
+            )
+            .await?;
+            return Err(Error::ShuttingDown);
+        }
+
         // Generate random backend ID and secret key
         let process_id: i32 = rand::random();
         let secret_key: i32 = rand::random();
@@ -563,16 +573,6 @@ where
             // and secret_key and then closes it for security reasons. No other interactions
             // take place.
             return Ok(Server::cancel(&address, port, process_id, secret_key).await?);
-        }
-
-        // Kick any client that's not admin while we're in admin-only mode.
-        if !self.admin && self.admin_only {
-            error_response_terminal(
-                &mut self.write,
-                &format!("terminating connection due to administrator command"),
-            )
-            .await?;
-            return Err(Error::ShuttingDown);
         }
 
         // The query router determines where the query is going to go,
