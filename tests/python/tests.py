@@ -145,10 +145,14 @@ def test_shutdown_logic():
     pg_cat_send_signal(signal.SIGINT)
     time.sleep(1)
 
+    start = time.perf_counter()
     try:
         conn, cur = connect_db(autocommit=True)
         cleanup_conn(conn, cur)
     except psycopg2.OperationalError as e:
+        time_taken = time.perf_counter() - start
+        if time_taken > 0.1:
+            raise Exception("Failed to reject connection within 0.1 seconds, got", time_taken, "seconds")
         pass
     else:
         raise Exception("Able connect to database during shutdown")
