@@ -208,7 +208,7 @@ async fn main() {
                 let drain_tx = drain_tx.clone();
 
                 tokio::task::spawn(async move {
-                    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
+                    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(config.general.shutdown_timeout));
 
                     // First tick fires immediately.
                     interval.tick().await;
