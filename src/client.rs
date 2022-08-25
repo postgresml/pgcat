@@ -84,9 +84,6 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
-
-    // Allow only admin connections.
-    admin_only: bool,
 }
 
 /// Client entrypoint.
@@ -224,17 +221,7 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with cancel query request.
-            match Client::cancel(
-                read,
-                write,
-                addr,
-                bytes,
-                client_server_map,
-                shutdown,
-                admin_only,
-            )
-            .await
-            {
+            match Client::cancel(read, write, addr, bytes, client_server_map, shutdown).await {
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
@@ -504,7 +491,6 @@ where
             username: username.clone(),
             shutdown,
             connected_to_server: false,
-            admin_only,
         });
     }
 
@@ -516,7 +502,6 @@ where
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
-        admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
@@ -539,7 +524,6 @@ where
             username: String::from("undefined"),
             shutdown,
             connected_to_server: false,
-            admin_only,
         });
     }
 
