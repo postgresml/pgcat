@@ -66,6 +66,7 @@ mod stats;
 mod tls;
 
 use crate::config::{get_config, reload_config, VERSION};
+use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
@@ -156,10 +157,14 @@ async fn main() {
     let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
     let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
-    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
-    let (drain_tx, mut drain_rx) = mpsc::channel::<()>(1);
+    let (shutdown_tx, _) = broadcast::channel::<()>(1);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<usize>(1);
+    let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
     info!("Waiting for clients");
+
+    let mut admin_only = false;
+    let mut total_clients = 0;
 
     loop {
         tokio::select! {
@@ -194,9 +199,28 @@ async fn main() {
             // Initiate graceful shutdown sequence on sig int
             _ = interrupt_signal.recv() => {
                 info!("Got SIGINT, waiting for client connection drain now");
+                admin_only = true;
 
                 // Broadcast that client tasks need to finish
                 shutdown_tx.send(()).unwrap();
+                drain_tx.send(total_clients).await.unwrap();
+
+                let drain_tx = drain_tx.clone();
+
+                tokio::task::spawn(async move {
+                    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
+
+                    // First tick fires immediately.
+                    interval.tick().await;
+
+                    // Second one in the interval time.
+                    interval.tick().await;
+
+                    // We're done waiting.
+                    error!("Timed out waiting for clients");
+
+                    drain_tx.send(0).await.unwrap();
+                });
             },
 
             _ = term_signal.recv() => break,
@@ -214,6 +238,10 @@ async fn main() {
                 let drain_tx = drain_tx.clone();
                 let client_server_map = client_server_map.clone();
 
+                if !admin_only {
+                    total_clients += 1;
+                }
+
                 tokio::task::spawn(async move {
                     let start = chrono::offset::Utc::now().naive_utc();
 
@@ -221,7 +249,8 @@ async fn main() {
                         socket,
                         client_server_map,
                         shutdown_rx,
-                        drain_tx,
+                        drain_tx.clone(),
+                        admin_only,
                     )
                     .await
                     {
@@ -233,27 +262,37 @@ async fn main() {
                                 addr,
                                 format_duration(&duration)
                             );
+
+                            total_clients -= 1;
                         }
 
                         Err(err) => {
+                            match err {
+                                // Don't count the clients we rejected.
+                                Error::ShuttingDown => (),
+                                _ => {
+                                    total_clients -= 1;
+                                }
+                            }
+
                             debug!("Client disconnected with error {:?}", err);
                         }
                     };
+
+                    let _ = drain_tx.send(total_clients).await;
                 });
             }
 
-            _ = shutdown_rx.recv() => {
-                 drop(drain_tx);
-                 match tokio::time::timeout(
-                    tokio::time::Duration::from_millis(config.general.shutdown_timeout),
-                    drain_rx.recv(),
-                ).await {
-                    Ok(_) => (),
-                    Err(_) => {
-                        info!("Timed out waiting for clients");
-                    }
-                };
+            _ = exit_rx.recv() => {
                 break;
+            }
+
+            remaining_clients = drain_rx.recv() => {
+                let remaining_clients = remaining_clients.unwrap();
+
+                if remaining_clients == 0 {
+                    exit_tx.send(()).await.unwrap();
+                }
             }
         }
     }

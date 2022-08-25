@@ -88,7 +88,10 @@ pub struct Client<S, T> {
     /// Notify we're done.
 
     #[allow(dead_code)]
-    drain: Sender<()>,
+    drain: Sender<usize>,
+
+    // Allow only admin connections.
+    admin_only: bool,
 }
 
 /// Client entrypoint.
@@ -96,7 +99,8 @@ pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
-    drain: Sender<()>,
+    drain: Sender<usize>,
+    admin_only: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -115,7 +119,7 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown, drain).await {
+                match startup_tls(stream, client_server_map, shutdown, drain, admin_only).await {
                     Ok(mut client) => {
                         info!("Client {:?} connected (TLS)", addr);
 
@@ -147,6 +151,7 @@ pub async fn client_entrypoint(
                             client_server_map,
                             shutdown,
                             drain,
+                            admin_only,
                         )
                         .await
                         {
@@ -170,8 +175,17 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with regular startup.
-            match Client::startup(read, write, addr, bytes, client_server_map, shutdown, drain)
-                .await
+            match Client::startup(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown,
+                drain,
+                admin_only,
+            )
+            .await
             {
                 Ok(mut client) => {
                     info!("Client {:?} connected (plain)", addr);
@@ -187,7 +201,17 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with cancel query request.
-            match Client::cancel(read, write, addr, bytes, client_server_map, shutdown, drain).await
+            match Client::cancel(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown,
+                drain,
+                admin_only,
+            )
+            .await
             {
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
@@ -246,7 +270,8 @@ pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
-    drain: Sender<()>,
+    drain: Sender<usize>,
+    admin_only: bool,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -270,7 +295,17 @@ pub async fn startup_tls(
         Ok((ClientConnectionType::Startup, bytes)) => {
             let (read, write) = split(stream);
 
-            Client::startup(read, write, addr, bytes, client_server_map, shutdown, drain).await
+            Client::startup(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown,
+                drain,
+                admin_only,
+            )
+            .await
         }
 
         // Bad Postgres client.
@@ -292,7 +327,8 @@ where
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
-        drain: Sender<()>,
+        drain: Sender<usize>,
+        admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let stats = get_reporter();
@@ -426,6 +462,7 @@ where
             shutdown,
             connected_to_server: false,
             drain,
+            admin_only,
         });
     }
 
@@ -437,7 +474,8 @@ where
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
-        drain: Sender<()>,
+        drain: Sender<usize>,
+        admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
@@ -461,6 +499,7 @@ where
             shutdown,
             connected_to_server: false,
             drain,
+            admin_only,
         });
     }
 
@@ -494,6 +533,16 @@ where
             // and secret_key and then closes it for security reasons. No other interactions
             // take place.
             return Ok(Server::cancel(&address, port, process_id, secret_key).await?);
+        }
+
+        // Kick any client that's not admin while we're in admin-only mode.
+        if !self.admin && self.admin_only {
+            error_response_terminal(
+                &mut self.write,
+                &format!("terminating connection due to administrator command"),
+            )
+            .await?;
+            return Err(Error::ShuttingDown);
         }
 
         // The query router determines where the query is going to go,
