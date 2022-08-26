@@ -35,6 +35,7 @@ extern crate sqlparser;
 extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
+extern crate exitcode;
 
 use log::{debug, error, info};
 use parking_lot::Mutex;
@@ -77,7 +78,7 @@ async fn main() {
 
     if !query_router::QueryRouter::setup() {
         error!("Could not setup query router");
-        return;
+        std::process::exit(exitcode::CONFIG);
     }
 
     let args = std::env::args().collect::<Vec<String>>();
@@ -92,7 +93,7 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Config parse error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
@@ -107,7 +108,7 @@ async fn main() {
             Ok(addr) => addr,
             Err(err) => {
                 error!("Invalid http address: {}", err);
-                return;
+                std::process::exit(exitcode::CONFIG);
             }
         };
         tokio::task::spawn(async move {
@@ -121,7 +122,7 @@ async fn main() {
         Ok(sock) => sock,
         Err(err) => {
             error!("Listener socket error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
@@ -141,7 +142,7 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Pool error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
