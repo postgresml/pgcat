@@ -24,6 +24,7 @@ extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
 extern crate env_logger;
+extern crate exitcode;
 extern crate log;
 extern crate md5;
 extern crate num_cpus;
@@ -78,7 +79,7 @@ async fn main() {
 
     if !query_router::QueryRouter::setup() {
         error!("Could not setup query router");
-        return;
+        std::process::exit(exitcode::CONFIG);
     }
 
     let args = std::env::args().collect::<Vec<String>>();
@@ -93,7 +94,7 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Config parse error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
@@ -108,7 +109,7 @@ async fn main() {
             Ok(addr) => addr,
             Err(err) => {
                 error!("Invalid http address: {}", err);
-                return;
+                std::process::exit(exitcode::CONFIG);
             }
         };
         tokio::task::spawn(async move {
@@ -122,7 +123,7 @@ async fn main() {
         Ok(sock) => sock,
         Err(err) => {
             error!("Listener socket error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
@@ -142,7 +143,7 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Pool error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 

@@ -3,6 +3,9 @@
 set -e
 set -o xtrace
 
+# non-zero exit code if we provide bad configs
+(! ./target/debug/pgcat "fake_configs"  2>/dev/null)
+
 # Start PgCat with a particular log level
 # for inspection.
 function start_pgcat() {

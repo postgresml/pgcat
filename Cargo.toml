@@ -33,3 +33,4 @@ tokio-rustls = "0.23"
 rustls-pemfile = "1"
 hyper = { version = "0.14", features = ["full"] }
 phf = { version = "0.10", features = ["macros"] }
+exitcode = "1.1.2"
