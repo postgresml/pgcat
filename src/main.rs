@@ -24,6 +24,7 @@ extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
 extern crate env_logger;
+extern crate exitcode;
 extern crate log;
 extern crate md5;
 extern crate num_cpus;
@@ -66,6 +67,7 @@ mod stats;
 mod tls;
 
 use crate::config::{get_config, reload_config, VERSION};
+use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
@@ -77,7 +79,7 @@ async fn main() {
 
     if !query_router::QueryRouter::setup() {
         error!("Could not setup query router");
-        return;
+        std::process::exit(exitcode::CONFIG);
     }
 
     let args = std::env::args().collect::<Vec<String>>();
@@ -92,7 +94,7 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Config parse error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
@@ -107,7 +109,7 @@ async fn main() {
             Ok(addr) => addr,
             Err(err) => {
                 error!("Invalid http address: {}", err);
-                return;
+                std::process::exit(exitcode::CONFIG);
             }
         };
         tokio::task::spawn(async move {
@@ -121,7 +123,7 @@ async fn main() {
         Ok(sock) => sock,
         Err(err) => {
             error!("Listener socket error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
@@ -130,11 +132,11 @@ async fn main() {
     config.show();
 
     // Statistics reporting.
-    let (tx, rx) = mpsc::channel(100_000);
-    REPORTER.store(Arc::new(Reporter::new(tx.clone())));
+    let (stats_tx, stats_rx) = mpsc::channel(100_000);
+    REPORTER.store(Arc::new(Reporter::new(stats_tx.clone())));
 
     // Statistics collector
-    let mut stats_collector = Collector::new(rx, tx.clone());
+    let mut stats_collector = Collector::new(stats_rx, stats_tx.clone());
     tokio::task::spawn(async move {
         stats_collector.collect().await;
     });
@@ -147,155 +149,147 @@ async fn main() {
         Ok(_) => (),
         Err(err) => {
             error!("Pool error: {:?}", err);
-            return;
+            std::process::exit(exitcode::CONFIG);
         }
     };
 
-    // Save these for reloading
-    let reload_client_server_map = client_server_map.clone();
-    let autoreload_client_server_map = client_server_map.clone();
-
-    info!("Waiting for clients");
-
-    let (shutdown_event_tx, mut shutdown_event_rx) = broadcast::channel::<()>(1);
-
-    let shutdown_event_tx_clone = shutdown_event_tx.clone();
-
-    // Client connection loop.
-    tokio::task::spawn(async move {
-        // Creates event subscriber for shutdown event, this is dropped when shutdown event is broadcast
-        let mut listener_shutdown_event_rx = shutdown_event_tx_clone.subscribe();
-        loop {
-            let client_server_map = client_server_map.clone();
-
-            // Listen for shutdown event and client connection at the same time
-            let (socket, addr) = tokio::select! {
-                _ = listener_shutdown_event_rx.recv() => {
-                    // Exits client connection loop which drops listener, listener_shutdown_event_rx and shutdown_event_tx_clone
-                    break;
-                }
-
-                listener_response = listener.accept() => {
-                    match listener_response {
-                        Ok((socket, addr)) => (socket, addr),
-                        Err(err) => {
-                            error!("{:?}", err);
-                            continue;
-                        }
-                    }
-                }
-            };
-
-            // Used to signal shutdown
-            let client_shutdown_handler_rx = shutdown_event_tx_clone.subscribe();
-
-            // Used to signal that the task has completed
-            let dummy_tx = shutdown_event_tx_clone.clone();
-
-            // Handle client.
-            tokio::task::spawn(async move {
-                let start = chrono::offset::Utc::now().naive_utc();
-
-                match client::client_entrypoint(
-                    socket,
-                    client_server_map,
-                    client_shutdown_handler_rx,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        let duration = chrono::offset::Utc::now().naive_utc() - start;
-
-                        info!(
-                            "Client {:?} disconnected, session duration: {}",
-                            addr,
-                            format_duration(&duration)
-                        );
-                    }
-
-                    Err(err) => {
-                        debug!("Client disconnected with error {:?}", err);
-                    }
-                };
-                // Drop this transmitter so receiver knows that the task is completed
-                drop(dummy_tx);
-            });
-        }
-    });
-
-    // Reload config:
-    // kill -SIGHUP $(pgrep pgcat)
-    tokio::task::spawn(async move {
-        let mut stream = unix_signal(SignalKind::hangup()).unwrap();
-
-        loop {
-            stream.recv().await;
-
-            info!("Reloading config");
-
-            match reload_config(reload_client_server_map.clone()).await {
-                Ok(_) => (),
-                Err(_) => continue,
-            };
-
-            get_config().show();
-        }
-    });
-
-    if config.general.autoreload {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
-
-        tokio::task::spawn(async move {
-            info!("Config autoreloader started");
-
-            loop {
-                interval.tick().await;
-                match reload_config(autoreload_client_server_map.clone()).await {
-                    Ok(changed) => {
-                        if changed {
-                            get_config().show()
-                        }
-                    }
-                    Err(_) => (),
-                };
-            }
-        });
-    }
+    info!("Config autoreloader: {}", config.general.autoreload);
 
     let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
     let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
+    let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
+    let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
+    let (shutdown_tx, _) = broadcast::channel::<()>(1);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<i8>(2048);
+    let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
-    tokio::select! {
-        // Initiate graceful shutdown sequence on sig int
-        _ = interrupt_signal.recv() => {
-            info!("Got SIGINT, waiting for client connection drain now");
+    info!("Waiting for clients");
 
-            // Broadcast that client tasks need to finish
-            shutdown_event_tx.send(()).unwrap();
-            // Closes transmitter
-            drop(shutdown_event_tx);
+    let mut admin_only = false;
+    let mut total_clients = 0;
 
-            // This is in a loop because the first event that the receiver receives will be the shutdown event
-            // This is not what we are waiting for instead, we want the receiver to send an error once all senders are closed which is reached after the shutdown event is received
-            loop {
-                match tokio::time::timeout(
-                    tokio::time::Duration::from_millis(config.general.shutdown_timeout),
-                    shutdown_event_rx.recv(),
-                )
-                .await
-                {
-                    Ok(res) => match res {
-                        Ok(_) => {}
-                        Err(_) => break,
-                    },
-                    Err(_) => {
-                        info!("Timed out while waiting for clients to shutdown");
-                        break;
+    loop {
+        tokio::select! {
+            // Reload config:
+            // kill -SIGHUP $(pgrep pgcat)
+            _ = sighup_signal.recv() => {
+                info!("Reloading config");
+
+                match reload_config(client_server_map.clone()).await {
+                    Ok(_) => (),
+                    Err(_) => (),
+                };
+
+                get_config().show();
+            },
+
+            _ = autoreload_interval.tick() => {
+                if config.general.autoreload {
+                    info!("Automatically reloading config");
+
+                    match reload_config(client_server_map.clone()).await {
+                        Ok(changed) => {
+                            if changed {
+                                get_config().show()
+                            }
+                        }
+                        Err(_) => (),
+                    };
+                }
+            },
+
+            // Initiate graceful shutdown sequence on sig int
+            _ = interrupt_signal.recv() => {
+                info!("Got SIGINT, waiting for client connection drain now");
+                admin_only = true;
+
+                // Broadcast that client tasks need to finish
+                let _ = shutdown_tx.send(());
+                let exit_tx = exit_tx.clone();
+                let _ = drain_tx.send(0).await;
+
+                tokio::task::spawn(async move {
+                    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(config.general.shutdown_timeout));
+
+                    // First tick fires immediately.
+                    interval.tick().await;
+
+                    // Second one in the interval time.
+                    interval.tick().await;
+
+                    // We're done waiting.
+                    error!("Timed out waiting for clients");
+
+                    let _ = exit_tx.send(()).await;
+                });
+            },
+
+            _ = term_signal.recv() => break,
+
+            new_client = listener.accept() => {
+                let (socket, addr) = match new_client {
+                    Ok((socket, addr)) => (socket, addr),
+                    Err(err) => {
+                        error!("{:?}", err);
+                        continue;
                     }
+                };
+
+                let shutdown_rx = shutdown_tx.subscribe();
+                let drain_tx = drain_tx.clone();
+                let client_server_map = client_server_map.clone();
+
+                tokio::task::spawn(async move {
+                    let start = chrono::offset::Utc::now().naive_utc();
+
+                    match client::client_entrypoint(
+                        socket,
+                        client_server_map,
+                        shutdown_rx,
+                        drain_tx,
+                        admin_only,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+
+                            let duration = chrono::offset::Utc::now().naive_utc() - start;
+
+                            info!(
+                                "Client {:?} disconnected, session duration: {}",
+                                addr,
+                                format_duration(&duration)
+                            );
+                        }
+
+                        Err(err) => {
+                            match err {
+                                // Don't count the clients we rejected.
+                                Error::ShuttingDown => (),
+                                _ => {
+                                    // drain_tx.send(-1).await.unwrap();
+                                }
+                            }
+
+                            debug!("Client disconnected with error {:?}", err);
+                        }
+                    };
+                });
+            }
+
+            _ = exit_rx.recv() => {
+                break;
+            }
+
+            client_ping = drain_rx.recv() => {
+                let client_ping = client_ping.unwrap();
+                total_clients += client_ping;
+
+                if total_clients == 0 && admin_only {
+                    let _ = exit_tx.send(()).await;
                 }
             }
-        },
-        _ = term_signal.recv() => (),
+        }
     }
 
     info!("Shutting down...");

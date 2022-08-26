@@ -95,7 +95,7 @@ password = "sharding_user"
 # is the sum of pool_size across all users.
 pool_size = 9
 
-# Maximum query duration. Dangerous, but protetcts against DBs that died and a non-obvious way.
+# Maximum query duration. Dangerous, but protects against DBs that died in a non-obvious way.
 statement_timeout = 0
 
 [pools.sharded_db.users.1]

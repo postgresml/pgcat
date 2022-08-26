@@ -12,4 +12,5 @@ pub enum Error {
     ClientError,
     TlsError,
     StatementTimeout,
+    ShuttingDown,
 }

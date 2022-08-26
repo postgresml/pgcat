@@ -3,6 +3,9 @@
 set -e
 set -o xtrace
 
+# non-zero exit code if we provide bad configs
+(! ./target/debug/pgcat "fake_configs"  2>/dev/null)
+
 # Start PgCat with a particular log level
 # for inspection.
 function start_pgcat() {
@@ -19,8 +22,8 @@ PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard1 -i
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard2 -i
 
 # Install Toxiproxy to simulate a downed/slow database
-wget -O toxiproxy-2.1.4.deb https://github.com/Shopify/toxiproxy/releases/download/v2.1.4/toxiproxy_2.1.4_amd64.deb
-sudo dpkg -i toxiproxy-2.1.4.deb
+wget -O toxiproxy-2.4.0.deb https://github.com/Shopify/toxiproxy/releases/download/v2.4.0/toxiproxy_2.4.0_linux_$(dpkg --print-architecture).deb
+sudo dpkg -i toxiproxy-2.4.0.deb
 
 # Start Toxiproxy
 toxiproxy-server &
@@ -129,10 +132,13 @@ toxiproxy-cli toxic remove --toxicName latency_downstream postgres_replica
 start_pgcat "info"
 
 # Test session mode (and config reload)
-sed -i 's/pool_mode = "transaction"/pool_mode = "session"/' .circleci/pgcat.toml
+sed -i '0,/simple_db/s/pool_mode = "transaction"/pool_mode = "session"/' .circleci/pgcat.toml
 
 # Reload config test
 kill -SIGHUP $(pgrep pgcat)
+
+# Revert settings after reload. Makes test runs idempotent
+sed -i '0,/simple_db/s/pool_mode = "session"/pool_mode = "transaction"/' .circleci/pgcat.toml
 
 sleep 1
 

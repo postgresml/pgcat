@@ -57,13 +57,35 @@ impl PartialEq<Role> for Option<Role> {
 /// Address identifying a PostgreSQL server uniquely.
 #[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
 pub struct Address {
+    /// Unique ID per addressable Postgres server.
     pub id: usize,
+
+    /// Server host.
     pub host: String,
-    pub port: String,
+
+    /// Server port.
+    pub port: u16,
+
+    /// Shard number of this Postgres server.
     pub shard: usize,
+
+    /// The name of the Postgres database.
     pub database: String,
+
+    /// Server role: replica, primary.
     pub role: Role,
+
+    /// If it's a replica, number it for reference and failover.
     pub replica_number: usize,
+
+    /// Position of the server in the pool for failover.
+    pub address_index: usize,
+
+    /// The name of the user configured to use this pool.
+    pub username: String,
+
+    /// The name of this pool (i.e. database name visible to the client).
+    pub pool_name: String,
 }
 
 impl Default for Address {
@@ -71,11 +93,14 @@ impl Default for Address {
         Address {
             id: 0,
             host: String::from("127.0.0.1"),
-            port: String::from("5432"),
+            port: 5432,
             shard: 0,
+            address_index: 0,
             replica_number: 0,
             database: String::from("database"),
             role: Role::Replica,
+            username: String::from("username"),
+            pool_name: String::from("pool_name"),
         }
     }
 }
@@ -84,11 +109,11 @@ impl Address {
     /// Address name (aka database) used in `SHOW STATS`, `SHOW DATABASES`, and `SHOW POOLS`.
     pub fn name(&self) -> String {
         match self.role {
-            Role::Primary => format!("{}_shard_{}_primary", self.database, self.shard),
+            Role::Primary => format!("{}_shard_{}_primary", self.pool_name, self.shard),
 
             Role::Replica => format!(
                 "{}_shard_{}_replica_{}",
-                self.database, self.shard, self.replica_number
+                self.pool_name, self.shard, self.replica_number
             ),
         }
     }
@@ -337,9 +362,9 @@ impl Config {
 
         for (pool_name, pool_config) in &self.pools {
             // TODO: Make this output prettier (maybe a table?)
-            info!("--- Settings for pool {} ---", pool_name);
             info!(
-                "Pool size from all users: {}",
+                "[pool: {}] Maximum user connections: {}",
+                pool_name,
                 pool_config
                     .users
                     .iter()
@@ -347,20 +372,39 @@ impl Config {
                     .sum::<u32>()
                     .to_string()
             );
-            info!("Pool mode: {}", pool_config.pool_mode);
-            info!("Sharding function: {}", pool_config.sharding_function);
-            info!("Primary reads: {}", pool_config.primary_reads_enabled);
-            info!("Query router: {}", pool_config.query_parser_enabled);
-
-            // TODO: Make this prettier.
-            info!("Number of shards: {}", pool_config.shards.len());
-            info!("Number of users: {}", pool_config.users.len());
+            info!("[pool: {}] Pool mode: {}", pool_name, pool_config.pool_mode);
+            info!(
+                "[pool: {}] Sharding function: {}",
+                pool_name, pool_config.sharding_function
+            );
+            info!(
+                "[pool: {}] Primary reads: {}",
+                pool_name, pool_config.primary_reads_enabled
+            );
+            info!(
+                "[pool: {}] Query router: {}",
+                pool_name, pool_config.query_parser_enabled
+            );
+            info!(
+                "[pool: {}] Number of shards: {}",
+                pool_name,
+                pool_config.shards.len()
+            );
+            info!(
+                "[pool: {}] Number of users: {}",
+                pool_name,
+                pool_config.users.len()
+            );
 
             for user in &pool_config.users {
                 info!(
-                    "{} pool size: {}, statement timeout: {}",
-                    user.1.username, user.1.pool_size, user.1.statement_timeout
+                    "[pool: {}][user: {}] Pool size: {}",
+                    pool_name, user.1.username, user.1.pool_size,
                 );
+                info!(
+                    "[pool: {}][user: {}] Statement timeout: {}",
+                    pool_name, user.1.username, user.1.statement_timeout
+                )
             }
         }
     }
@@ -452,6 +496,18 @@ pub async fn parse(path: &str) -> Result<(), Error> {
             other => {
                 error!(
                     "Query router default_role must be 'primary', 'replica', or 'any', got: '{}'",
+                    other
+                );
+                return Err(Error::BadConfig);
+            }
+        };
+
+        match pool.pool_mode.as_ref() {
+            "transaction" => (),
+            "session" => (),
+            other => {
+                error!(
+                    "pool_mode can be 'session' or 'transaction', got: '{}'",
                     other
                 );
                 return Err(Error::BadConfig);
