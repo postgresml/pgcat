@@ -246,7 +246,8 @@ def test_shutdown_logic():
 
     # - - - - - - - - - - - - - - - - - -
 
-
-test_normal_db_access()
-test_admin_db_access()
-test_shutdown_logic()
+if __name__ == "__main__":
+    pgcat_start()
+    test_normal_db_access()
+    test_admin_db_access()
+    test_shutdown_logic()

@@ -14,6 +14,7 @@ use toml;
 use crate::errors::Error;
 use crate::tls::{load_certs, load_keys};
 use crate::{ClientServerMap, ConnectionPool};
+use crate::stats::StatsDMode;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -156,7 +157,7 @@ pub struct General {
     pub tls_private_key: Option<String>,
     pub admin_username: String,
     pub admin_password: String,
-    pub enable_statsd: bool,
+    pub statsd: Option<StatsDMode>,
 }
 
 impl Default for General {
@@ -176,7 +177,7 @@ impl Default for General {
             tls_private_key: None,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
-            enable_statsd: false,
+            statsd: None,
         }
     }
 }
@@ -338,6 +339,11 @@ impl Config {
             "Healthcheck timeout: {}ms",
             self.general.healthcheck_timeout
         );
+        if let Some(statsd_mode) = self.general.statsd.clone() {
+            info!("Statsd: {:?}", statsd_mode);
+        } else {
+            info!("Statsd: Not Enabled");
+        };
         info!("Connection timeout: {}ms", self.general.connect_timeout);
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
         info!("Healthcheck delay: {}ms", self.general.healthcheck_delay);

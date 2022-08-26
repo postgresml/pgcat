@@ -35,9 +35,6 @@ ban_time = 60 # Seconds
 # Reload config automatically if it changes.
 autoreload = true
 
-# Enable statsd
-enable_statsd = false
-
 # TLS
 tls_certificate = ".circleci/server.cert"
 tls_private_key = ".circleci/server.key"

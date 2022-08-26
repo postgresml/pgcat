@@ -9,7 +9,6 @@ use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::env;
 use std::net::UdpSocket;
 use std::os::unix::net::UnixDatagram;
 use tokio::sync::mpsc::error::TrySendError;
@@ -27,6 +26,22 @@ static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
 /// Statistics period used for average calculations.
 /// 15 seconds.
 static STAT_PERIOD: u64 = 15000;
+
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[serde(tag = "type", content = "args")]
+pub enum StatsDMode {
+    UnixSocket {
+        prefix: String,
+        path: String,
+    },
+    Udp {
+        prefix: String,
+        host: String,
+        port: u16,
+    },
+}
 
 /// The names for the events reported
 /// to the statistics collector.
@@ -344,37 +359,32 @@ fn new_statsd_client() -> StatsdClient {
     // Queue with a maximum capacity of 128K elements
     const QUEUE_SIZE: usize = 128 * 1024;
 
-    if config.general.enable_statsd {
-        let statsd_prefix =
-            env::var("STATSD_PREFIX").expect("Missing STATSD_PREFIX environment variable");
-
-        // Prefer to use socket over udp
-        let sink = match env::var("STATSD_SOCKET") {
-            Ok(statsd_sock) => {
+    if let Some(statsd_mode) = config.general.statsd {
+        let (prefix, sink) = match statsd_mode {
+            StatsDMode::UnixSocket { prefix, path } => {
                 let socket = UnixDatagram::unbound().unwrap();
                 socket.set_nonblocking(true).unwrap();
-                let buffered_sink = BufferedUnixMetricSink::from(statsd_sock, socket);
-                QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE)
+                let buffered_sink = BufferedUnixMetricSink::from(path, socket);
+                (
+                    prefix,
+                    QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
+                )
             }
-            Err(_) => {
-                let statsd_host =
-                    env::var("STATSD_HOST").expect("Missing STATSD_HOST environment variable");
-                let statsd_port = env::var("STATSD_PORT")
-                    .expect("Missing STATSD_PORT environment variable")
-                    .parse::<u16>()
-                    .unwrap();
+            StatsDMode::Udp { prefix, host, port } => {
                 // Try to create
                 let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
                 socket.set_nonblocking(true).unwrap();
-                let buffered_sink =
-                    BufferedUdpMetricSink::from((statsd_host, statsd_port), socket).unwrap();
-                QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE)
+                let buffered_sink = BufferedUdpMetricSink::from((host, port), socket).unwrap();
+                (
+                    prefix,
+                    QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
+                )
             }
         };
-        info!("Started Statsd Client");
-        let statsd_builder = StatsdClient::builder(&statsd_prefix, sink);
 
-        // TODO: Add default tags to client
+        info!("Started Statsd Client");
+        let statsd_builder = StatsdClient::builder(&prefix, sink);
+        // TODO: Add default tags for statsd client
         statsd_builder.build()
     } else {
         // No-op client
