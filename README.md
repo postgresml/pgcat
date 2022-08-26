@@ -45,7 +45,6 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | `port`                       | The pooler will run on this port.                                                                                                          | `6432`                           |
 | `enable_prometheus_exporter` | Enable prometheus exporter which will export metrics in prometheus exposition format.                                                      | `true`                           |
 | `prometheus_exporter_port`   | Port at which prometheus exporter listens on.                                                                                              | `9930`                           |
-| `enable_statsd` | Enable statsd metrics which can                                                      | `false`                           |
 | `pool_size`                  | Maximum allowed server connections per pool. Pools are separated for each user/shard/server role. The connections are allocated as needed. | `15`                             |
 | `pool_mode`                  | The pool mode to use, i.e. `session` or `transaction`.                                                                                     | `transaction`                    |
 | `connect_timeout`            | Maximum time to establish a connection to a server (milliseconds). If reached, the server is banned and the next target is attempted.      | `5000`                           |
@@ -69,19 +68,29 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | `primary_reads_enabled`      | Enable this to allow read queries on the primary; otherwise read queries are routed to the replicas.                                       | `true`                           |
 
 ## Statsd Configuration
-If `enable_statsd` is set to true, then the following environment variables will need to be set:
+Statsd is optional and can be configured in both UnixSocket and Udp modes
 
-`STATSD_PREFIX`: Prefix for all metrics (eg. "pgcat.")
 
-Unix Socket:
+UDP
+```toml
+[general.statsd]
+type = "Udp"
+[general.statsd.args]
+prefix = "prefix.pgcat"
+host = "statsd.host.ac"
+port = 8125
+```
 
-`STATSD_SOCKET`: Unix socket path to connect to (eg. "/run/statsd.sock")
+Unix Socket
+```toml
+[general.statsd]
+type = "UnixSocket"
+[general.statsd.args]
+prefix = "prefix.pgcat"
+path = "/var/run/statsd.socket"
+```
 
-UDP:
-
-`STATSD_HOST`: Host of statsd server (eg. "localhost")
-
-`STATSD_PORT`: Port of statsd server (eg. "8125")
+**Note**: The statsd client in pgcat will require it's own thread to run so it doesn't interfere with the main server threads. Under default configs that would mean 5 threads will be required to run pgcat.
 
 
 ## Local development
