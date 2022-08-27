@@ -87,6 +87,8 @@ pub struct Address {
 
     /// The name of this pool (i.e. database name visible to the client).
     pub pool_name: String,
+
+    pub name: String,
 }
 
 impl Default for Address {
@@ -102,6 +104,7 @@ impl Default for Address {
             role: Role::Replica,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
+            name: String::from("name"),
         }
     }
 }
@@ -205,17 +208,31 @@ impl Default for Pool {
     }
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]
+pub struct ServerConfig {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub role: Role,
+}
+
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
     pub database: String,
-    pub servers: Vec<(String, u16, String)>,
+    pub servers: Vec<ServerConfig>,
 }
 
 impl Default for Shard {
     fn default() -> Shard {
         Shard {
-            servers: vec![(String::from("localhost"), 5432, String::from("primary"))],
+            // TODO: Make this a hash map
+            servers: vec![ServerConfig {
+                name: String::from("db-name"),
+                host: String::from("localhost"),
+                port: 5432,
+                role: Role::Primary,
+            }],
             database: String::from("postgres"),
         }
     }
@@ -530,8 +547,8 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                 Ok(_) => (),
                 Err(_) => {
                     error!(
-                        "Shard '{}' is not a valid number, shards must be numbered starting at 0",
-                        shard.0
+                        "Shard '{:?}' is not a valid number, shards must be numbered starting at 0",
+                        shard
                     );
                     return Err(Error::BadConfig);
                 }
@@ -546,22 +563,9 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                 dup_check.insert(server);
 
                 // Check that we define only zero or one primary.
-                match server.2.as_ref() {
-                    "primary" => primary_count += 1,
+                match server.role {
+                    Role::Primary => primary_count += 1,
                     _ => (),
-                };
-
-                // Check role spelling.
-                match server.2.as_ref() {
-                    "primary" => (),
-                    "replica" => (),
-                    _ => {
-                        error!(
-                            "Shard {} server role must be either 'primary' or 'replica', got: '{}'",
-                            shard.0, server.2
-                        );
-                        return Err(Error::BadConfig);
-                    }
                 };
             }
 
@@ -625,12 +629,12 @@ mod test {
         assert_eq!(get_config().pools["simple_db"].users.len(), 1);
 
         assert_eq!(
-            get_config().pools["sharded_db"].shards["0"].servers[0].0,
+            get_config().pools["sharded_db"].shards["0"].servers[0].host,
             "127.0.0.1"
         );
         assert_eq!(
-            get_config().pools["sharded_db"].shards["1"].servers[0].2,
-            "primary"
+            get_config().pools["sharded_db"].shards["1"].servers[0].role,
+            Role::Primary
         );
         assert_eq!(
             get_config().pools["sharded_db"].shards["1"].database,
@@ -648,11 +652,11 @@ mod test {
         assert_eq!(get_config().pools["sharded_db"].default_role, "any");
 
         assert_eq!(
-            get_config().pools["simple_db"].shards["0"].servers[0].0,
+            get_config().pools["simple_db"].shards["0"].servers[0].host,
             "127.0.0.1"
         );
         assert_eq!(
-            get_config().pools["simple_db"].shards["0"].servers[0].1,
+            get_config().pools["simple_db"].shards["0"].servers[0].port,
             5432
         );
         assert_eq!(
