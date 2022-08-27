@@ -11,8 +11,9 @@ describe "Routing" do
   # Since each intermediate pgcat represents a single instance
   # we can inspect the logs for individual intermediate processes
   # to test routing logic end-to-end whereas inspecting logs on
-  # the main or the stats can be subject to misattribution bugs
-  # in the main process
+  # the main process or the stats can be subject to misattribution bugs
+  # in the main process, for example Pgcat may report in stats that it is
+  # talking to instance A whereas it is actually talking to instance B
   let(:proxies) { Helpers::Pgcat.single_shard_setup("sharded_db", 5) }
   after { proxies.all&.map(&:shutdown) }
 
