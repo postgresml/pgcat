@@ -680,44 +680,26 @@ impl Collector {
                 EventName::UpdateStats => {
                     // Calculate connection states
                     for (_, state) in client_server_states.iter() {
-                        match state {
-                            EventName::ClientActive => {
-                                let counter = stats.entry("cl_active").or_insert(0);
-                                *counter += 1;
-                            }
+                        let stat_name = match state {
+                            EventName::ClientActive => "cl_active",
 
-                            EventName::ClientWaiting => {
-                                let counter = stats.entry("cl_waiting").or_insert(0);
-                                *counter += 1;
-                            }
+                            EventName::ClientWaiting => "cl_waiting",
 
-                            EventName::ServerIdle => {
-                                let counter = stats.entry("sv_idle").or_insert(0);
-                                *counter += 1;
-                            }
+                            EventName::ClientIdle => "cl_idle",
 
-                            EventName::ServerActive => {
-                                let counter = stats.entry("sv_active").or_insert(0);
-                                *counter += 1;
-                            }
+                            EventName::ServerIdle => "sv_idle",
 
-                            EventName::ServerTested => {
-                                let counter = stats.entry("sv_tested").or_insert(0);
-                                *counter += 1;
-                            }
+                            EventName::ServerActive => "sv_active",
 
-                            EventName::ServerLogin => {
-                                let counter = stats.entry("sv_login").or_insert(0);
-                                *counter += 1;
-                            }
+                            EventName::ServerTested => "sv_tested",
 
-                            EventName::ClientIdle => {
-                                let counter = stats.entry("cl_idle").or_insert(0);
-                                *counter += 1;
-                            }
+                            EventName::ServerLogin => "sv_login",
 
                             _ => unreachable!(),
                         };
+
+                        let counter = stats.entry(stat_name).or_insert(0);
+                        *counter += 1;
                     }
 
                     // Send state stats to statsd
