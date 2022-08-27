@@ -1,5 +1,4 @@
 use arc_swap::ArcSwap;
-use cadence;
 use cadence::{
     prelude::*, BufferedUdpMetricSink, BufferedUnixMetricSink, MetricBuilder, NopMetricSink,
     QueuingMetricSink, StatsdClient,
@@ -43,6 +42,36 @@ pub enum StatsDMode {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct ClientMetadata {
+    pub application_name: String,
+    pub username: String,
+}
+
+impl ClientMetadata {
+    pub fn default(username: String) -> ClientMetadata {
+        ClientMetadata {
+            application_name: String::from("pgcat"),
+            username,
+        }
+    }
+
+    pub fn add_application_name(&mut self, application_name: String) {
+        self.application_name = application_name;
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerMetadata {
+    name: String,
+}
+
+impl ServerMetadata {
+    pub fn default(name: String) -> ServerMetadata {
+        ServerMetadata { name }
+    }
+}
+
 /// The names for the events reported
 /// to the statistics collector.
 #[derive(Debug, Clone, Copy)]
@@ -80,6 +109,10 @@ pub struct Event {
 
     /// The server the client is connected to.
     address_id: usize,
+
+    client_metadata: Option<ClientMetadata>,
+
+    server_metadata: Option<ServerMetadata>,
 }
 
 /// The statistics reporter. An instance is given
@@ -124,12 +157,20 @@ impl Reporter {
 
     /// Report a query executed by a client against
     /// a server identified by the `address_id`.
-    pub fn query(&self, process_id: i32, address_id: usize) {
+    pub fn query(
+        &self,
+        process_id: i32,
+        address_id: usize,
+        client_metadata: &ClientMetadata,
+        server_metadata: &ServerMetadata,
+    ) {
         let event = Event {
             name: EventName::Query,
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: Some(client_metadata.clone()),
+            server_metadata: Some(server_metadata.clone()),
         };
 
         self.send(event);
@@ -137,12 +178,20 @@ impl Reporter {
 
     /// Report a transaction executed by a client against
     /// a server identified by the `address_id`.
-    pub fn transaction(&self, process_id: i32, address_id: usize) {
+    pub fn transaction(
+        &self,
+        process_id: i32,
+        address_id: usize,
+        client_metadata: &ClientMetadata,
+        server_metadata: &ServerMetadata,
+    ) {
         let event = Event {
             name: EventName::Transaction,
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: Some(client_metadata.clone()),
+            server_metadata: Some(server_metadata.clone()),
         };
 
         self.send(event)
@@ -156,6 +205,8 @@ impl Reporter {
             value: amount as i64,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -169,6 +220,8 @@ impl Reporter {
             value: amount as i64,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -183,6 +236,8 @@ impl Reporter {
             value: ms as i64,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -196,6 +251,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -209,6 +266,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -222,6 +281,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -235,6 +296,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -249,6 +312,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -263,6 +328,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -277,6 +344,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -291,6 +360,8 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
@@ -304,22 +375,26 @@ impl Reporter {
             value: 1,
             process_id: process_id,
             address_id: address_id,
+            client_metadata: None,
+            server_metadata: None,
         };
 
         self.send(event)
     }
 }
 
-trait SendStat {
-    fn send_increment(&self, name: &str);
+trait StatSubmitter<T>
+where
+    T: cadence::Metric + From<String>,
+{
+    fn submit_stat(&self, metric_builder: MetricBuilder<T>);
+}
 
-    fn send_count(&self, name: &str, count: i64);
-
-    fn send_time(&self, name: &str, time: u64);
-
-    fn send_gauge(&self, name: &str, value: u64);
-
-    fn submit_count_stat(&self, metric_builder: MetricBuilder<cadence::Counter>) {
+impl<T> StatSubmitter<T> for StatsdClient
+where
+    T: cadence::Metric + From<String>,
+{
+    fn submit_stat(&self, metric_builder: cadence::MetricBuilder<T>) {
         // TODO: Move tagging logic here
         if metric_builder.try_send().is_err() {
             warn!("Error sending query metrics to client");
@@ -327,29 +402,33 @@ trait SendStat {
     }
 }
 
-impl SendStat for StatsdClient {
-    fn send_increment(&self, name: &str) {
-        let metric_builder: MetricBuilder<cadence::Counter> = self.incr_with_tags(name);
-        self.submit_count_stat(metric_builder);
-    }
+trait StatCreator {
+    fn send_count(&self, name: &str, count: i64, tags: HashMap<String, String>);
 
-    fn send_count(&self, name: &str, count: i64) {
-        let metric_builder = self.count_with_tags(name, count);
-        self.submit_count_stat(metric_builder);
+    fn send_time(&self, name: &str, time: u64);
+
+    fn send_gauge(&self, name: &str, value: u64);
+}
+
+impl StatCreator for StatsdClient {
+    fn send_count(&self, name: &str, count: i64, tags: HashMap<String, String>) {
+        let mut metric_builder = self.count_with_tags(name, count);
+
+        for (k, v) in tags.iter() {
+            metric_builder = metric_builder.with_tag(k, v);
+        }
+
+        self.submit_stat(metric_builder);
     }
 
     fn send_time(&self, name: &str, time: u64) {
         let metric_builder = self.time_with_tags(name, time);
-        if metric_builder.try_send().is_err() {
-            warn!("Error sending query metrics to client");
-        }
+        self.submit_stat(metric_builder);
     }
 
     fn send_gauge(&self, name: &str, value: u64) {
         let metric_builder = self.gauge_with_tags(name, value);
-        if metric_builder.try_send().is_err() {
-            warn!("Error sending query metrics to client");
-        }
+        self.submit_stat(metric_builder);
     }
 }
 
@@ -469,6 +548,8 @@ impl Collector {
                         value: 0,
                         process_id: -1,
                         address_id: address_id,
+                        client_metadata: None,
+                        server_metadata: None,
                     });
                 }
             }
@@ -487,6 +568,8 @@ impl Collector {
                         value: 0,
                         process_id: -1,
                         address_id: address_id,
+                        client_metadata: None,
+                        server_metadata: None,
                     });
                 }
             }
@@ -512,29 +595,46 @@ impl Collector {
 
             // Some are counters, some are gauges...
             match stat.name {
-                EventName::Query => {
-                    self.statsd_client.send_increment("query_count");
+                EventName::Query | EventName::Transaction => {
+                    let mut tags = HashMap::new();
 
-                    let counter = stats.entry("total_query_count").or_insert(0);
-                    *counter += stat.value;
-                }
+                    // Client details
+                    if let Some(client_metadata) = stat.client_metadata {
+                        tags.insert(String::from("username"), client_metadata.username);
+                        tags.insert(
+                            String::from("application_name"),
+                            client_metadata.application_name,
+                        );
+                    }
 
-                EventName::Transaction => {
-                    self.statsd_client.send_increment("tx_count");
+                    // Server details
+                    if let Some(server_metadata) = stat.server_metadata {
+                        tags.insert(String::from("host_name"), server_metadata.name);
+                    }
 
-                    let counter = stats.entry("total_xact_count").or_insert(0);
+                    let (statsd_metric_name, metric_name) = match stat.name {
+                        EventName::Query => ("query_count", "total_query_count"),
+                        EventName::Transaction => ("tx_count", "total_xact_count"),
+                        _ => unreachable!(),
+                    };
+
+                    self.statsd_client
+                        .send_count(statsd_metric_name, stat.value, tags);
+                    let counter = stats.entry(metric_name).or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataSent => {
-                    self.statsd_client.send_count("bytes_sent", stat.value);
+                    self.statsd_client
+                        .send_count("bytes_sent", stat.value, HashMap::new());
 
                     let counter = stats.entry("total_sent").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataReceived => {
-                    self.statsd_client.send_count("bytes_received", stat.value);
+                    self.statsd_client
+                        .send_count("bytes_received", stat.value, HashMap::new());
 
                     let counter = stats.entry("total_received").or_insert(0);
                     *counter += stat.value;

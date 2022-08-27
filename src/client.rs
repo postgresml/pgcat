@@ -15,7 +15,7 @@ use crate::messages::*;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool, PoolMode};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
-use crate::stats::{get_reporter, Reporter};
+use crate::stats::{get_reporter, ClientMetadata, Reporter, ServerMetadata};
 use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
@@ -567,6 +567,12 @@ where
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
 
+        let mut client_metadata = ClientMetadata::default(self.username.clone());
+
+        if let Some(application_name) = self.parameters.get("application_name") {
+            client_metadata.add_application_name(application_name.to_string())
+        }
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -761,11 +767,9 @@ where
 
             // Set application_name if any.
             // TODO: investigate other parameters and set them too.
-            if self.parameters.contains_key("application_name") {
-                server
-                    .set_name(&self.parameters["application_name"])
-                    .await?;
-            }
+            server.set_name(&client_metadata.application_name).await?;
+
+            let server_metadata = ServerMetadata::default(address.name.clone());
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
@@ -813,12 +817,25 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, original, server, &address, &pool)
-                            .await?;
+                        self.send_and_receive_loop(
+                            code,
+                            original,
+                            server,
+                            &address,
+                            &pool,
+                            &client_metadata,
+                            &server_metadata,
+                        )
+                        .await?;
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(
+                                self.process_id,
+                                address.id,
+                                &client_metadata,
+                                &server_metadata,
+                            );
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -883,13 +900,20 @@ where
                             server,
                             &address,
                             &pool,
+                            &client_metadata,
+                            &server_metadata,
                         )
                         .await?;
 
                         self.buffer.clear();
 
                         if !server.in_transaction() {
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(
+                                self.process_id,
+                                address.id,
+                                &client_metadata,
+                                &server_metadata,
+                            );
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -924,7 +948,12 @@ where
                         };
 
                         if !server.in_transaction() {
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(
+                                self.process_id,
+                                address.id,
+                                &client_metadata,
+                                &server_metadata,
+                            );
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -964,6 +993,8 @@ where
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
+        client_metadata: &ClientMetadata,
+        server_metadata: &ServerMetadata,
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
 
@@ -989,7 +1020,12 @@ where
         }
 
         // Report query executed statistics.
-        self.stats.query(self.process_id, address.id);
+        self.stats.query(
+            self.process_id,
+            address.id,
+            client_metadata,
+            server_metadata,
+        );
 
         Ok(())
     }
