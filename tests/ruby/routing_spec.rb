@@ -14,6 +14,7 @@ describe "Routing" do
   # the main or the stats can be subject to misattribution bugs
   # in the main process
   let(:proxies) { Helpers::Pgcat.single_shard_setup("sharded_db", 5) }
+  after { proxies.all&.map(&:shutdown) }
 
   describe "SET ROLE" do
     context "primary" do
@@ -45,7 +46,7 @@ describe "Routing" do
         conn = PG.connect(proxies.main.connection_string("sharded_db", "sharding_user"))
         conn.async_exec("SET SERVER ROLE to 'replica'")
 
-        query_count = 300
+        query_count = QUERY_COUNT
         failed_count = 0
         expected_share = query_count / proxies.replicas.count
         failed_count = 0
@@ -72,7 +73,7 @@ describe "Routing" do
         conn = PG.connect(proxies.main.connection_string("sharded_db", "sharding_user"))
         conn.async_exec("SET SERVER ROLE to 'any'")
 
-        query_count = 300
+        query_count = QUERY_COUNT
         failed_count = 0
         expected_share = query_count / proxies.all.count
         failed_count = 0

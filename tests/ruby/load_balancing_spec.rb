@@ -3,13 +3,14 @@ require_relative 'spec_helper'
 
 describe "Load Balancing" do
   let(:proxies) { Helpers::Pgcat.single_shard_setup("sharded_db", 5) }
+  after { proxies.all&.map(&:shutdown) }
 
   context "under regular circumstances" do
     it "balances query volume between all instances" do
       conn = PG.connect(proxies.main.connection_string("sharded_db", "sharding_user"))
       proxies.all.map(&:begin_counting_queries)
 
-      query_count = 300
+      query_count = QUERY_COUNT
       expected_share = query_count / 4.0
       failed_count = 0
 
@@ -36,7 +37,7 @@ describe "Load Balancing" do
       conn = PG.connect(proxies.main.connection_string("sharded_db", "sharding_user"))
       proxies.all.map(&:begin_counting_queries)
 
-      query_count = 300
+      query_count = QUERY_COUNT
       expected_share = query_count / 2.0
       failed_count = 0
       query_count.times do

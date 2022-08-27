@@ -80,13 +80,6 @@ class PgcatProcess
     return self
   end
 
-  def stop
-    # puts "Stopping pgcat process #{pid}"
-    `kill #{@pid}`
-    sleep 0.1
-    return self
-  end
-
   def wait_until_ready
     exc = nil
     10.times do
@@ -99,6 +92,11 @@ class PgcatProcess
     end
     puts exc
     raise StandardError, "Process #{@pid} never became ready. Logs #{logs}"
+  end
+
+  def stop
+    `kill #{@pid}`
+    sleep 0.1
   end
 
   def shutdown

@@ -4,6 +4,47 @@ require_relative 'spec_helper'
 
 describe "Miscellaneous" do
   let(:proxies) { Helpers::Pgcat.single_shard_setup("sharded_db", 5) }
+  after { proxies.all&.map(&:shutdown) }
+
+  describe "Pool recycling after config reload" do
+    let(:proxies) { Helpers::Pgcat.three_shard_setup("sharded_db", 5) }
+
+    it "should update pools for new clients and clients that are no longer in transaction" do
+      server_conn = PG::connect(proxies.main.connection_string("sharded_db", "sharding_user"))
+      server_conn.async_exec("BEGIN")
+
+      # No config change yet, client should set old configs
+      current_datebase_from_pg = server_conn.async_exec("SELECT current_database();")[0]["current_database"]
+      expect(current_datebase_from_pg).to eq('shard0')
+
+      # Swap shards
+      new_config = proxies.main.current_config
+      shard0 = new_config["pools"]["sharded_db"]["shards"]["0"]
+      shard1 = new_config["pools"]["sharded_db"]["shards"]["1"]
+      new_config["pools"]["sharded_db"]["shards"]["0"] = shard1
+      new_config["pools"]["sharded_db"]["shards"]["1"] = shard0
+
+      # Reload config
+      proxies.main.update_config(new_config)
+      proxies.main.reload_config
+      sleep 0.5
+
+      # Config changed but transaction is in progress, client should set old configs
+      current_datebase_from_pg = server_conn.async_exec("SELECT current_database();")[0]["current_database"]
+      expect(current_datebase_from_pg).to eq('shard0')
+      server_conn.async_exec("COMMIT")
+
+      # Transaction finished, client should get new configs
+      current_datebase_from_pg = server_conn.async_exec("SELECT current_database();")[0]["current_database"]
+      expect(current_datebase_from_pg).to eq('shard1')
+
+      # New connection should get new configs
+      server_conn.close()
+      server_conn = PG::connect(proxies.main.connection_string("sharded_db", "sharding_user"))
+      current_datebase_from_pg = server_conn.async_exec("SELECT current_database();")[0]["current_database"]
+      expect(current_datebase_from_pg).to eq('shard1')
+    end
+  end
 
   describe "Clients closing connection in the middle of transaction" do
     it "sends a rollback to the server" do
@@ -31,4 +72,3 @@ describe "Miscellaneous" do
     end
   end
 end
-

@@ -3,5 +3,5 @@
 require 'pg'
 require_relative 'helpers/pgcat_helper'
 
-
-MARGIN_OF_ERROR = 0.25
+QUERY_COUNT = 300
+MARGIN_OF_ERROR = 0.30
