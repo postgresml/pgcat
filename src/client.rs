@@ -354,8 +354,6 @@ where
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
 
-        info!("params: {:?}", parameters);
-
         // These two parameters are mandatory by the protocol.
         let pool_name = match parameters.get("database") {
             Some(db) => db,
