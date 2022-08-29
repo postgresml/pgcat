@@ -155,10 +155,29 @@ async fn main() {
 
     info!("Config autoreloader: {}", config.general.autoreload);
 
+    let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
+    let autoreload_client_server_map = client_server_map.clone();
+    tokio::task::spawn(async move {
+        loop {
+            autoreload_interval.tick().await;
+            if config.general.autoreload {
+                info!("Automatically reloading config");
+
+                match reload_config(autoreload_client_server_map.clone()).await {
+                    Ok(changed) => {
+                        if changed {
+                            get_config().show()
+                        }
+                    }
+                    Err(_) => (),
+                };
+            }
+        }
+    });
+
     let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
     let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
-    let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
     let (drain_tx, mut drain_rx) = mpsc::channel::<i8>(2048);
     let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
@@ -181,21 +200,6 @@ async fn main() {
                 };
 
                 get_config().show();
-            },
-
-            _ = autoreload_interval.tick() => {
-                if config.general.autoreload {
-                    info!("Automatically reloading config");
-
-                    match reload_config(client_server_map.clone()).await {
-                        Ok(changed) => {
-                            if changed {
-                                get_config().show()
-                            }
-                        }
-                        Err(_) => (),
-                    };
-                }
             },
 
             // Initiate graceful shutdown sequence on sig int
