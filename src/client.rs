@@ -354,6 +354,8 @@ where
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
 
+        info!("params: {:?}", parameters);
+
         // These two parameters are mandatory by the protocol.
         let pool_name = match parameters.get("database") {
             Some(db) => db,
@@ -644,8 +646,8 @@ where
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
-                    // Selected shard is not configured.
-                    if query_router.shard() >= pool.shards() {
+                    let shard = query_router.shard();
+                    if shard >= pool.shards() {
                         // Set the shard back to what it was.
                         query_router.set_shard(current_shard);
 
@@ -653,7 +655,7 @@ where
                             &mut self.write,
                             &format!(
                                 "shard {} is more than configured {}, staying on shard {}",
-                                query_router.shard(),
+                                shard,
                                 pool.shards(),
                                 current_shard,
                             ),

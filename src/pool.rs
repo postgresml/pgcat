@@ -155,6 +155,7 @@ impl ConnectionPool {
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
+                            search_path: shard.search_path.clone(),
                             host: server.0.clone(),
                             port: server.1 as u16,
                             role: role,

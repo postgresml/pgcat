@@ -111,7 +111,12 @@ where
 
 /// Send the startup packet the server. We're pretending we're a Pg client.
 /// This tells the server which user we are and what database we want.
-pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Result<(), Error> {
+pub async fn startup(
+    stream: &mut TcpStream,
+    user: &str,
+    database: &str,
+    search_path: Option<&String>,
+) -> Result<(), Error> {
     let mut bytes = BytesMut::with_capacity(25);
 
     bytes.put_i32(196608); // Protocol number
@@ -125,6 +130,17 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
     bytes.put(&b"database\0"[..]);
     bytes.put_slice(&database.as_bytes());
     bytes.put_u8(0);
+
+    // search_path
+    match search_path {
+        Some(search_path) => {
+            bytes.put(&b"options\0"[..]);
+            bytes.put_slice(&format!("-c search_path={}", search_path).as_bytes());
+            bytes.put_u8(0);
+        }
+        None => (),
+    };
+
     bytes.put_u8(0); // Null terminator
 
     let len = bytes.len() as i32 + 4i32;
