@@ -15,14 +15,22 @@ jobs:
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "pgcat-%m.profraw"
       - image: postgres:14
-        # auth:
-        #   username: mydockerhub-user
-        #   password: $DOCKERHUB_PASSWORD
+        command: ["postgres", "-p", "5432"]
         environment:
-          POSTGRES_USER: postgres
-          POSTGRES_DB: postgres
-          POSTGRES_PASSWORD: postgres
           POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      - image: postgres:14
+        command: ["postgres", "-p", "5433"]
+        environment:
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      - image: postgres:14
+        command: ["postgres", "-p", "5434"]
+        environment:
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      - image: postgres:14
+        command: ["postgres", "-p", "5435"]
+        environment:
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
