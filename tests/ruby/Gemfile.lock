@@ -13,6 +13,7 @@ GEM
       tzinfo (~> 2.0)
     ast (2.4.2)
     concurrent-ruby (1.1.10)
+    diff-lcs (1.5.0)
     i18n (1.11.0)
       concurrent-ruby (~> 1.0)
     minitest (5.16.2)
@@ -24,6 +25,19 @@ GEM
     rainbow (3.1.1)
     regexp_parser (2.3.1)
     rexml (3.2.5)
+    rspec (3.11.0)
+      rspec-core (~> 3.11.0)
+      rspec-expectations (~> 3.11.0)
+      rspec-mocks (~> 3.11.0)
+    rspec-core (3.11.0)
+      rspec-support (~> 3.11.0)
+    rspec-expectations (3.11.0)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.11.0)
+    rspec-mocks (3.11.1)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.11.0)
+    rspec-support (3.11.0)
     rubocop (1.29.0)
       parallel (~> 1.10)
       parser (>= 3.1.0.0)
@@ -38,19 +52,23 @@ GEM
     ruby-progressbar (1.11.0)
     toml (0.3.0)
       parslet (>= 1.8.0, < 3.0.0)
+    toxiproxy (2.0.1)
     tzinfo (2.0.4)
       concurrent-ruby (~> 1.0)
     unicode-display_width (2.1.0)
 
 PLATFORMS
+  aarch64-linux
   arm64-darwin-21
   x86_64-linux
 
 DEPENDENCIES
   activerecord
   pg
+  rspec
   rubocop
-  toml (~> 0.3.0)
+  toml
+  toxiproxy
 
 BUNDLED WITH
-   2.3.7
+   2.3.21
