@@ -58,6 +58,7 @@ GEM
     unicode-display_width (2.1.0)
 
 PLATFORMS
+  aarch64-linux
   arm64-darwin-21
   x86_64-linux
 
@@ -70,4 +71,4 @@ DEPENDENCIES
   toxiproxy
 
 BUNDLED WITH
-   2.3.7
+   2.3.21

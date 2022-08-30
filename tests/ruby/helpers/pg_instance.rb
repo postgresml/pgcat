@@ -23,7 +23,7 @@ class PgInstance
     }])
     # Toxiproxy server will probably outlive this object
     # so we want to clean up our proxy
-  ObjectSpace.define_finalizer(@toxiproxy_name, proc { Toxiproxy[@toxiproxy_name].destroy })
+    ObjectSpace.define_finalizer(@toxiproxy_name, proc { Toxiproxy[@toxiproxy_name].destroy })
   end
 
   def with_connection
