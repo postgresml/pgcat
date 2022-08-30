@@ -1,0 +1,47 @@
+version: "3"
+services:
+  pg1:
+    image: postgres:14
+    network_mode: "service:main"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-p", "5432"]
+  pg2:
+    image: postgres:14
+    network_mode: "service:main"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-p", "7432"]
+  pg3:
+    image: postgres:14
+    network_mode: "service:main"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-p", "8432"]
+  pg4:
+    image: postgres:14
+    network_mode: "service:main"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-p", "9432"]
+  main:
+    build: .
+    command: ["bash", "/app/tests/docker/run.sh"]
+    environment:
+      RUSTFLAGS: "-C instrument-coverage"
+      LLVM_PROFILE_FILE: "pgcat-%m.profraw"
+    volumes:
+      - ../../:/app/
+      - /app/target/

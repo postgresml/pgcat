@@ -87,6 +87,14 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 
 See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
+Run `cargo test` to run Rust tests.
+
+Run the following commands to run Integration tests locally.
+```
+cd tests/docker/
+docker compose up --exit-code-from main # This will also produce coverage report under ./cov/
+```
+
 | **Feature**           | **Tested in CI**   | **Tested manually** | **Comments**                                                                                                             |
 |-----------------------|--------------------|---------------------|--------------------------------------------------------------------------------------------------------------------------|
 | Transaction pooling   | :white_check_mark: | :white_check_mark:  | Used by default for all tests.                                                                                           |
@@ -447,7 +455,7 @@ Always good to have a base line.
 
 ```
 $ pgbench -t 1000 -c 16 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
@@ -461,7 +469,7 @@ tps = 139443.955722 (including connections establishing)
 tps = 142314.859075 (excluding connections establishing)
 
 $ pgbench -t 1000 -c 32 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
@@ -475,7 +483,7 @@ tps = 150644.840891 (including connections establishing)
 tps = 152218.499430 (excluding connections establishing)
 
 $ pgbench -t 1000 -c 64 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
@@ -489,7 +497,7 @@ tps = 152517.663404 (including connections establishing)
 tps = 153319.188482 (excluding connections establishing)
 
 $ pgbench -t 1000 -c 128 -j 2 -p 5432 -h 127.0.0.1 -S --protocol extended shard0
-Password: 
+Password:
 starting vacuum...end.
 transaction type: <builtin: select only>
 scaling factor: 1
