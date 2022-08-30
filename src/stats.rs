@@ -14,6 +14,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::config::Address;
+use crate::pool::get_all_pools;
 use crate::{config::get_config, pool::get_number_of_addresses};
 
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
@@ -409,7 +410,7 @@ trait StatCreator {
 
     fn send_time(&self, name: &str, time: u64, tags: HashMap<String, String>);
 
-    fn send_gauge(&self, name: &str, value: u64);
+    fn send_gauge(&self, name: &str, value: u64, tags: HashMap<String, String>);
 }
 
 impl StatCreator for StatsdClient {
@@ -433,8 +434,13 @@ impl StatCreator for StatsdClient {
         self.submit_stat(metric_builder);
     }
 
-    fn send_gauge(&self, name: &str, value: u64) {
-        let metric_builder = self.gauge_with_tags(name, value);
+    fn send_gauge(&self, name: &str, value: u64, tags: HashMap<String, String>) {
+        let mut metric_builder = self.gauge_with_tags(name, value);
+
+        for (k, v) in tags.iter() {
+            metric_builder = metric_builder.with_tag(k, v);
+        }
+
         self.submit_stat(metric_builder);
     }
 }
@@ -548,15 +554,18 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD / 15));
             loop {
                 interval.tick().await;
-                let address_count = get_number_of_addresses();
-                for address_id in 0..address_count {
-                    let _ = tx.try_send(Event {
-                        name: EventName::UpdateStats,
-                        value: 0,       // unused for this event
-                        process_id: -1, // unused for this event
-                        client_metadata: None,
-                        server_metadata: ServerMetadata::dummy_with_address_id(address_id),
-                    });
+                for pool in get_all_pools().iter().map(|(_, pool)| pool) {
+                    for address_vec in pool.addresses.iter() {
+                        for address in address_vec {
+                            let _ = tx.try_send(Event {
+                                name: EventName::UpdateStats,
+                                value: 0,       // unused for this event
+                                process_id: -1, // unused for this event
+                                client_metadata: None,
+                                server_metadata: ServerMetadata::new(address.clone()),
+                            });
+                        }
+                    }
                 }
             }
         });
@@ -705,9 +714,13 @@ impl Collector {
                         *counter += 1;
                     }
 
+                    let mut tags = HashMap::new();
+                    tags = add_server_tags(tags, &stat.server_metadata);
+
                     // Send state stats to statsd
                     for (key, value) in stats.iter() {
-                        self.statsd_client.send_gauge(key, value.clone() as u64);
+                        self.statsd_client
+                            .send_gauge(key, value.clone() as u64, tags.clone());
                     }
 
                     // Update latest stats used in SHOW STATS

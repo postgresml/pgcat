@@ -92,7 +92,7 @@ pub struct ConnectionPool {
 
     /// The addresses (host, port, role) to handle
     /// failover and load balancing deterministically.
-    addresses: Vec<Vec<Address>>,
+    pub addresses: Vec<Vec<Address>>,
 
     /// List of banned addresses (see above)
     /// that should not be queried.
