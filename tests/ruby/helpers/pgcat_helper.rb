@@ -15,8 +15,8 @@ module Helpers
 
       pgcat    = PgcatProcess.new("info")
       primary0 = PgInstance.new(5432, user["username"], user["password"], "shard0")
-      primary1 = PgInstance.new(6432, user["username"], user["password"], "shard1")
-      primary2 = PgInstance.new(7432, user["username"], user["password"], "shard2")
+      primary1 = PgInstance.new(7432, user["username"], user["password"], "shard1")
+      primary2 = PgInstance.new(8432, user["username"], user["password"], "shard2")
 
       pgcat_cfg = pgcat.current_config
       pgcat_cfg["pools"] = {
@@ -58,9 +58,9 @@ module Helpers
       pgcat_cfg = pgcat.current_config
 
       primary  = PgInstance.new(5432, user["username"], user["password"], "shard0")
-      replica0 = PgInstance.new(6432, user["username"], user["password"], "shard0")
-      replica1 = PgInstance.new(7432, user["username"], user["password"], "shard0")
-      replica2 = PgInstance.new(8432, user["username"], user["password"], "shard0")
+      replica0 = PgInstance.new(7432, user["username"], user["password"], "shard0")
+      replica1 = PgInstance.new(8432, user["username"], user["password"], "shard0")
+      replica2 = PgInstance.new(9432, user["username"], user["password"], "shard0")
 
       # Main proxy configs
       pgcat_cfg["pools"] = {

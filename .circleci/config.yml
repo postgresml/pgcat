@@ -22,13 +22,6 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       - image: postgres:14
-        command: ["postgres", "-p", "6432"]
-        environment:
-          POSTGRES_USER: postgres
-          POSTGRES_DB: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
-      - image: postgres:14
         command: ["postgres", "-p", "7432"]
         environment:
           POSTGRES_USER: postgres
@@ -37,6 +30,13 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       - image: postgres:14
         command: ["postgres", "-p", "8432"]
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      - image: postgres:14
+        command: ["postgres", "-p", "9432"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
