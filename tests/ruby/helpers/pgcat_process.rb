@@ -30,28 +30,8 @@ class PgcatProcess
     update_config(cfg)
   end
 
-  def begin_counting_queries
-    raise StandardError, "Counting queries requires DEBUG or TRACE levels" unless ["debug", "trace"].include?(@log_level)
-    raise StandardError, "Counting already started" unless @start_query_count.nil?
-
-    @start_query_count = total_query_count
-  end
-
-  def end_counting_queries
-    raise StandardError, "Counting queries requires DEBUG or TRACE levels" unless ["debug", "trace"].include?(@log_level)
-    raise StandardError, "Please call begin_counting_queries first" if @start_query_count.nil?
-
-    result = total_query_count - @start_query_count
-    @start_query_count = nil
-    result
-  end
-
   def logs
     File.read(@log_filename)
-  end
-
-  def total_query_count
-    logs.scan(/Sending query to server/).count
   end
 
   def update_config(config_hash)

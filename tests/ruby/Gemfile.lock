@@ -52,6 +52,7 @@ GEM
     ruby-progressbar (1.11.0)
     toml (0.3.0)
       parslet (>= 1.8.0, < 3.0.0)
+    toxiproxy (2.0.1)
     tzinfo (2.0.4)
       concurrent-ruby (~> 1.0)
     unicode-display_width (2.1.0)
@@ -66,6 +67,7 @@ DEPENDENCIES
   rspec
   rubocop
   toml
+  toxiproxy
 
 BUNDLED WITH
    2.3.7

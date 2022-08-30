@@ -70,23 +70,35 @@ GRANT CONNECT ON DATABASE shard2  TO other_user;
 GRANT CONNECT ON DATABASE some_db TO simple_user;
 
 \c shard0
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO sharding_user;
 GRANT ALL ON SCHEMA public TO sharding_user;
 GRANT ALL ON TABLE data TO sharding_user;
 GRANT ALL ON SCHEMA public TO other_user;
 GRANT ALL ON TABLE data TO other_user;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO other_user;
 
 \c shard1
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO sharding_user;
 GRANT ALL ON SCHEMA public TO sharding_user;
 GRANT ALL ON TABLE data TO sharding_user;
 GRANT ALL ON SCHEMA public TO other_user;
 GRANT ALL ON TABLE data TO other_user;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO other_user;
+
 
 \c shard2
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO sharding_user;
 GRANT ALL ON SCHEMA public TO sharding_user;
 GRANT ALL ON TABLE data TO sharding_user;
 GRANT ALL ON SCHEMA public TO other_user;
 GRANT ALL ON TABLE data TO other_user;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO other_user;
 
 \c some_db
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset() TO simple_user;
 GRANT ALL ON SCHEMA public TO simple_user;
 GRANT ALL ON TABLE data TO simple_user;
