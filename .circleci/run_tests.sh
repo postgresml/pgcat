@@ -26,7 +26,7 @@ wget -O toxiproxy-2.4.0.deb https://github.com/Shopify/toxiproxy/releases/downlo
 sudo dpkg -i toxiproxy-2.4.0.deb
 
 # Start Toxiproxy
-toxiproxy-server &
+toxiproxy-server > /dev/null &
 sleep 1
 
 # Create a database at port 5433, forward it to Postgres

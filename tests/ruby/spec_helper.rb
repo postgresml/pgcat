@@ -3,7 +3,7 @@
 require 'pg'
 require_relative 'helpers/pgcat_helper'
 
-QUERY_COUNT = 500
+QUERY_COUNT = 300
 MARGIN_OF_ERROR = 0.30
 
 def with_captured_stdout_stderr

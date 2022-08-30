@@ -15,7 +15,7 @@ class PgcatProcess
 
   def initialize(log_level)
     @env = {"RUST_LOG" => log_level}
-    @port = rand(10000..32760)
+    @port = rand(20000..32760)
     @log_level = log_level
     @log_filename = "/tmp/pgcat_log_#{SecureRandom.urlsafe_base64}.log"
     @config_filename = "/tmp/pgcat_cfg_#{SecureRandom.urlsafe_base64}.toml"
