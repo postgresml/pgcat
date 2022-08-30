@@ -714,7 +714,12 @@ where
 
             // Grab a server from the pool.
             let connection = match pool
-                .get(query_router.shard(), query_router.role(), self.process_id)
+                .get(
+                    query_router.shard(),
+                    query_router.role(),
+                    self.process_id,
+                    &client_metadata,
+                )
                 .await
             {
                 Ok(conn) => {
@@ -755,9 +760,13 @@ where
 
             // Update statistics.
             if let Some(last_address_id) = self.last_address_id {
-                self.stats.client_disconnecting(self.process_id, &ServerMetadata::dummy_with_address_id(last_address_id));
+                self.stats.client_disconnecting(
+                    self.process_id,
+                    &ServerMetadata::dummy_with_address_id(last_address_id),
+                );
             }
-            self.stats.client_active(self.process_id, &server_metadata);
+            self.stats
+                .client_active(self.process_id, &client_metadata, &server_metadata);
 
             self.last_address_id = Some(address.id);
             self.last_server_id = Some(server.process_id());
@@ -975,7 +984,8 @@ where
                 .server_idle(server.process_id(), &server_metadata);
             self.connected_to_server = false;
             self.release();
-            self.stats.client_idle(self.process_id, &server_metadata);
+            self.stats
+                .client_idle(self.process_id, &client_metadata, &server_metadata);
         }
     }
 
@@ -1103,11 +1113,12 @@ impl<S, T> Drop for Client<S, T> {
         // TODO: refactor, this is not the best way to handle state management.
         if let Some(address_id) = self.last_address_id {
             let server_metadata = ServerMetadata::dummy_with_address_id(address_id);
-            self.stats.client_disconnecting(self.process_id, &server_metadata);
+            self.stats
+                .client_disconnecting(self.process_id, &server_metadata);
 
             if self.connected_to_server {
                 if let Some(process_id) = self.last_server_id {
-                    self.stats.server_idle(process_id, &server_metadata);
+                    self.stats.server_idle(process_id, &server_metadata); // TODO: Add information about previous server
                 }
             }
         }

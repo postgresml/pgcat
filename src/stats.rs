@@ -241,12 +241,17 @@ impl Reporter {
 
     /// Reports a client identified by `process_id` waiting for a connection
     /// to a server identified by `address_id`.
-    pub fn client_waiting(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn client_waiting(
+        &self,
+        process_id: i32,
+        client_metadata: &ClientMetadata,
+        server_metadata: &ServerMetadata,
+    ) {
         let event = Event {
             name: EventName::ClientWaiting,
             value: 1,
             process_id,
-            client_metadata: None,
+            client_metadata: Some(client_metadata.clone()),
             server_metadata: server_metadata.clone(),
         };
 
@@ -255,12 +260,17 @@ impl Reporter {
 
     /// Reports a client identified by `process_id` is done waiting for a connection
     /// to a server identified by `address_id` and is about to query the server.
-    pub fn client_active(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn client_active(
+        &self,
+        process_id: i32,
+        client_metadata: &ClientMetadata,
+        server_metadata: &ServerMetadata,
+    ) {
         let event = Event {
             name: EventName::ClientActive,
             value: 1,
             process_id,
-            client_metadata: None,
+            client_metadata: Some(client_metadata.clone()),
             server_metadata: server_metadata.clone(),
         };
 
@@ -269,12 +279,17 @@ impl Reporter {
 
     /// Reports a client identified by `process_id` is done querying the server
     /// identified by `address_id` and is no longer active.
-    pub fn client_idle(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn client_idle(
+        &self,
+        process_id: i32,
+        client_metadata: &ClientMetadata,
+        server_metadata: &ServerMetadata,
+    ) {
         let event = Event {
             name: EventName::ClientIdle,
             value: 1,
             process_id,
-            client_metadata: None,
+            client_metadata: Some(client_metadata.clone()),
             server_metadata: server_metadata.clone(),
         };
 
@@ -392,7 +407,7 @@ where
 trait StatCreator {
     fn send_count(&self, name: &str, count: i64, tags: HashMap<String, String>);
 
-    fn send_time(&self, name: &str, time: u64);
+    fn send_time(&self, name: &str, time: u64, tags: HashMap<String, String>);
 
     fn send_gauge(&self, name: &str, value: u64);
 }
@@ -408,8 +423,13 @@ impl StatCreator for StatsdClient {
         self.submit_stat(metric_builder);
     }
 
-    fn send_time(&self, name: &str, time: u64) {
-        let metric_builder = self.time_with_tags(name, time);
+    fn send_time(&self, name: &str, time: u64, tags: HashMap<String, String>) {
+        let mut metric_builder = self.time_with_tags(name, time);
+
+        for (k, v) in tags.iter() {
+            metric_builder = metric_builder.with_tag(k, v);
+        }
+
         self.submit_stat(metric_builder);
     }
 
@@ -586,32 +606,10 @@ impl Collector {
                     let mut tags = HashMap::new();
 
                     // Client details
-                    if let Some(client_metadata) = stat.client_metadata {
-                        tags.insert(String::from("username"), client_metadata.username);
-                        tags.insert(
-                            String::from("application_name"),
-                            client_metadata.application_name,
-                        );
-                    }
+                    tags = add_client_tags(tags, &stat.client_metadata.unwrap());
 
                     // Server details
-                    tags.insert(String::from("name"), stat.server_metadata.address.name());
-                    tags.insert(
-                        String::from("host"),
-                        stat.server_metadata.address.host.clone(),
-                    );
-                    tags.insert(
-                        String::from("pool_name"),
-                        stat.server_metadata.address.pool_name,
-                    );
-                    tags.insert(
-                        String::from("port"),
-                        stat.server_metadata.address.port.to_string(),
-                    );
-                    tags.insert(
-                        String::from("role"),
-                        stat.server_metadata.address.role.to_string(),
-                    );
+                    tags = add_server_tags(tags, &stat.server_metadata);
 
                     let (statsd_metric_name, metric_name) = match stat.name {
                         EventName::Query => ("query_count", "total_query_count"),
@@ -642,8 +640,12 @@ impl Collector {
                 }
 
                 EventName::CheckoutTime => {
+                    let mut tags = HashMap::new();
+
+                    tags = add_server_tags(tags, &stat.server_metadata);
+
                     self.statsd_client
-                        .send_time("server_checkout_time", stat.value as u64);
+                        .send_time("server_checkout_time", stat.value as u64, tags);
 
                     let counter = stats.entry("total_wait_time").or_insert(0);
                     *counter += stat.value;
@@ -772,4 +774,46 @@ pub fn get_stats() -> HashMap<usize, HashMap<String, i64>> {
 /// Get the statistics reporter used to update stats across the pools/clients.
 pub fn get_reporter() -> Reporter {
     (*(*REPORTER.load())).clone()
+}
+
+fn add_server_tags(
+    mut tags: HashMap<String, String>,
+    server_metadata: &ServerMetadata,
+) -> HashMap<String, String> {
+    tags.insert(String::from("name"), server_metadata.address.name());
+    tags.insert(String::from("host"), server_metadata.address.host.clone());
+    tags.insert(
+        String::from("pool_name"),
+        server_metadata.address.pool_name.to_string(),
+    );
+    tags.insert(
+        String::from("port"),
+        server_metadata.address.port.to_string(),
+    );
+    tags.insert(
+        String::from("role"),
+        server_metadata.address.role.to_string(),
+    );
+    tags.insert(
+        String::from("username"),
+        server_metadata.address.username.to_string(),
+    );
+
+    tags
+}
+
+fn add_client_tags(
+    mut tags: HashMap<String, String>,
+    client_metadata: &ClientMetadata,
+) -> HashMap<String, String> {
+    tags.insert(
+        String::from("username"),
+        client_metadata.username.to_string(),
+    );
+    tags.insert(
+        String::from("application_name"),
+        client_metadata.application_name.to_string(),
+    );
+
+    tags
 }

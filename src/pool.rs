@@ -17,7 +17,7 @@ use crate::errors::Error;
 
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
-use crate::stats::{get_reporter, Reporter, ServerMetadata};
+use crate::stats::{get_reporter, ClientMetadata, Reporter, ServerMetadata};
 
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, u16)>>>;
@@ -297,6 +297,7 @@ impl ConnectionPool {
         shard: usize,           // shard number
         role: Option<Role>,     // primary or replica
         client_process_id: i32, // client id
+        client_metadata: &ClientMetadata,
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
         let mut candidates: Vec<&Address> = self.addresses[shard]
@@ -326,7 +327,7 @@ impl ConnectionPool {
 
             // Indicate we're waiting on a server connection from a pool.
             self.stats
-                .client_waiting(client_process_id, &server_metadata);
+                .client_waiting(client_process_id, &client_metadata, &server_metadata);
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -424,7 +425,8 @@ impl ConnectionPool {
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, client_process_id: Option<i32>) {
         if let Some(process_id) = client_process_id {
-            self.stats.client_disconnecting(process_id, &ServerMetadata::new(address.clone()));
+            self.stats
+                .client_disconnecting(process_id, &ServerMetadata::new(address.clone()));
         }
 
         error!("Banning {:?}", address);
@@ -587,12 +589,14 @@ impl ManageConnection for ServerPool {
         {
             Ok(conn) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id, &server_metadata);
+                self.stats
+                    .server_disconnecting(process_id, &server_metadata);
                 Ok(conn)
             }
             Err(err) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id, &server_metadata);
+                self.stats
+                    .server_disconnecting(process_id, &server_metadata);
                 Err(err)
             }
         }

@@ -595,7 +595,8 @@ impl Drop for Server {
     /// for a write.
     fn drop(&mut self) {
         let server_metadata = ServerMetadata::new(self.address.clone());
-        self.stats.server_disconnecting(self.process_id(), &server_metadata);
+        self.stats
+            .server_disconnecting(self.process_id(), &server_metadata);
 
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');
