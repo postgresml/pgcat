@@ -754,8 +754,8 @@ where
             let server_metadata = ServerMetadata::new(address.clone());
 
             // Update statistics.
-            if let Some(_) = self.last_address_id {
-                self.stats.client_disconnecting(self.process_id);
+            if let Some(last_address_id) = self.last_address_id {
+                self.stats.client_disconnecting(self.process_id, &ServerMetadata::dummy_with_address_id(last_address_id));
             }
             self.stats.client_active(self.process_id, &server_metadata);
 
@@ -1103,7 +1103,7 @@ impl<S, T> Drop for Client<S, T> {
         // TODO: refactor, this is not the best way to handle state management.
         if let Some(address_id) = self.last_address_id {
             let server_metadata = ServerMetadata::dummy_with_address_id(address_id);
-            self.stats.client_disconnecting(self.process_id);
+            self.stats.client_disconnecting(self.process_id, &server_metadata);
 
             if self.connected_to_server {
                 if let Some(process_id) = self.last_server_id {

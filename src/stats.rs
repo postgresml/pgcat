@@ -283,13 +283,13 @@ impl Reporter {
 
     /// Reports a client identified by `process_id` is disconnecting from the pooler.
     /// The last server it was connected to is identified by `address_id`.
-    pub fn client_disconnecting(&self, process_id: i32) {
+    pub fn client_disconnecting(&self, process_id: i32, server_metadata: &ServerMetadata) {
         let event = Event {
             name: EventName::ClientDisconnecting,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: ServerMetadata::dummy_with_address_id(0),
+            server_metadata: server_metadata.clone(),
         };
 
         self.send(event)
@@ -357,13 +357,13 @@ impl Reporter {
 
     /// Reports a server connection identified by `process_id` is disconnecting from the pooler.
     /// The configured server it was connected to is identified by `address_id`.
-    pub fn server_disconnecting(&self, process_id: i32) {
+    pub fn server_disconnecting(&self, process_id: i32, server_metadata: &ServerMetadata) {
         let event = Event {
             name: EventName::ServerDisconnecting,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: ServerMetadata::dummy_with_address_id(0),
+            server_metadata: server_metadata.clone(),
         };
 
         self.send(event)
@@ -736,7 +736,7 @@ impl Collector {
 
                 EventName::UpdateAverages => {
                     // Calculate averages
-                    for stat in [
+                    for stat in &[
                         "avg_query_count",
                         "avg_query_time",
                         "avg_recv",
@@ -746,7 +746,7 @@ impl Collector {
                         "avg_wait_time",
                     ] {
                         let total_name = match stat {
-                            "avg_recv" => "total_received".to_string(), // Because PgBouncer is saving bytes
+                            &"avg_recv" => "total_received".to_string(), // Because PgBouncer is saving bytes
                             _ => stat.replace("avg_", "total_"),
                         };
 

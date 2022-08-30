@@ -424,7 +424,7 @@ impl ConnectionPool {
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, client_process_id: Option<i32>) {
         if let Some(process_id) = client_process_id {
-            self.stats.client_disconnecting(process_id);
+            self.stats.client_disconnecting(process_id, &ServerMetadata::new(address.clone()));
         }
 
         error!("Banning {:?}", address);
@@ -587,12 +587,12 @@ impl ManageConnection for ServerPool {
         {
             Ok(conn) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id);
+                self.stats.server_disconnecting(process_id, &server_metadata);
                 Ok(conn)
             }
             Err(err) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id);
+                self.stats.server_disconnecting(process_id, &server_metadata);
                 Err(err)
             }
         }
