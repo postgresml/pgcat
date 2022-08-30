@@ -21,8 +21,10 @@ class PgInstance
       listen: "0.0.0.0:#{@toxiproxy_port}",
       upstream: "localhost:#{@original_port}",
     }])
-    # Toxiproxy server will probably outlive this object
-    # so we want to clean up our proxy
+
+    # Toxiproxy server will outlive our PgInstance objects
+    # so we want to destroy our proxies before exiting
+    # Ruby finalizer is ideal for doing this
     ObjectSpace.define_finalizer(@toxiproxy_name, proc { Toxiproxy[@toxiproxy_name].destroy })
   end
 
