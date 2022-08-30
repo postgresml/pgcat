@@ -222,7 +222,6 @@ pub struct Shard {
 impl Default for Shard {
     fn default() -> Shard {
         Shard {
-            // TODO: Make this a hash map
             servers: vec![ServerConfig {
                 host: String::from("localhost"),
                 port: 5432,
@@ -542,8 +541,8 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                 Ok(_) => (),
                 Err(_) => {
                     error!(
-                        "Shard '{:?}' is not a valid number, shards must be numbered starting at 0",
-                        shard
+                        "Shard '{}' is not a valid number, shards must be numbered starting at 0",
+                        shard.0
                     );
                     return Err(Error::BadConfig);
                 }
