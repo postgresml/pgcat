@@ -207,7 +207,6 @@ impl Default for Pool {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]
 pub struct ServerConfig {
-    pub name: String,
     pub host: String,
     pub port: u16,
     pub role: Role,
@@ -225,7 +224,6 @@ impl Default for Shard {
         Shard {
             // TODO: Make this a hash map
             servers: vec![ServerConfig {
-                name: String::from("db-name"),
                 host: String::from("localhost"),
                 port: 5432,
                 role: Role::Primary,
