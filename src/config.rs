@@ -87,8 +87,6 @@ pub struct Address {
 
     /// The name of this pool (i.e. database name visible to the client).
     pub pool_name: String,
-
-    pub name: String,
 }
 
 impl Default for Address {
@@ -104,7 +102,6 @@ impl Default for Address {
             role: Role::Replica,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
-            name: String::from("name"),
         }
     }
 }

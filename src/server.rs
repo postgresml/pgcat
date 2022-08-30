@@ -14,7 +14,7 @@ use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
 use crate::scram::ScramSha256;
-use crate::stats::Reporter;
+use crate::stats::{Reporter, ServerMetadata};
 use crate::ClientServerMap;
 
 /// Server state.
@@ -367,8 +367,11 @@ impl Server {
 
     /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
-        self.stats
-            .data_sent(messages.len(), self.process_id, self.address.id);
+        self.stats.data_sent(
+            messages.len(),
+            self.process_id,
+            &ServerMetadata::new(self.address.clone()),
+        );
 
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => {
@@ -477,8 +480,11 @@ impl Server {
         let bytes = self.buffer.clone();
 
         // Keep track of how much data we got from the server for stats.
-        self.stats
-            .data_received(bytes.len(), self.process_id, self.address.id);
+        self.stats.data_received(
+            bytes.len(),
+            self.process_id,
+            &ServerMetadata::new(self.address.clone()),
+        );
 
         // Clear the buffer for next query.
         self.buffer.clear();
@@ -588,8 +594,7 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
-        self.stats
-            .server_disconnecting(self.process_id(), self.address.id);
+        self.stats.server_disconnecting(self.process_id());
 
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');

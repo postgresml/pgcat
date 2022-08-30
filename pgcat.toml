@@ -106,23 +106,23 @@ statement_timeout = 15000
 [pools.sharded_db.shards.0]
 # [ host, port, role ]
 servers = [
-    [ "sharded-db-shard-0-primary", "127.0.0.1", 5432, "Primary" ],
-    [ "sharded-db-shard-0-replica-1", "localhost", 5432, "Replica" ]
+    [ "127.0.0.1", 5432, "Primary" ],
+    [ "localhost", 5432, "Replica" ]
 ]
 # Database name (e.g. "postgres")
 database = "shard0"
 
 [pools.sharded_db.shards.1]
 servers = [
-    [ "sharded-db-shard-1-primary", "127.0.0.1", 5432, "Primary" ],
-    [ "sharded-db-shard-1-replica-1", "localhost", 5432, "Replica" ],
+    [ "127.0.0.1", 5432, "Primary" ],
+    [ "localhost", 5432, "Replica" ],
 ]
 database = "shard1"
 
 [pools.sharded_db.shards.2]
 servers = [
-    [ "sharded-db-shard-2-primary", "127.0.0.1", 5432, "Primary" ],
-    [ "sharded-db-shard-2-replica-1", "localhost", 5432, "Replica" ],
+    [ "127.0.0.1", 5432, "Primary" ],
+    [ "localhost", 5432, "Replica" ],
 ]
 database = "shard2"
 
@@ -142,7 +142,7 @@ statement_timeout = 0
 
 [pools.simple_db.shards.0]
 servers = [
-    [ "simple-db-primary", "127.0.0.1", 5432, "Primary" ],
-    [ "simple-db-replica-1", "localhost", 5432, "Replica" ]
+    [ "127.0.0.1", 5432, "Primary" ],
+    [ "localhost", 5432, "Replica" ]
 ]
 database = "some_db"

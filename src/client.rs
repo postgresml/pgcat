@@ -567,11 +567,13 @@ where
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
 
-        let mut client_metadata = ClientMetadata::default(self.username.clone());
-
-        if let Some(application_name) = self.parameters.get("application_name") {
-            client_metadata.add_application_name(application_name.to_string())
-        }
+        let client_metadata = ClientMetadata::new(
+            self.username.clone(),
+            match self.parameters.get("application_name") {
+                Some(application_name) => application_name.to_string(),
+                None => String::from("pgcat"),
+            },
+        );
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
@@ -749,12 +751,13 @@ where
             server.claim(self.process_id, self.secret_key);
             self.connected_to_server = true;
 
+            let server_metadata = ServerMetadata::new(address.clone());
+
             // Update statistics.
-            if let Some(last_address_id) = self.last_address_id {
-                self.stats
-                    .client_disconnecting(self.process_id, last_address_id);
+            if let Some(_) = self.last_address_id {
+                self.stats.client_disconnecting(self.process_id);
             }
-            self.stats.client_active(self.process_id, address.id);
+            self.stats.client_active(self.process_id, &server_metadata);
 
             self.last_address_id = Some(address.id);
             self.last_server_id = Some(server.process_id());
@@ -768,8 +771,6 @@ where
             // Set application_name if any.
             // TODO: investigate other parameters and set them too.
             server.set_name(&client_metadata.application_name).await?;
-
-            let server_metadata = ServerMetadata::default(address.name.clone());
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
@@ -832,7 +833,6 @@ where
                             // Report transaction executed statistics.
                             self.stats.transaction(
                                 self.process_id,
-                                address.id,
                                 &client_metadata,
                                 &server_metadata,
                             );
@@ -910,7 +910,6 @@ where
                         if !server.in_transaction() {
                             self.stats.transaction(
                                 self.process_id,
-                                address.id,
                                 &client_metadata,
                                 &server_metadata,
                             );
@@ -950,7 +949,6 @@ where
                         if !server.in_transaction() {
                             self.stats.transaction(
                                 self.process_id,
-                                address.id,
                                 &client_metadata,
                                 &server_metadata,
                             );
@@ -973,10 +971,11 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
-            self.stats.server_idle(server.process_id(), address.id);
+            self.stats
+                .server_idle(server.process_id(), &server_metadata);
             self.connected_to_server = false;
             self.release();
-            self.stats.client_idle(self.process_id, address.id);
+            self.stats.client_idle(self.process_id, &server_metadata);
         }
     }
 
@@ -1020,12 +1019,8 @@ where
         }
 
         // Report query executed statistics.
-        self.stats.query(
-            self.process_id,
-            address.id,
-            client_metadata,
-            server_metadata,
-        );
+        self.stats
+            .query(self.process_id, client_metadata, server_metadata);
 
         Ok(())
     }
@@ -1040,7 +1035,7 @@ where
         match server.send(message).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                pool.ban(address, self.process_id);
+                pool.ban(address, Some(self.process_id));
                 Err(err)
             }
         }
@@ -1062,7 +1057,7 @@ where
                 Ok(result) => match result {
                     Ok(message) => Ok(message),
                     Err(err) => {
-                        pool.ban(address, self.process_id);
+                        pool.ban(address, Some(self.process_id));
                         error_response_terminal(
                             &mut self.write,
                             &format!("error receiving data from server: {:?}", err),
@@ -1077,7 +1072,7 @@ where
                         address, pool.settings.user.username
                     );
                     server.mark_bad();
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, Some(self.process_id));
                     error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(Error::StatementTimeout)
                 }
@@ -1086,7 +1081,7 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, Some(self.process_id));
                     error_response_terminal(
                         &mut self.write,
                         &format!("error receiving data from server: {:?}", err),
@@ -1107,11 +1102,12 @@ impl<S, T> Drop for Client<S, T> {
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
         if let Some(address_id) = self.last_address_id {
-            self.stats.client_disconnecting(self.process_id, address_id);
+            let server_metadata = ServerMetadata::dummy_with_address_id(address_id);
+            self.stats.client_disconnecting(self.process_id);
 
             if self.connected_to_server {
                 if let Some(process_id) = self.last_server_id {
-                    self.stats.server_idle(process_id, address_id);
+                    self.stats.server_idle(process_id, &server_metadata);
                 }
             }
         }
