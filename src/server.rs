@@ -592,7 +592,6 @@ impl Server {
     pub fn last_activity(&self) -> SystemTime {
         self.last_activity
     }
-
 }
 
 impl Drop for Server {
