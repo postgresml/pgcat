@@ -760,10 +760,8 @@ where
 
             // Update statistics.
             if let Some(last_address) = self.last_address.clone() {
-                self.stats.client_disconnecting(
-                    self.process_id,
-                    &ServerMetadata::new(last_address),
-                );
+                self.stats
+                    .client_disconnecting(self.process_id, &ServerMetadata::new(last_address));
             }
             self.stats
                 .client_active(self.process_id, &client_metadata, &server_metadata);

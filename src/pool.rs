@@ -621,14 +621,6 @@ pub fn get_pool(db: String, user: String) -> Option<ConnectionPool> {
     }
 }
 
-/// How many total servers we have in the config.
-pub fn get_number_of_addresses() -> usize {
-    get_all_pools()
-        .iter()
-        .map(|(_, pool)| pool.databases())
-        .sum()
-}
-
 /// Get a pointer to all configured pools.
 pub fn get_all_pools() -> HashMap<(String, String), ConnectionPool> {
     return (*(*POOLS.load())).clone();

@@ -13,9 +13,9 @@ use std::os::unix::net::UnixDatagram;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
+use crate::config::get_config;
 use crate::config::Address;
 use crate::pool::get_all_pools;
-use crate::{config::get_config, pool::get_number_of_addresses};
 
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
     Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
@@ -67,13 +67,6 @@ pub struct ServerMetadata {
 impl ServerMetadata {
     pub fn new(address: Address) -> ServerMetadata {
         ServerMetadata { address }
-    }
-
-    pub fn dummy_with_address_id(address_id: usize) -> ServerMetadata {
-        let mut address = Address::default();
-        address.id = address_id;
-
-        ServerMetadata::new(address)
     }
 }
 
@@ -576,15 +569,18 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD));
             loop {
                 interval.tick().await;
-                let address_count = get_number_of_addresses();
-                for address_id in 0..address_count {
-                    let _ = tx.try_send(Event {
-                        name: EventName::UpdateAverages,
-                        value: 0,       // unused for this event
-                        process_id: -1, // unused for this event
-                        client_metadata: None,
-                        server_metadata: ServerMetadata::dummy_with_address_id(address_id),
-                    });
+                for pool in get_all_pools().iter().map(|(_, pool)| pool) {
+                    for address_vec in pool.addresses.iter() {
+                        for address in address_vec {
+                            let _ = tx.try_send(Event {
+                                name: EventName::UpdateAverages,
+                                value: 0,       // unused for this event
+                                process_id: -1, // unused for this event
+                                client_metadata: None,
+                                server_metadata: ServerMetadata::new(address.clone()),
+                            });
+                        }
+                    }
                 }
             }
         });
@@ -794,7 +790,10 @@ fn add_server_tags(
     server_metadata: &ServerMetadata,
 ) -> HashMap<String, String> {
     tags.insert(String::from("name"), server_metadata.address.name());
-    tags.insert(String::from("db_host_address"), server_metadata.address.host.clone());
+    tags.insert(
+        String::from("db_host_address"),
+        server_metadata.address.host.clone(),
+    );
     tags.insert(
         String::from("pool_name"),
         server_metadata.address.pool_name.to_string(),
