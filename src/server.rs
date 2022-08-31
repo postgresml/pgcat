@@ -553,6 +553,17 @@ impl Server {
         Ok(())
     }
 
+    pub async fn checkin_cleanup(&mut self) -> Result<(), Error> {
+        if self.in_transaction() {
+            self.query("ROLLBACK").await?;
+        }
+
+        self.query("DISCARD ALL").await?;
+        self.set_name("pgcat").await?;
+
+        return Ok(());
+    }
+
     /// A shorthand for `SET application_name = $1`.
     #[allow(dead_code)]
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
@@ -581,6 +592,7 @@ impl Server {
     pub fn last_activity(&self) -> SystemTime {
         self.last_activity
     }
+
 }
 
 impl Drop for Server {

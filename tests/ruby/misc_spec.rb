@@ -106,4 +106,34 @@ describe "Miscellaneous" do
       admin_conn.close
     end
   end
+
+  describe "State clearance" do
+    context "session mode" do
+      let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "session") }
+
+      it "Clears state before connection checkin" do
+        # Both modes of operation should not raise
+        # ERROR:  prepared statement "prepared_q" already exists
+        15.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("PREPARE prepared_q (int) AS SELECT $1")
+          conn.close
+        end
+      end
+    end
+
+    context "transaction mode" do
+      let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "transaction") }
+
+      it "Clears state before connection checkin" do
+        # Both modes of operation should not raise
+        # ERROR:  prepared statement "prepared_q" already exists
+        15.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("PREPARE prepared_q (int) AS SELECT $1")
+          conn.close
+        end
+      end
+    end
+  end
 end

@@ -782,12 +782,7 @@ where
                         Err(err) => {
                             // Client disconnected inside a transaction.
                             // Clean up the server and re-use it.
-                            // This prevents connection thrashing by bad clients.
-                            if server.in_transaction() {
-                                server.query("ROLLBACK").await?;
-                                server.query("DISCARD ALL").await?;
-                                server.set_name("pgcat").await?;
-                            }
+                            server.checkin_cleanup().await?;
 
                             return Err(err);
                         }
@@ -829,16 +824,7 @@ where
 
                     // Terminate
                     'X' => {
-                        // Client closing. Rollback and clean up
-                        // connection before releasing into the pool.
-                        // Pgbouncer closes the connection which leads to
-                        // connection thrashing when clients misbehave.
-                        if server.in_transaction() {
-                            server.query("ROLLBACK").await?;
-                            server.query("DISCARD ALL").await?;
-                            server.set_name("pgcat").await?;
-                        }
-
+                        server.checkin_cleanup().await?;
                         self.release();
 
                         return Ok(());
@@ -942,8 +928,10 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
+            server.checkin_cleanup().await?;
             self.stats.server_idle(server.process_id(), address.id);
             self.connected_to_server = false;
+
             self.release();
             self.stats.client_idle(self.process_id, address.id);
         }
