@@ -794,7 +794,7 @@ fn add_server_tags(
     server_metadata: &ServerMetadata,
 ) -> HashMap<String, String> {
     tags.insert(String::from("name"), server_metadata.address.name());
-    tags.insert(String::from("host"), server_metadata.address.host.clone());
+    tags.insert(String::from("db_host_address"), server_metadata.address.host.clone());
     tags.insert(
         String::from("pool_name"),
         server_metadata.address.pool_name.to_string(),
