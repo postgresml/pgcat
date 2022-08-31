@@ -68,7 +68,7 @@ pub struct Client<S, T> {
     admin: bool,
 
     /// Last address the client talked to.
-    last_address_id: Option<usize>,
+    last_address: Option<Address>,
 
     /// Last server process id we talked to.
     last_server_id: Option<i32>,
@@ -489,7 +489,7 @@ where
             parameters: parameters.clone(),
             stats: stats,
             admin: admin,
-            last_address_id: None,
+            last_address: None,
             last_server_id: None,
             pool_name: pool_name.clone(),
             username: username.clone(),
@@ -522,7 +522,7 @@ where
             parameters: HashMap::new(),
             stats: get_reporter(),
             admin: false,
-            last_address_id: None,
+            last_address: None,
             last_server_id: None,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
@@ -759,16 +759,16 @@ where
             let server_metadata = ServerMetadata::new(address.clone());
 
             // Update statistics.
-            if let Some(last_address_id) = self.last_address_id {
+            if let Some(last_address) = self.last_address.clone() {
                 self.stats.client_disconnecting(
                     self.process_id,
-                    &ServerMetadata::dummy_with_address_id(last_address_id),
+                    &ServerMetadata::new(last_address),
                 );
             }
             self.stats
                 .client_active(self.process_id, &client_metadata, &server_metadata);
 
-            self.last_address_id = Some(address.id);
+            self.last_address = Some(address.clone());
             self.last_server_id = Some(server.process_id());
 
             debug!(
@@ -1111,14 +1111,14 @@ impl<S, T> Drop for Client<S, T> {
 
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
-        if let Some(address_id) = self.last_address_id {
-            let server_metadata = ServerMetadata::dummy_with_address_id(address_id);
+        if let Some(last_address) = self.last_address.clone() {
+            let server_metadata = ServerMetadata::new(last_address);
             self.stats
                 .client_disconnecting(self.process_id, &server_metadata);
 
             if self.connected_to_server {
                 if let Some(process_id) = self.last_server_id {
-                    self.stats.server_idle(process_id, &server_metadata); // TODO: Add information about previous server
+                    self.stats.server_idle(process_id, &server_metadata);
                 }
             }
         }
