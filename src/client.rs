@@ -731,18 +731,15 @@ where
                     // but we were unable to grab a connection from the pool
                     // We'll send back an error message and clean the extended
                     // protocol buffer
-                    match message[0] as char {
-                        'S' => (),
-                        _ => {
-                            error_response(
-                                &mut self.write,
-                                "could not get connection from the pool",
-                            )
-                            .await?;
-                        }
-                    };
+                    if message[0] as char == 'S' {
+                        self.buffer.clear();
+                    }
+                    error_response(
+                        &mut self.write,
+                        "could not get connection from the pool",
+                    )
+                    .await?;
                     error!("Could not get connection from pool: {:?}", err);
-                    self.buffer.clear();
                     continue;
                 }
             };
