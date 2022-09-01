@@ -453,7 +453,7 @@ impl Server {
                     // Non-exhuastive list of commands that are likely to change session variables/resources
                     // which can leak between client. This is a best effort to block bad clients
                     // from poisoning a transaction-mode pool by setting inappropriate session variables
-                    match command_tag.as_str().trim() {
+                    match command_tag.as_str() {
                         "SET\0" | "PREPARE\0" => {
                             println!("MATCHED {}", command_tag);
                             debug!("Server connection marked for clean up");
