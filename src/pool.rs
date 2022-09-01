@@ -559,11 +559,7 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        info!(
-            "Creating a new connection to {:?} using user {:?}",
-            self.address.name(),
-            self.user.username
-        );
+        info!("Creating a new server connection {:?}", self.address);
 
         // Put a temporary process_id into the stats
         // for server login.
