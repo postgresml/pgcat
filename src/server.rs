@@ -450,7 +450,7 @@ impl Server {
                     let mut command_tag = String::new();
                     message.reader().read_to_string(&mut command_tag).unwrap();
 
-                    // Non-exhuastive list of commands that are likely to change session variables/resources
+                    // Non-exhaustive list of commands that are likely to change session variables/resources
                     // which can leak between client. This is a best effort to block bad clients
                     // from poisoning a transaction-mode pool by setting inappropriate session variables
                     match command_tag.as_str() {
