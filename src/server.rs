@@ -607,7 +607,8 @@ impl Drop for Server {
         let duration = now - self.connected_at;
 
         info!(
-            "Server connection closed, session duration: {}",
+            "Server connection closed {:?}, session duration: {}",
+            self.address,
             crate::format_duration(&duration)
         );
     }
