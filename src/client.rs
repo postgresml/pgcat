@@ -608,7 +608,7 @@ where
             }
 
             match message[0] as char {
-                // Buffer Extended Protocol messages even if we do not have
+                // Buffer extended protocol messages even if we do not have
                 // a server connection yet. Hopefully, when we get the S message
                 // we'll be able to allocate a connection. Also, clients do not expect
                 // the server to respond to these messages so even if we were not able to
@@ -732,13 +732,11 @@ where
                     // We'll send back an error message and clean the extended
                     // protocol buffer
                     if message[0] as char == 'S' {
+                        error!("Got Sync message but failed to get a connection from the pool");
                         self.buffer.clear();
                     }
-                    error_response(
-                        &mut self.write,
-                        "could not get connection from the pool",
-                    )
-                    .await?;
+                    error_response(&mut self.write, "could not get connection from the pool")
+                        .await?;
                     error!("Could not get connection from pool: {:?}", err);
                     continue;
                 }
