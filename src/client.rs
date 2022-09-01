@@ -59,7 +59,8 @@ pub struct Client<S, T> {
     client_server_map: ClientServerMap,
 
     /// Client parameters, e.g. user, client_encoding, etc.
-    _parameters: HashMap<String, String>,
+    #[allow(dead_code)]
+    parameters: HashMap<String, String>,
 
     /// Statistics
     stats: Reporter,
@@ -494,7 +495,7 @@ where
             process_id,
             secret_key,
             client_server_map,
-            _parameters: parameters.clone(),
+            parameters: parameters.clone(),
             stats: stats,
             admin: admin,
             last_address_id: None,
@@ -528,7 +529,7 @@ where
             process_id,
             secret_key,
             client_server_map,
-            _parameters: HashMap::new(),
+            parameters: HashMap::new(),
             stats: get_reporter(),
             admin: false,
             last_address_id: None,
