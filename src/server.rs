@@ -578,10 +578,10 @@ impl Server {
     /// Perform any necessary cleanup before putting the server
     /// connection back in the pool
     pub async fn checkin_cleanup(&mut self) -> Result<(), Error> {
-        // Client disconnected with an open transaction on the server connection
+        // Client disconnected with an open transaction on the server connection.
         // Pgbouncer behavior is to close the server connection but that can cause
         // server connection thrashing if clients repeatedly do this.
-        // Instead, we Roll that transaction back before putting the connection back in the pool
+        // Instead, we ROLLBACK that transaction before putting the connection back in the pool
         if self.in_transaction() {
             self.query("ROLLBACK").await?;
         }
@@ -590,7 +590,7 @@ impl Server {
         // SET statement_timeout to 1 or create a prepared statement. We clear that
         // to avoid leaking state between clients. For performance reasons we only
         // send `DISCARD ALL` if we think the session is altered instead of just sending
-        // it before each checkin,
+        // it before each checkin.
         if self.needs_cleanup {
             self.query("DISCARD ALL").await?;
             self.needs_cleanup = false;
