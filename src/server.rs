@@ -1,7 +1,7 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use std::io::Read;
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
@@ -448,17 +448,23 @@ impl Server {
                 // CommandComplete
                 'C' => {
                     let mut command_tag = String::new();
-                    message.reader().read_to_string(&mut command_tag).unwrap();
-
-                    // Non-exhaustive list of commands that are likely to change session variables/resources
-                    // which can leak between clients. This is a best effort to block bad clients
-                    // from poisoning a transaction-mode pool by setting inappropriate session variables
-                    match command_tag.as_str() {
-                        "SET\0" | "PREPARE\0" => {
-                            debug!("Server connection marked for clean up");
-                            self.needs_cleanup = true;
+                    match message.reader().read_to_string(&mut command_tag) {
+                        Ok(_) => {
+                            // Non-exhaustive list of commands that are likely to change session variables/resources
+                            // which can leak between clients. This is a best effort to block bad clients
+                            // from poisoning a transaction-mode pool by setting inappropriate session variables
+                            match command_tag.as_str() {
+                                "SET\0" | "PREPARE\0" => {
+                                    debug!("Server connection marked for clean up");
+                                    self.needs_cleanup = true;
+                                }
+                                _ => (),
+                            }
                         }
-                        _ => (),
+
+                        Err(err) => {
+                            warn!("Encountered an error while parsing CommandTag {}", err);
+                        }
                     }
                 }
 
