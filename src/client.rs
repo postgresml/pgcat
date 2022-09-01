@@ -769,7 +769,6 @@ where
                 server.address()
             );
 
-
             // TODO: investigate other parameters and set them too.
 
             // Set application_name.
