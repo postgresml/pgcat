@@ -2,6 +2,7 @@
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace};
+use std::io::Read;
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
@@ -446,15 +447,15 @@ impl Server {
 
                 // CommandComplete
                 'C' => {
-                    let full_message = String::from_utf8_lossy(message.as_ref());
-                    let mut it = full_message.split_ascii_whitespace();
-                    let command_tag = it.next().unwrap().trim_end_matches(char::from(0));
+                    let mut command_tag = String::new();
+                    message.reader().read_to_string(&mut command_tag).unwrap();
 
                     // Non-exhuastive list of commands that are likely to change session variables/resources
                     // which can leak between client. This is a best effort to block bad clients
                     // from poisoning a transaction-mode pool by setting inappropriate session variables
-                    match command_tag {
-                        "SET" | "PREPARE" => {
+                    match command_tag.as_str().trim() {
+                        "SET\0" | "PREPARE\0" => {
+                            println!("MATCHED {}", command_tag);
                             debug!("Server connection marked for clean up");
                             self.needs_cleanup = true;
                         }
