@@ -585,13 +585,10 @@ impl Server {
             self.needs_cleanup = false;
         }
 
-        self.set_name("pgcat").await?;
-
         return Ok(());
     }
 
     /// A shorthand for `SET application_name = $1`.
-    #[allow(dead_code)]
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
         if self.application_name != name {
             self.application_name = name.to_string();
