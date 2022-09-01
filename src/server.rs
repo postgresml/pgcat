@@ -48,6 +48,9 @@ pub struct Server {
     /// Is the server broken? We'll remote it from the pool if so.
     bad: bool,
 
+    /// If server connection requires a DISCARD ALL before checkin
+    needs_cleanup: bool,
+
     /// Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
 
@@ -316,6 +319,7 @@ impl Server {
                         in_transaction: false,
                         data_available: false,
                         bad: false,
+                        needs_cleanup: false,
                         client_server_map: client_server_map,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
@@ -440,6 +444,24 @@ impl Server {
                     break;
                 }
 
+                // CommandComplete
+                'C' => {
+                    let full_message = String::from_utf8_lossy(message.as_ref());
+                    let mut it = full_message.split_ascii_whitespace();
+                    let command_tag = it.next().unwrap().trim_end_matches(char::from(0));
+
+                    // Non-exhuastive list of commands that are likely to change session variables/resources
+                    // which can leak between client. This is a best effort to block bad clients
+                    // from poisoning a transaction-mode pool by setting inappropriate session variables
+                    match command_tag {
+                        "SET" | "PREPARE" => {
+                            debug!("Server connection marked for clean up");
+                            self.needs_cleanup = true;
+                        }
+                        _ => (),
+                    }
+                }
+
                 // DataRow
                 'D' => {
                     // More data is available after this message, this is not the end of the reply.
@@ -558,7 +580,11 @@ impl Server {
             self.query("ROLLBACK").await?;
         }
 
-        self.query("DISCARD ALL").await?;
+        if self.needs_cleanup {
+            self.query("DISCARD ALL").await?;
+            self.needs_cleanup = false;
+        }
+
         self.set_name("pgcat").await?;
 
         return Ok(());
@@ -569,9 +595,15 @@ impl Server {
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
         if self.application_name != name {
             self.application_name = name.to_string();
-            Ok(self
+            // We don't want `SET application_name` to mark the server connection
+            // as needing cleanup
+            let needs_cleanup_before = self.needs_cleanup;
+
+            let result = Ok(self
                 .query(&format!("SET application_name = '{}'", name))
-                .await?)
+                .await?);
+            self.needs_cleanup = needs_cleanup_before;
+            return result;
         } else {
             Ok(())
         }
