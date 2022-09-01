@@ -59,17 +59,6 @@ impl ClientMetadata {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ServerMetadata {
-    address: Address,
-}
-
-impl ServerMetadata {
-    pub fn new(address: Address) -> ServerMetadata {
-        ServerMetadata { address }
-    }
-}
-
 /// The names for the events reported
 /// to the statistics collector.
 #[derive(Debug, Clone, Copy)]
@@ -109,7 +98,7 @@ pub struct Event {
     client_metadata: Option<ClientMetadata>,
 
     /// Metadata about the server on the event
-    server_metadata: ServerMetadata,
+    server_address: Address,
 }
 
 /// The statistics reporter. An instance is given
@@ -154,18 +143,13 @@ impl Reporter {
 
     /// Report a query executed by a client against
     /// a server identified by the `address_id`.
-    pub fn query(
-        &self,
-        process_id: i32,
-        client_metadata: &ClientMetadata,
-        server_metadata: &ServerMetadata,
-    ) {
+    pub fn query(&self, process_id: i32, client_metadata: &ClientMetadata, address: &Address) {
         let event = Event {
             name: EventName::Query,
             value: 1,
             process_id,
             client_metadata: Some(client_metadata.clone()),
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event);
@@ -177,14 +161,14 @@ impl Reporter {
         &self,
         process_id: i32,
         client_metadata: &ClientMetadata,
-        server_metadata: &ServerMetadata,
+        address: &Address,
     ) {
         let event = Event {
             name: EventName::Transaction,
             value: 1,
             process_id,
             client_metadata: Some(client_metadata.clone()),
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -192,13 +176,13 @@ impl Reporter {
 
     /// Report data sent to a server identified by `address_id`.
     /// The `amount` is measured in bytes.
-    pub fn data_sent(&self, amount: usize, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn data_sent(&self, amount: usize, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::DataSent,
             value: amount as i64,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -206,13 +190,13 @@ impl Reporter {
 
     /// Report data received from a server identified by `address_id`.
     /// The `amount` is measured in bytes.
-    pub fn data_received(&self, amount: usize, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn data_received(&self, amount: usize, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::DataReceived,
             value: amount as i64,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -221,13 +205,13 @@ impl Reporter {
     /// Time spent waiting to get a healthy connection from the pool
     /// for a server identified by `address_id`.
     /// Measured in microseconds.
-    pub fn checkout_time(&self, ms: u128, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn checkout_time(&self, ms: u128, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::CheckoutTime,
             value: ms as i64,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -239,14 +223,14 @@ impl Reporter {
         &self,
         process_id: i32,
         client_metadata: &ClientMetadata,
-        server_metadata: &ServerMetadata,
+        address: &Address,
     ) {
         let event = Event {
             name: EventName::ClientWaiting,
             value: 1,
             process_id,
             client_metadata: Some(client_metadata.clone()),
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -258,14 +242,14 @@ impl Reporter {
         &self,
         process_id: i32,
         client_metadata: &ClientMetadata,
-        server_metadata: &ServerMetadata,
+        address: &Address,
     ) {
         let event = Event {
             name: EventName::ClientActive,
             value: 1,
             process_id,
             client_metadata: Some(client_metadata.clone()),
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -277,14 +261,14 @@ impl Reporter {
         &self,
         process_id: i32,
         client_metadata: &ClientMetadata,
-        server_metadata: &ServerMetadata,
+        address: &Address,
     ) {
         let event = Event {
             name: EventName::ClientIdle,
             value: 1,
             process_id,
             client_metadata: Some(client_metadata.clone()),
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -292,13 +276,13 @@ impl Reporter {
 
     /// Reports a client identified by `process_id` is disconnecting from the pooler.
     /// The last server it was connected to is identified by `address_id`.
-    pub fn client_disconnecting(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn client_disconnecting(&self, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::ClientDisconnecting,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -307,13 +291,13 @@ impl Reporter {
     /// Reports a server connection identified by `process_id` for
     /// a configured server identified by `address_id` is actively used
     /// by a client.
-    pub fn server_active(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn server_active(&self, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::ServerActive,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -322,13 +306,13 @@ impl Reporter {
     /// Reports a server connection identified by `process_id` for
     /// a configured server identified by `address_id` is no longer
     /// actively used by a client and is now idle.
-    pub fn server_idle(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn server_idle(&self, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::ServerIdle,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -337,13 +321,13 @@ impl Reporter {
     /// Reports a server connection identified by `process_id` for
     /// a configured server identified by `address_id` is attempting
     /// to login.
-    pub fn server_login(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn server_login(&self, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::ServerLogin,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -352,13 +336,13 @@ impl Reporter {
     /// Reports a server connection identified by `process_id` for
     /// a configured server identified by `address_id` is being
     /// tested before being given to a client.
-    pub fn server_tested(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn server_tested(&self, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::ServerTested,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -366,13 +350,13 @@ impl Reporter {
 
     /// Reports a server connection identified by `process_id` is disconnecting from the pooler.
     /// The configured server it was connected to is identified by `address_id`.
-    pub fn server_disconnecting(&self, process_id: i32, server_metadata: &ServerMetadata) {
+    pub fn server_disconnecting(&self, process_id: i32, address: &Address) {
         let event = Event {
             name: EventName::ServerDisconnecting,
             value: 1,
             process_id,
             client_metadata: None,
-            server_metadata: server_metadata.clone(),
+            server_address: address.clone(),
         };
 
         self.send(event)
@@ -555,7 +539,7 @@ impl Collector {
                                 value: 0,       // unused for this event
                                 process_id: -1, // unused for this event
                                 client_metadata: None,
-                                server_metadata: ServerMetadata::new(address.clone()),
+                                server_address: address.clone(),
                             });
                         }
                     }
@@ -577,7 +561,7 @@ impl Collector {
                                 value: 0,       // unused for this event
                                 process_id: -1, // unused for this event
                                 client_metadata: None,
-                                server_metadata: ServerMetadata::new(address.clone()),
+                                server_address: address.clone(),
                             });
                         }
                     }
@@ -596,13 +580,13 @@ impl Collector {
             };
 
             let stats = stats
-                .entry(stat.server_metadata.address.id)
+                .entry(stat.server_address.id)
                 .or_insert(stats_template.clone());
             let client_server_states = client_server_states
-                .entry(stat.server_metadata.address.id)
+                .entry(stat.server_address.id)
                 .or_insert(HashMap::new());
             let old_stats = old_stats
-                .entry(stat.server_metadata.address.id)
+                .entry(stat.server_address.id)
                 .or_insert(HashMap::new());
 
             // Some are counters, some are gauges...
@@ -614,7 +598,7 @@ impl Collector {
                     tags = add_client_tags(tags, &stat.client_metadata.unwrap());
 
                     // Server details
-                    tags = add_server_tags(tags, &stat.server_metadata);
+                    tags = add_server_tags(tags, &stat.server_address);
 
                     let (statsd_metric_name, metric_name) = match stat.name {
                         EventName::Query => ("query_count", "total_query_count"),
@@ -647,7 +631,7 @@ impl Collector {
                 EventName::CheckoutTime => {
                     let mut tags = HashMap::new();
 
-                    tags = add_server_tags(tags, &stat.server_metadata);
+                    tags = add_server_tags(tags, &stat.server_address);
 
                     self.statsd_client
                         .send_time("server_checkout_time", stat.value as u64, tags);
@@ -711,7 +695,7 @@ impl Collector {
                     }
 
                     let mut tags = HashMap::new();
-                    tags = add_server_tags(tags, &stat.server_metadata);
+                    tags = add_server_tags(tags, &stat.server_address);
 
                     // Send state stats to statsd
                     for (key, value) in stats.iter() {
@@ -723,7 +707,7 @@ impl Collector {
                     let mut guard = LATEST_STATS.lock();
                     for (key, value) in stats.iter() {
                         let entry = guard
-                            .entry(stat.server_metadata.address.id)
+                            .entry(stat.server_address.id)
                             .or_insert(HashMap::new());
                         entry.insert(key.to_string(), value.clone());
                     }
@@ -787,28 +771,19 @@ pub fn get_reporter() -> Reporter {
 
 fn add_server_tags(
     mut tags: HashMap<String, String>,
-    server_metadata: &ServerMetadata,
+    server_address: &Address,
 ) -> HashMap<String, String> {
-    tags.insert(String::from("name"), server_metadata.address.name());
-    tags.insert(
-        String::from("db_host_address"),
-        server_metadata.address.host.clone(),
-    );
+    tags.insert(String::from("name"), server_address.name());
+    tags.insert(String::from("db_host_address"), server_address.host.clone());
     tags.insert(
         String::from("pool_name"),
-        server_metadata.address.pool_name.to_string(),
+        server_address.pool_name.to_string(),
     );
-    tags.insert(
-        String::from("port"),
-        server_metadata.address.port.to_string(),
-    );
-    tags.insert(
-        String::from("role"),
-        server_metadata.address.role.to_string(),
-    );
+    tags.insert(String::from("port"), server_address.port.to_string());
+    tags.insert(String::from("role"), server_address.role.to_string());
     tags.insert(
         String::from("username"),
-        server_metadata.address.username.to_string(),
+        server_address.username.to_string(),
     );
 
     tags

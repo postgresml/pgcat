@@ -15,7 +15,7 @@ use crate::messages::*;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool, PoolMode};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
-use crate::stats::{get_reporter, ClientMetadata, Reporter, ServerMetadata};
+use crate::stats::{get_reporter, ClientMetadata, Reporter};
 use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
@@ -756,15 +756,13 @@ where
             server.claim(self.process_id, self.secret_key);
             self.connected_to_server = true;
 
-            let server_metadata = ServerMetadata::new(address.clone());
-
             // Update statistics.
             if let Some(last_address) = self.last_address.clone() {
                 self.stats
-                    .client_disconnecting(self.process_id, &ServerMetadata::new(last_address));
+                    .client_disconnecting(self.process_id, &last_address);
             }
             self.stats
-                .client_active(self.process_id, &client_metadata, &server_metadata);
+                .client_active(self.process_id, &client_metadata, &address);
 
             self.last_address = Some(address.clone());
             self.last_server_id = Some(server.process_id());
@@ -832,17 +830,14 @@ where
                             &address,
                             &pool,
                             &client_metadata,
-                            &server_metadata,
+                            &address,
                         )
                         .await?;
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
-                            self.stats.transaction(
-                                self.process_id,
-                                &client_metadata,
-                                &server_metadata,
-                            );
+                            self.stats
+                                .transaction(self.process_id, &client_metadata, &address);
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -908,18 +903,15 @@ where
                             &address,
                             &pool,
                             &client_metadata,
-                            &server_metadata,
+                            &address,
                         )
                         .await?;
 
                         self.buffer.clear();
 
                         if !server.in_transaction() {
-                            self.stats.transaction(
-                                self.process_id,
-                                &client_metadata,
-                                &server_metadata,
-                            );
+                            self.stats
+                                .transaction(self.process_id, &client_metadata, &address);
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -954,11 +946,8 @@ where
                         };
 
                         if !server.in_transaction() {
-                            self.stats.transaction(
-                                self.process_id,
-                                &client_metadata,
-                                &server_metadata,
-                            );
+                            self.stats
+                                .transaction(self.process_id, &client_metadata, &address);
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -978,12 +967,11 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
-            self.stats
-                .server_idle(server.process_id(), &server_metadata);
+            self.stats.server_idle(server.process_id(), &address);
             self.connected_to_server = false;
             self.release();
             self.stats
-                .client_idle(self.process_id, &client_metadata, &server_metadata);
+                .client_idle(self.process_id, &client_metadata, &address);
         }
     }
 
@@ -1001,7 +989,7 @@ where
         address: &Address,
         pool: &ConnectionPool,
         client_metadata: &ClientMetadata,
-        server_metadata: &ServerMetadata,
+        server_address: &Address,
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
 
@@ -1028,7 +1016,7 @@ where
 
         // Report query executed statistics.
         self.stats
-            .query(self.process_id, client_metadata, server_metadata);
+            .query(self.process_id, client_metadata, server_address);
 
         Ok(())
     }
@@ -1110,13 +1098,12 @@ impl<S, T> Drop for Client<S, T> {
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
         if let Some(last_address) = self.last_address.clone() {
-            let server_metadata = ServerMetadata::new(last_address);
             self.stats
-                .client_disconnecting(self.process_id, &server_metadata);
+                .client_disconnecting(self.process_id, &last_address);
 
             if self.connected_to_server {
                 if let Some(process_id) = self.last_server_id {
-                    self.stats.server_idle(process_id, &server_metadata);
+                    self.stats.server_idle(process_id, &last_address);
                 }
             }
         }

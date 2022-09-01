@@ -17,7 +17,7 @@ use crate::errors::Error;
 
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
-use crate::stats::{get_reporter, ClientMetadata, Reporter, ServerMetadata};
+use crate::stats::{get_reporter, ClientMetadata, Reporter};
 
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
 pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, u16)>>>;
@@ -318,8 +318,6 @@ impl ConnectionPool {
                 None => break,
             };
 
-            let server_metadata = ServerMetadata::new(address.clone());
-
             if self.is_banned(&address, role) {
                 debug!("Address {:?} is banned", address);
                 continue;
@@ -327,7 +325,7 @@ impl ConnectionPool {
 
             // Indicate we're waiting on a server connection from a pool.
             self.stats
-                .client_waiting(client_process_id, &client_metadata, &server_metadata);
+                .client_waiting(client_process_id, client_metadata, address);
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -353,20 +351,15 @@ impl ConnectionPool {
             // since we last checked the server is ok.
             // Health checks are pretty expensive.
             if !require_healthcheck {
-                self.stats.checkout_time(
-                    now.elapsed().as_micros(),
-                    client_process_id,
-                    &server_metadata,
-                );
                 self.stats
-                    .server_active(conn.process_id(), &server_metadata);
+                    .checkout_time(now.elapsed().as_micros(), client_process_id, address);
+                self.stats.server_active(conn.process_id(), address);
                 return Ok((conn, address.clone()));
             }
 
             debug!("Running health check on server {:?}", address);
 
-            self.stats
-                .server_tested(server.process_id(), &server_metadata);
+            self.stats.server_tested(server.process_id(), address);
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
@@ -380,10 +373,9 @@ impl ConnectionPool {
                         self.stats.checkout_time(
                             now.elapsed().as_micros(),
                             client_process_id,
-                            &server_metadata,
+                            address,
                         );
-                        self.stats
-                            .server_active(conn.process_id(), &server_metadata);
+                        self.stats.server_active(conn.process_id(), address);
                         return Ok((conn, address.clone()));
                     }
 
@@ -425,8 +417,7 @@ impl ConnectionPool {
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, client_process_id: Option<i32>) {
         if let Some(process_id) = client_process_id {
-            self.stats
-                .client_disconnecting(process_id, &ServerMetadata::new(address.clone()));
+            self.stats.client_disconnecting(process_id, address);
         }
 
         error!("Banning {:?}", address);
@@ -573,9 +564,8 @@ impl ManageConnection for ServerPool {
         // Put a temporary process_id into the stats
         // for server login.
         let process_id = rand::random::<i32>();
-        let server_metadata = ServerMetadata::new(self.address.clone());
 
-        self.stats.server_login(process_id, &server_metadata);
+        self.stats.server_login(process_id, &self.address);
 
         // Connect to the PostgreSQL server.
         match Server::startup(
@@ -589,14 +579,12 @@ impl ManageConnection for ServerPool {
         {
             Ok(conn) => {
                 // Remove the temporary process_id from the stats.
-                self.stats
-                    .server_disconnecting(process_id, &server_metadata);
+                self.stats.server_disconnecting(process_id, &self.address);
                 Ok(conn)
             }
             Err(err) => {
                 // Remove the temporary process_id from the stats.
-                self.stats
-                    .server_disconnecting(process_id, &server_metadata);
+                self.stats.server_disconnecting(process_id, &self.address);
                 Err(err)
             }
         }
