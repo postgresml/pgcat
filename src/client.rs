@@ -59,6 +59,7 @@ pub struct Client<S, T> {
     client_server_map: ClientServerMap,
 
     /// Client parameters, e.g. user, client_encoding, etc.
+    #[allow(dead_code)]
     parameters: HashMap<String, String>,
 
     /// Statistics
@@ -81,6 +82,9 @@ pub struct Client<S, T> {
 
     /// Postgres user for this client (This comes from the user in the connection string)
     username: String,
+
+    /// Application name for this client (defaults to pgcat)
+    application_name: String,
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
@@ -365,6 +369,11 @@ where
             None => return Err(Error::ClientError),
         };
 
+        let application_name = match parameters.get("application_name") {
+            Some(application_name) => application_name,
+            None => "pgcat",
+        };
+
         let admin = ["pgcat", "pgbouncer"]
             .iter()
             .filter(|db| *db == &pool_name)
@@ -493,6 +502,7 @@ where
             last_server_id: None,
             pool_name: pool_name.clone(),
             username: username.clone(),
+            application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
         });
@@ -526,6 +536,7 @@ where
             last_server_id: None,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
+            application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
         });
@@ -759,13 +770,10 @@ where
                 server.address()
             );
 
-            // Set application_name if any.
             // TODO: investigate other parameters and set them too.
-            if self.parameters.contains_key("application_name") {
-                server
-                    .set_name(&self.parameters["application_name"])
-                    .await?;
-            }
+
+            // Set application_name.
+            server.set_name(&self.application_name).await?;
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
