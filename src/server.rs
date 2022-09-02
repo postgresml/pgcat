@@ -638,6 +638,11 @@ impl Server {
     pub fn last_activity(&self) -> SystemTime {
         self.last_activity
     }
+
+    // Marks a connection as needing DISCARD ALL at checkin
+    pub fn mark_dirty(&mut self) {
+        self.needs_cleanup = true;
+    }
 }
 
 impl Drop for Server {

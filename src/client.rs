@@ -877,6 +877,19 @@ where
 
                         self.buffer.put(&original[..]);
 
+                        let mut final_buffer = self.buffer.clone();
+                        let first_message_code = final_buffer.get_u8() as char;
+                        let _ = final_buffer.get_i32() as usize;
+
+                        // Almost certainly true
+                        if first_message_code == 'P' {
+                            if  final_buffer.get_u8() != 0 {
+                                // This is a named prepared statement
+                                // Server connection state will need to be cleared at checkin
+                                server.mark_dirty();
+                            }
+                        }
+
                         self.send_and_receive_loop(
                             code,
                             self.buffer.clone(),
