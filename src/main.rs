@@ -74,7 +74,8 @@ use crate::stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
-    env_logger::init();
+    env_logger::builder().format_timestamp_micros().init();
+
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
     if !query_router::QueryRouter::setup() {
@@ -304,34 +305,16 @@ async fn main() {
 ///
 /// * `duration` - A duration of time
 fn format_duration(duration: &chrono::Duration) -> String {
-    let seconds = {
-        let seconds = duration.num_seconds() % 60;
-        if seconds < 10 {
-            format!("0{}", seconds)
-        } else {
-            format!("{}", seconds)
-        }
-    };
+    
+    let milliseconds = format!("{:0>3}", duration.num_milliseconds() % 1000);
 
-    let minutes = {
-        let minutes = duration.num_minutes() % 60;
-        if minutes < 10 {
-            format!("0{}", minutes)
-        } else {
-            format!("{}", minutes)
-        }
-    };
+    let seconds = format!("{:0>2}", duration.num_seconds() % 60);
 
-    let hours = {
-        let hours = duration.num_hours() % 24;
-        if hours < 10 {
-            format!("0{}", hours)
-        } else {
-            format!("{}", hours)
-        }
-    };
+    let minutes = format!("{:0>2}", duration.num_minutes() % 60);
+
+    let hours = format!("{:0>2}", duration.num_hours() % 24);
 
     let days = duration.num_days().to_string();
 
-    format!("{}d {}:{}:{}", days, hours, minutes, seconds)
+    format!("{}d {}:{}:{}.{}", days, hours, minutes, seconds, milliseconds)
 }
