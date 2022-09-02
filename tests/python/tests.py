@@ -19,7 +19,7 @@ def pgcat_start():
 
 def pg_cat_send_signal(signal: signal.Signals):
     for proc in psutil.process_iter(["pid", "name"]):
-        if "pgcat" == proc.name():
+        if proc.is_running() and "pgcat" == proc.name():
             os.kill(proc.pid, signal)
     if signal == signal.SIGTERM:
         # Returns 0 if pgcat process exists
