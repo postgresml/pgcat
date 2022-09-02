@@ -91,7 +91,6 @@ describe "Miscellaneous" do
       conn.close
 
       expect(processes.primary.count_query("ROLLBACK")).to eq(1)
-      expect(processes.primary.count_query("DISCARD ALL")).to eq(1)
     end
   end
 
@@ -104,6 +103,84 @@ describe "Miscellaneous" do
       admin_conn = PG::connect(processes.pgcat.admin_connection_string)
       expect(admin_conn.server_version).not_to eq(0)
       admin_conn.close
+    end
+  end
+
+  describe "State clearance" do
+    context "session mode" do
+      let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "session") }
+
+      it "Clears state before connection checkin" do
+        # Both modes of operation should not raise
+        # ERROR:  prepared statement "prepared_q" already exists
+        15.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("PREPARE prepared_q (int) AS SELECT $1")
+          conn.close
+        end
+
+        conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        initial_value = conn.async_exec("SHOW statement_timeout")[0]["statement_timeout"]
+        conn.async_exec("SET statement_timeout to 1000")
+        current_value = conn.async_exec("SHOW statement_timeout")[0]["statement_timeout"]
+        expect(conn.async_exec("SHOW statement_timeout")[0]["statement_timeout"]).to eq("1s")
+        conn.close
+      end
+
+      it "Does not send DISCARD ALL unless necessary" do
+        10.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("SET SERVER ROLE to 'primary'")
+          conn.async_exec("SELECT 1")
+          conn.close
+        end
+
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
+
+        10.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("SET SERVER ROLE to 'primary'")
+          conn.async_exec("SELECT 1")
+          conn.async_exec("SET statement_timeout to 5000")
+          conn.close
+        end
+
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(10)
+      end
+    end
+
+    context "transaction mode" do
+      let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "transaction") }
+      it "Clears state before connection checkin" do
+        # Both modes of operation should not raise
+        # ERROR:  prepared statement "prepared_q" already exists
+        15.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("PREPARE prepared_q (int) AS SELECT $1")
+          conn.close
+        end
+      end
+
+      it "Does not send DISCARD ALL unless necessary" do
+        10.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("SET SERVER ROLE to 'primary'")
+          conn.async_exec("SELECT 1")
+          conn.close
+        end
+
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
+
+        10.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("SET SERVER ROLE to 'primary'")
+          conn.async_exec("SELECT 1")
+          conn.async_exec("SET statement_timeout to 5000")
+          conn.close
+        end
+
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(10)
+      end
     end
   end
 end

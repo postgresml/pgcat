@@ -5,7 +5,7 @@ require_relative 'pg_instance'
 
 module Helpers
   module Pgcat
-    def self.three_shard_setup(pool_name, pool_size)
+    def self.three_shard_setup(pool_name, pool_size, pool_mode="transaction")
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -22,7 +22,7 @@ module Helpers
       pgcat_cfg["pools"] = {
         "#{pool_name}" => {
           "default_role" => "any",
-          "pool_mode" => "transaction",
+          "pool_mode" => pool_mode,
           "primary_reads_enabled" => false,
           "query_parser_enabled" => false,
           "sharding_function" => "pg_bigint_hash",
@@ -46,7 +46,7 @@ module Helpers
       end
     end
 
-    def self.single_shard_setup(pool_name, pool_size)
+    def self.single_shard_setup(pool_name, pool_size, pool_mode="transaction")
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -66,7 +66,7 @@ module Helpers
       pgcat_cfg["pools"] = {
         "#{pool_name}" => {
           "default_role" => "any",
-          "pool_mode" => "transaction",
+          "pool_mode" => pool_mode,
           "primary_reads_enabled" => false,
           "query_parser_enabled" => false,
           "sharding_function" => "pg_bigint_hash",

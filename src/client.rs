@@ -59,6 +59,7 @@ pub struct Client<S, T> {
     client_server_map: ClientServerMap,
 
     /// Client parameters, e.g. user, client_encoding, etc.
+    #[allow(dead_code)]
     parameters: HashMap<String, String>,
 
     /// Statistics
@@ -81,6 +82,9 @@ pub struct Client<S, T> {
 
     /// Postgres user for this client (This comes from the user in the connection string)
     username: String,
+
+    /// Application name for this client (defaults to pgcat)
+    application_name: String,
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
@@ -365,6 +369,11 @@ where
             None => return Err(Error::ClientError),
         };
 
+        let application_name = match parameters.get("application_name") {
+            Some(application_name) => application_name,
+            None => "pgcat",
+        };
+
         let admin = ["pgcat", "pgbouncer"]
             .iter()
             .filter(|db| *db == &pool_name)
@@ -493,6 +502,7 @@ where
             last_server_id: None,
             pool_name: pool_name.clone(),
             username: username.clone(),
+            application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
         });
@@ -526,6 +536,7 @@ where
             last_server_id: None,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
+            application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
         });
@@ -767,13 +778,10 @@ where
                 server.address()
             );
 
-            // Set application_name if any.
             // TODO: investigate other parameters and set them too.
-            if self.parameters.contains_key("application_name") {
-                server
-                    .set_name(&self.parameters["application_name"])
-                    .await?;
-            }
+
+            // Set application_name.
+            server.set_name(&self.application_name).await?;
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
@@ -790,12 +798,7 @@ where
                         Err(err) => {
                             // Client disconnected inside a transaction.
                             // Clean up the server and re-use it.
-                            // This prevents connection thrashing by bad clients.
-                            if server.in_transaction() {
-                                server.query("ROLLBACK").await?;
-                                server.query("DISCARD ALL").await?;
-                                server.set_name("pgcat").await?;
-                            }
+                            server.checkin_cleanup().await?;
 
                             return Err(err);
                         }
@@ -837,16 +840,7 @@ where
 
                     // Terminate
                     'X' => {
-                        // Client closing. Rollback and clean up
-                        // connection before releasing into the pool.
-                        // Pgbouncer closes the connection which leads to
-                        // connection thrashing when clients misbehave.
-                        if server.in_transaction() {
-                            server.query("ROLLBACK").await?;
-                            server.query("DISCARD ALL").await?;
-                            server.set_name("pgcat").await?;
-                        }
-
+                        server.checkin_cleanup().await?;
                         self.release();
 
                         return Ok(());
@@ -950,8 +944,10 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
+            server.checkin_cleanup().await?;
             self.stats.server_idle(server.process_id(), address.id);
             self.connected_to_server = false;
+
             self.release();
             self.stats.client_idle(self.process_id, address.id);
         }

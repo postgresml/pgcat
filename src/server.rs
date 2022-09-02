@@ -1,7 +1,8 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
+use std::io::Read;
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
@@ -47,6 +48,9 @@ pub struct Server {
 
     /// Is the server broken? We'll remote it from the pool if so.
     bad: bool,
+
+    /// If server connection requires a DISCARD ALL before checkin
+    needs_cleanup: bool,
 
     /// Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
@@ -316,6 +320,7 @@ impl Server {
                         in_transaction: false,
                         data_available: false,
                         bad: false,
+                        needs_cleanup: false,
                         client_server_map: client_server_map,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats: stats,
@@ -440,6 +445,29 @@ impl Server {
                     break;
                 }
 
+                // CommandComplete
+                'C' => {
+                    let mut command_tag = String::new();
+                    match message.reader().read_to_string(&mut command_tag) {
+                        Ok(_) => {
+                            // Non-exhaustive list of commands that are likely to change session variables/resources
+                            // which can leak between clients. This is a best effort to block bad clients
+                            // from poisoning a transaction-mode pool by setting inappropriate session variables
+                            match command_tag.as_str() {
+                                "SET\0" | "PREPARE\0" => {
+                                    debug!("Server connection marked for clean up");
+                                    self.needs_cleanup = true;
+                                }
+                                _ => (),
+                            }
+                        }
+
+                        Err(err) => {
+                            warn!("Encountered an error while parsing CommandTag {}", err);
+                        }
+                    }
+                }
+
                 // DataRow
                 'D' => {
                     // More data is available after this message, this is not the end of the reply.
@@ -553,14 +581,43 @@ impl Server {
         Ok(())
     }
 
+    /// Perform any necessary cleanup before putting the server
+    /// connection back in the pool
+    pub async fn checkin_cleanup(&mut self) -> Result<(), Error> {
+        // Client disconnected with an open transaction on the server connection.
+        // Pgbouncer behavior is to close the server connection but that can cause
+        // server connection thrashing if clients repeatedly do this.
+        // Instead, we ROLLBACK that transaction before putting the connection back in the pool
+        if self.in_transaction() {
+            self.query("ROLLBACK").await?;
+        }
+
+        // Client disconnected but it perfromed session-altering operations such as
+        // SET statement_timeout to 1 or create a prepared statement. We clear that
+        // to avoid leaking state between clients. For performance reasons we only
+        // send `DISCARD ALL` if we think the session is altered instead of just sending
+        // it before each checkin.
+        if self.needs_cleanup {
+            self.query("DISCARD ALL").await?;
+            self.needs_cleanup = false;
+        }
+
+        return Ok(());
+    }
+
     /// A shorthand for `SET application_name = $1`.
-    #[allow(dead_code)]
     pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
         if self.application_name != name {
             self.application_name = name.to_string();
-            Ok(self
+            // We don't want `SET application_name` to mark the server connection
+            // as needing cleanup
+            let needs_cleanup_before = self.needs_cleanup;
+
+            let result = Ok(self
                 .query(&format!("SET application_name = '{}'", name))
-                .await?)
+                .await?);
+            self.needs_cleanup = needs_cleanup_before;
+            return result;
         } else {
             Ok(())
         }

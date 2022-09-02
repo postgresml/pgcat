@@ -90,8 +90,8 @@ kill -SIGHUP $(pgrep pgcat) # Reload config again
 cd tests/ruby
 sudo gem install bundler
 bundle install
-bundle exec ruby tests.rb
-bundle exec rspec *_spec.rb
+bundle exec ruby tests.rb || exit 1
+bundle exec rspec *_spec.rb || exit 1
 cd ../..
 
 #
@@ -99,7 +99,7 @@ cd ../..
 # These tests will start and stop the pgcat server so it will need to be restarted after the tests
 #
 pip3 install -r tests/python/requirements.txt
-python3 tests/python/tests.py
+python3 tests/python/tests.py || exit 1
 
 start_pgcat "info"
 
