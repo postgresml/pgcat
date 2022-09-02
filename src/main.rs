@@ -305,7 +305,6 @@ async fn main() {
 ///
 /// * `duration` - A duration of time
 fn format_duration(duration: &chrono::Duration) -> String {
-    
     let milliseconds = format!("{:0>3}", duration.num_milliseconds() % 1000);
 
     let seconds = format!("{:0>2}", duration.num_seconds() % 60);
@@ -316,5 +315,8 @@ fn format_duration(duration: &chrono::Duration) -> String {
 
     let days = duration.num_days().to_string();
 
-    format!("{}d {}:{}:{}.{}", days, hours, minutes, seconds, milliseconds)
+    format!(
+        "{}d {}:{}:{}.{}",
+        days, hours, minutes, seconds, milliseconds
+    )
 }
