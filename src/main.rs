@@ -184,7 +184,7 @@ async fn main() {
     info!("Waiting for clients");
 
     let mut admin_only = false;
-    let mut total_clients = 0;
+    let mut total_clients = 0 as i16;
 
     loop {
         tokio::select! {
@@ -286,7 +286,7 @@ async fn main() {
 
             client_ping = drain_rx.recv() => {
                 let client_ping = client_ping.unwrap();
-                total_clients += client_ping;
+                total_clients += client_ping as i16;
 
                 if total_clients == 0 && admin_only {
                     let _ = exit_tx.send(()).await;

@@ -7,7 +7,7 @@ use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::get_all_pools;
-use crate::stats::get_stats;
+use crate::stats::{get_stats, CLIENT_STATES};
 use crate::ClientServerMap;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
@@ -71,6 +71,10 @@ where
             "POOLS" => {
                 trace!("SHOW POOLS");
                 show_pools(stream).await
+            }
+            "CLIENTS" => {
+                trace!("SHOW CLIENTS");
+                show_clients(stream).await
             }
             "STATS" => {
                 trace!("SHOW STATS");
@@ -428,6 +432,56 @@ where
                 res.put(data_row(&row));
             }
         }
+    }
+
+    res.put(command_complete("SHOW"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, res).await
+}
+
+/// Show shard and replicas statistics.
+async fn show_clients<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let columns = vec![
+        ("database", DataType::Text),
+        ("user", DataType::Text),
+        ("application_name", DataType::Text),
+        ("bytes_sent", DataType::Numeric),
+        ("bytes_received", DataType::Numeric),
+        ("transaction_count", DataType::Numeric),
+        ("query_count", DataType::Numeric),
+        ("error_count", DataType::Numeric),
+    ];
+
+    let new_map = {
+        let guard = CLIENT_STATES.read();
+        let x = guard.clone();
+        x
+    };
+
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    for (_, client) in new_map {
+        let row = vec![
+            client.pool_name,
+            client.username,
+            client.application_name,
+            client.bytes_sent.to_string(),
+            client.bytes_received.to_string(),
+            client.transaction_count.to_string(),
+            client.query_count.to_string(),
+            client.error_count.to_string(),
+        ];
+
+        res.put(data_row(&row));
     }
 
     res.put(command_complete("SHOW"));

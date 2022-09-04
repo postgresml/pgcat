@@ -1,13 +1,43 @@
 use arc_swap::ArcSwap;
 /// Statistics and reporting.
-use log::{error, info, trace};
+use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::pool::get_number_of_addresses;
+
+pub static CLIENT_STATES: Lazy<RwLock<HashMap<i32, ClientInformation>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+pub static SERVER_STATES: Lazy<RwLock<HashMap<usize, HashMap<String, i64>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+#[derive(Debug, Clone, Copy)]
+pub enum ClientState {
+    ClientWaiting,
+    ClientActive,
+    ClientIdle,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientInformation {
+    /// The name of the event being reported.
+    pub state: ClientState,
+    pub process_id: i32,
+
+    pub application_name: String,
+    pub username: String,
+    pub pool_name: String,
+
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub transaction_count: u64,
+    pub query_count: u64,
+    pub error_count: u64,
+}
 
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
     Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
@@ -22,13 +52,14 @@ static STAT_PERIOD: u64 = 15000;
 
 /// The names for the events reported
 /// to the statistics collector.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum EventName {
     CheckoutTime,
     Query,
     Transaction,
     DataSent,
     DataReceived,
+    ClientRegistered(String, String, String),
     ClientWaiting,
     ClientActive,
     ClientIdle,
@@ -82,7 +113,7 @@ impl Reporter {
 
     /// Send statistics to the task keeping track of stats.
     fn send(&self, event: Event) {
-        let name = event.name;
+        let name = event.name.clone();
         let result = self.tx.try_send(event);
 
         match result {
@@ -97,6 +128,27 @@ impl Reporter {
                 TrySendError::Closed { .. } => error!("{:?} event dropped, channel closed", name),
             },
         };
+    }
+
+    pub fn register_client(
+        &self,
+        process_id: i32,
+        pool_name: String,
+        username: String,
+        app_name: String,
+    ) {
+        let event = Event {
+            name: EventName::ClientRegistered(
+                pool_name.clone(),
+                username.clone(),
+                app_name.clone(),
+            ),
+            value: 1,
+            process_id: process_id,
+            address_id: 0,
+        };
+
+        self.send(event);
     }
 
     /// Report a query executed by a client against
@@ -403,21 +455,41 @@ impl Collector {
             // Some are counters, some are gauges...
             match stat.name {
                 EventName::Query => {
+                    let mut guard = CLIENT_STATES.write();
+                    match guard.get_mut(&stat.process_id) {
+                        Some(client) => client.query_count += stat.value as u64,
+                        None => (),
+                    }
                     let counter = stats.entry("total_query_count").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::Transaction => {
+                    let mut guard = CLIENT_STATES.write();
+                    match guard.get_mut(&stat.process_id) {
+                        Some(client) => client.transaction_count += stat.value as u64,
+                        None => (),
+                    }
                     let counter = stats.entry("total_xact_count").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataSent => {
+                    let mut guard = CLIENT_STATES.write();
+                    match guard.get_mut(&stat.process_id) {
+                        Some(client) => client.bytes_sent += stat.value as u64,
+                        None => (),
+                    }
                     let counter = stats.entry("total_sent").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataReceived => {
+                    let mut guard = CLIENT_STATES.write();
+                    match guard.get_mut(&stat.process_id) {
+                        Some(client) => client.bytes_received += stat.value as u64,
+                        None => (),
+                    }
                     let counter = stats.entry("total_received").or_insert(0);
                     *counter += stat.value;
                 }
@@ -442,17 +514,68 @@ impl Collector {
                     }
                 }
 
-                EventName::ClientActive
-                | EventName::ClientWaiting
-                | EventName::ClientIdle
-                | EventName::ServerActive
+                EventName::ClientRegistered(pool_name, username, app_name) => {
+                    let mut guard = CLIENT_STATES.write();
+                    match guard.get_mut(&stat.process_id) {
+                        Some(client_state) => {
+                            warn!("Client double registered!");
+                        }
+
+                        None => {
+                            guard.insert(
+                                stat.process_id,
+                                ClientInformation {
+                                    state: ClientState::ClientIdle,
+                                    process_id: stat.process_id,
+                                    pool_name: pool_name.clone(),
+                                    username: username.clone(),
+                                    application_name: app_name.clone(),
+                                    bytes_sent: 0,
+                                    bytes_received: 0,
+                                    transaction_count: 0,
+                                    query_count: 0,
+                                    error_count: 0,
+                                },
+                            );
+                        }
+                    };
+                }
+
+                EventName::ClientActive | EventName::ClientWaiting | EventName::ClientIdle => {
+                    client_server_states.insert(stat.process_id, stat.name.clone());
+                    let new_state = match stat.name {
+                        EventName::ClientActive => ClientState::ClientActive,
+                        EventName::ClientWaiting => ClientState::ClientWaiting,
+                        EventName::ClientIdle => ClientState::ClientIdle,
+                        _ => unreachable!(),
+                    };
+
+                    let mut guard = CLIENT_STATES.write();
+                    match guard.get_mut(&stat.process_id) {
+                        Some(client_state) => {
+                            client_state.state = new_state;
+                        }
+
+                        None => {
+                            warn!("Stats on unregistered client!");
+                        }
+                    };
+                }
+
+                EventName::ClientDisconnecting => {
+                    client_server_states.remove(&stat.process_id);
+                    let mut guard = CLIENT_STATES.write();
+                    guard.remove(&stat.process_id);
+                }
+
+                EventName::ServerActive
                 | EventName::ServerIdle
                 | EventName::ServerTested
                 | EventName::ServerLogin => {
                     client_server_states.insert(stat.process_id, stat.name);
                 }
 
-                EventName::ClientDisconnecting | EventName::ServerDisconnecting => {
+                EventName::ServerDisconnecting => {
                     client_server_states.remove(&stat.process_id);
                 }
 

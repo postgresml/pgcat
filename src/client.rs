@@ -577,7 +577,14 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-
+        if !self.admin {
+            self.stats.register_client(
+                self.process_id,
+                self.pool_name.clone(),
+                self.username.clone(),
+                self.application_name.clone(),
+            );
+        }
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -611,13 +618,6 @@ where
                 message_result = read_message(&mut self.read) => message_result?
             };
 
-            // Handle admin database queries.
-            if self.admin {
-                debug!("Handling admin command");
-                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
-                continue;
-            }
-
             match message[0] as char {
                 // Buffer extended protocol messages even if we do not have
                 // a server connection yet. Hopefully, when we get the S message
@@ -635,6 +635,13 @@ where
                     return Ok(());
                 }
                 _ => (),
+            }
+
+            // Handle admin database queries.
+            if self.admin {
+                debug!("Handling admin command");
+                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
+                continue;
             }
 
             // Get a pool instance referenced by the most up-to-date
