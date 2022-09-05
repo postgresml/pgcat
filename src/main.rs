@@ -178,13 +178,13 @@ async fn main() {
     let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
-    let (drain_tx, mut drain_rx) = mpsc::channel::<i32>(2048);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<i8>(2048);
     let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
     info!("Waiting for clients");
 
     let mut admin_only = false;
-    let mut total_clients = 0 as i16;
+    let mut total_clients = 0;
 
     loop {
         tokio::select! {
@@ -286,7 +286,7 @@ async fn main() {
 
             client_ping = drain_rx.recv() => {
                 let client_ping = client_ping.unwrap();
-                total_clients += client_ping as i16;
+                total_clients += client_ping;
 
                 if total_clients == 0 && admin_only {
                     let _ = exit_tx.send(()).await;

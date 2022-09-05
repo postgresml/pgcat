@@ -1,6 +1,6 @@
 use arc_swap::ArcSwap;
 /// Statistics and reporting.
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
