@@ -204,7 +204,7 @@ pub async fn client_entrypoint(
                 Ok(mut client) => {
                     info!("Client {:?} connected (plain)", addr);
 
-                    if client.is_admin() {
+                    if !client.is_admin() {
                         let _ = drain.send(1).await;
                     }
 
@@ -229,7 +229,7 @@ pub async fn client_entrypoint(
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
-                    if client.is_admin() {
+                    if !client.is_admin() {
                         let _ = drain.send(1).await;
                     }
 
