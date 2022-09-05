@@ -12,9 +12,18 @@ use crate::pool::get_number_of_addresses;
 pub static CLIENT_STATES: Lazy<RwLock<HashMap<i32, ClientInformation>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static SERVER_STATES: Lazy<RwLock<HashMap<usize, HashMap<String, i64>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+pub static REPORTER: Lazy<ArcSwap<Reporter>> =
+    Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
 
+/// Latest stats updated every second; used in SHOW STATS and other admin commands.
+static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Statistics period used for average calculations.
+/// 15 seconds.
+static STAT_PERIOD: u64 = 15000;
+
+/// The various states that a client can be in
 #[derive(Debug, Clone, Copy)]
 pub enum ClientState {
     ClientWaiting,
@@ -22,9 +31,10 @@ pub enum ClientState {
     ClientIdle,
 }
 
+
+/// Information we keep track off which can be queried by SHOW CLIENTS
 #[derive(Debug, Clone)]
 pub struct ClientInformation {
-    /// The name of the event being reported.
     pub state: ClientState,
     pub process_id: i32,
 
@@ -38,17 +48,6 @@ pub struct ClientInformation {
     pub query_count: u64,
     pub error_count: u64,
 }
-
-pub static REPORTER: Lazy<ArcSwap<Reporter>> =
-    Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
-
-/// Latest stats updated every second; used in SHOW STATS and other admin commands.
-static LATEST_STATS: Lazy<Mutex<HashMap<usize, HashMap<String, i64>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
-/// Statistics period used for average calculations.
-/// 15 seconds.
-static STAT_PERIOD: u64 = 15000;
 
 /// The names for the events reported
 /// to the statistics collector.
@@ -517,7 +516,7 @@ impl Collector {
                 EventName::ClientRegistered(pool_name, username, app_name) => {
                     let mut guard = CLIENT_STATES.write();
                     match guard.get_mut(&stat.process_id) {
-                        Some(client_state) => {
+                        Some(_) => {
                             warn!("Client double registered!");
                         }
 

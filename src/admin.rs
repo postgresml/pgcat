@@ -444,12 +444,13 @@ where
     write_all_half(stream, res).await
 }
 
-/// Show shard and replicas statistics.
+/// Show currently connected clients
 async fn show_clients<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let columns = vec![
+        ("client_id",  DataType::Text),
         ("database", DataType::Text),
         ("user", DataType::Text),
         ("application_name", DataType::Text),
@@ -462,8 +463,7 @@ where
 
     let new_map = {
         let guard = CLIENT_STATES.read();
-        let x = guard.clone();
-        x
+        guard.clone()
     };
 
     let mut res = BytesMut::new();
@@ -471,6 +471,7 @@ where
 
     for (_, client) in new_map {
         let row = vec![
+            format!("{:#08X}", client.process_id),
             client.pool_name,
             client.username,
             client.application_name,
