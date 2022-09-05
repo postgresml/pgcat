@@ -450,7 +450,7 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let columns = vec![
-        ("client_id",  DataType::Text),
+        ("client_id", DataType::Text),
         ("database", DataType::Text),
         ("user", DataType::Text),
         ("application_name", DataType::Text),

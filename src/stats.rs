@@ -31,7 +31,6 @@ pub enum ClientState {
     ClientIdle,
 }
 
-
 /// Information we keep track off which can be queried by SHOW CLIENTS
 #[derive(Debug, Clone)]
 pub struct ClientInformation {
