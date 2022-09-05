@@ -95,7 +95,7 @@ pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
-    drain: Sender<usize>,
+    drain: Sender<i32>,
     admin_only: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
