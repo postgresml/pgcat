@@ -178,7 +178,7 @@ async fn main() {
     let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
-    let (drain_tx, mut drain_rx) = mpsc::channel::<i8>(2048);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<i32>(2048);
     let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
     info!("Waiting for clients");
