@@ -38,7 +38,7 @@ toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 start_pgcat "info"
 
 # Test number of clients
-PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -p 6432 -U sharding_user sharded_db -c 16000
+PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -p 6432 -U sharding_user sharded_db -c 4096
 
 # Check that prometheus is running
 curl --fail localhost:9930/metrics
