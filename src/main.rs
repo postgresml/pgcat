@@ -221,13 +221,16 @@ async fn main() {
                     interval.tick().await;
 
                     // We're done waiting.
-                    error!("Timed out waiting for clients");
+                    error!("Graceful shutdown timed out. {} active clients being closed", total_clients);
 
                     let _ = exit_tx.send(()).await;
                 });
             },
 
-            _ = term_signal.recv() => break,
+            _ = term_signal.recv() => {
+                info!("Got SIGTERM, closing with {} clients active", total_clients);
+                break;
+            },
 
             new_client = listener.accept() => {
                 let (socket, addr) = match new_client {
