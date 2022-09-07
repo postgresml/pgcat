@@ -18,7 +18,7 @@ def pgcat_start():
 
 
 def pg_cat_send_signal(signal: signal.Signals):
-    os.system(f"kill -n {int(signal)} $(pgrep pgcat)")
+    os.system(f"kill -{signal.name} $(pgrep pgcat)")
 
     if signal == signal.SIGTERM:
         # Returns 0 if pgcat process exists
