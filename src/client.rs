@@ -748,7 +748,9 @@ where
                     }
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
-                    error!("Could not get connection from pool: {:?}", err);
+
+                    error!("Could not get connection from pool: {{ pool_name: {:?}, username: {:?}, shard: {:?}, role: \"{:?}\", error: \"{:?}\" }}",
+                    self.pool_name.clone(), self.username.clone(), query_router.shard(), query_router.role(), err);
                     continue;
                 }
             };
