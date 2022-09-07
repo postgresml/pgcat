@@ -611,13 +611,6 @@ where
                 message_result = read_message(&mut self.read) => message_result?
             };
 
-            // Handle admin database queries.
-            if self.admin {
-                debug!("Handling admin command");
-                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
-                continue;
-            }
-
             match message[0] as char {
                 // Buffer extended protocol messages even if we do not have
                 // a server connection yet. Hopefully, when we get the S message
@@ -635,6 +628,13 @@ where
                     return Ok(());
                 }
                 _ => (),
+            }
+
+            // Handle admin database queries.
+            if self.admin {
+                debug!("Handling admin command");
+                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
+                continue;
             }
 
             // Get a pool instance referenced by the most up-to-date
