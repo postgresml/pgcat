@@ -877,7 +877,6 @@ where
 
                         self.buffer.put(&original[..]);
 
-
                         // Clone after freeze does not allocate
                         let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
 
