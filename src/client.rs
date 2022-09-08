@@ -877,13 +877,18 @@ where
 
                         self.buffer.put(&original[..]);
 
-                        let mut final_buffer = self.buffer.clone();
-                        let first_message_code = final_buffer.get_u8() as char;
-                        let _ = final_buffer.get_i32() as usize;
+
+                        // Clone after freeze does not allocate
+                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' {
-                            if  final_buffer.get_u8() != 0 {
+                            // Message layout
+                            // P followed by 32 int followed by null-terminated statement name
+                            // So message code should be in offset 0 of the buffer, first character
+                            // in prepared statement name would be index 5
+                            let first_char_in_name = *self.buffer.get(5).unwrap_or(&0);
+                            if first_char_in_name != 0 {
                                 // This is a named prepared statement
                                 // Server connection state will need to be cleared at checkin
                                 server.mark_dirty();
