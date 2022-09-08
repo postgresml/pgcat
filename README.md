@@ -4,6 +4,10 @@
 
 ![PgCat](./pgcat3.png)
 
+<a href="https://discord.gg/DmyJP3qJ7U" target="_blank">
+    <img src="https://img.shields.io/discord/1013868243036930099" alt="Join our Discord!" />
+</a>
+
 PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover support.
 
 **Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
