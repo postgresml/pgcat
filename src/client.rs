@@ -1075,8 +1075,12 @@ impl<S, T> Drop for Client<S, T> {
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
         self.stats.client_disconnecting(self.process_id, 0);
-        if self.connected_to_server && self.last_server_id.is_some() && self.last_address_id.is_some() {
-            self.stats.server_idle(self.last_server_id.unwrap(), self.last_address_id.unwrap());
+        if self.connected_to_server
+            && self.last_server_id.is_some()
+            && self.last_address_id.is_some()
+        {
+            self.stats
+                .server_idle(self.last_server_id.unwrap(), self.last_address_id.unwrap());
         }
     }
 }

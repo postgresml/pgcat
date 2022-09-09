@@ -2,7 +2,7 @@ use arc_swap::ArcSwap;
 /// Statistics and reporting.
 use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
-use parking_lot::{Mutex};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -398,8 +398,7 @@ impl Collector {
         // Track which state the client and server are at any given time.
         let mut client_server_states: HashMap<usize, HashMap<i32, EventName>> = HashMap::new();
 
-        let mut client_states= ClientInformationLookup::default();
-
+        let mut client_states = ClientInformationLookup::default();
 
         // Flush stats to StatsD and calculate averages every 15 seconds.
         let tx = self.tx.clone();

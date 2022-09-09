@@ -7,7 +7,7 @@ use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::get_all_pools;
-use crate::stats::{get_stats, get_client_stats};
+use crate::stats::{get_client_stats, get_stats};
 use crate::ClientServerMap;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
