@@ -2,15 +2,19 @@ use arc_swap::ArcSwap;
 /// Statistics and reporting.
 use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::pool::get_number_of_addresses;
 
-pub static CLIENT_STATES: Lazy<RwLock<HashMap<i32, ClientInformation>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+type ClientInformationLookup = HashMap<i32, ClientInformation>;
+
+/// Latest client stats updated every second; used in SHOW CLIENTS.
+static LATEST_CLIENT_STATS: Lazy<ArcSwap<ClientInformationLookup>> =
+    Lazy::new(|| ArcSwap::from_pointee(ClientInformationLookup::default()));
 
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
     Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
@@ -41,8 +45,6 @@ pub struct ClientInformation {
     pub username: String,
     pub pool_name: String,
 
-    pub bytes_sent: u64,
-    pub bytes_received: u64,
     pub transaction_count: u64,
     pub query_count: u64,
     pub error_count: u64,
@@ -112,13 +114,14 @@ impl Reporter {
     /// Send statistics to the task keeping track of stats.
     fn send(&self, event: Event) {
         let name = event.name.clone();
-        let result = self.tx.try_send(event);
+        let result = self.tx.try_send(event.clone());
 
         match result {
             Ok(_) => trace!(
-                "{:?} event reported successfully, capacity: {}",
+                "{:?} event reported successfully, capacity: {} {:?}",
                 name,
-                self.tx.capacity()
+                self.tx.capacity(),
+                event
             ),
 
             Err(err) => match err {
@@ -261,7 +264,7 @@ impl Reporter {
             name: EventName::ClientDisconnecting,
             value: 1,
             process_id: process_id,
-            address_id: address_id,
+            address_id: address_id, // No used
         };
 
         self.send(event)
@@ -395,6 +398,9 @@ impl Collector {
         // Track which state the client and server are at any given time.
         let mut client_server_states: HashMap<usize, HashMap<i32, EventName>> = HashMap::new();
 
+        let mut client_states= ClientInformationLookup::default();
+
+
         // Flush stats to StatsD and calculate averages every 15 seconds.
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
@@ -453,8 +459,7 @@ impl Collector {
             // Some are counters, some are gauges...
             match stat.name {
                 EventName::Query => {
-                    let mut guard = CLIENT_STATES.write();
-                    match guard.get_mut(&stat.process_id) {
+                    match client_states.get_mut(&stat.process_id) {
                         Some(client) => client.query_count += stat.value as u64,
                         None => (),
                     }
@@ -463,8 +468,7 @@ impl Collector {
                 }
 
                 EventName::Transaction => {
-                    let mut guard = CLIENT_STATES.write();
-                    match guard.get_mut(&stat.process_id) {
+                    match client_states.get_mut(&stat.process_id) {
                         Some(client) => client.transaction_count += stat.value as u64,
                         None => (),
                     }
@@ -473,21 +477,11 @@ impl Collector {
                 }
 
                 EventName::DataSent => {
-                    let mut guard = CLIENT_STATES.write();
-                    match guard.get_mut(&stat.process_id) {
-                        Some(client) => client.bytes_sent += stat.value as u64,
-                        None => (),
-                    }
                     let counter = stats.entry("total_sent").or_insert(0);
                     *counter += stat.value;
                 }
 
                 EventName::DataReceived => {
-                    let mut guard = CLIENT_STATES.write();
-                    match guard.get_mut(&stat.process_id) {
-                        Some(client) => client.bytes_received += stat.value as u64,
-                        None => (),
-                    }
                     let counter = stats.entry("total_received").or_insert(0);
                     *counter += stat.value;
                 }
@@ -513,14 +507,13 @@ impl Collector {
                 }
 
                 EventName::ClientRegistered(pool_name, username, app_name) => {
-                    let mut guard = CLIENT_STATES.write();
-                    match guard.get_mut(&stat.process_id) {
+                    match client_states.get_mut(&stat.process_id) {
                         Some(_) => {
                             warn!("Client double registered!");
                         }
 
                         None => {
-                            guard.insert(
+                            client_states.insert(
                                 stat.process_id,
                                 ClientInformation {
                                     state: ClientState::ClientIdle,
@@ -528,8 +521,6 @@ impl Collector {
                                     pool_name: pool_name.clone(),
                                     username: username.clone(),
                                     application_name: app_name.clone(),
-                                    bytes_sent: 0,
-                                    bytes_received: 0,
                                     transaction_count: 0,
                                     query_count: 0,
                                     error_count: 0,
@@ -548,8 +539,7 @@ impl Collector {
                         _ => unreachable!(),
                     };
 
-                    let mut guard = CLIENT_STATES.write();
-                    match guard.get_mut(&stat.process_id) {
+                    match client_states.get_mut(&stat.process_id) {
                         Some(client_state) => {
                             client_state.state = new_state;
                         }
@@ -562,8 +552,7 @@ impl Collector {
 
                 EventName::ClientDisconnecting => {
                     client_server_states.remove(&stat.process_id);
-                    let mut guard = CLIENT_STATES.write();
-                    guard.remove(&stat.process_id);
+                    client_states.remove(&stat.process_id);
                 }
 
                 EventName::ServerActive
@@ -627,6 +616,8 @@ impl Collector {
                         entry.insert(key.to_string(), value.clone());
                     }
 
+                    LATEST_CLIENT_STATS.store(Arc::new(client_states.clone()));
+
                     // These are re-calculated every iteration of the loop, so we don't want to add values
                     // from the last iteration.
                     for stat in &[
@@ -677,6 +668,12 @@ impl Collector {
 /// by the `Collector`.
 pub fn get_stats() -> HashMap<usize, HashMap<String, i64>> {
     LATEST_STATS.lock().clone()
+}
+
+/// Get a snapshot of client statistics. Updated once a second
+/// by the `Collector`.
+pub fn get_client_stats() -> ClientInformationLookup {
+    (*(*LATEST_CLIENT_STATS.load())).clone()
 }
 
 /// Get the statistics reporter used to update stats across the pools/clients.

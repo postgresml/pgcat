@@ -7,7 +7,7 @@ use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::get_all_pools;
-use crate::stats::{get_stats, CLIENT_STATES};
+use crate::stats::{get_stats, get_client_stats};
 use crate::ClientServerMap;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
@@ -454,18 +454,12 @@ where
         ("database", DataType::Text),
         ("user", DataType::Text),
         ("application_name", DataType::Text),
-        ("bytes_sent", DataType::Numeric),
-        ("bytes_received", DataType::Numeric),
         ("transaction_count", DataType::Numeric),
         ("query_count", DataType::Numeric),
         ("error_count", DataType::Numeric),
     ];
 
-    let new_map = {
-        let guard = CLIENT_STATES.read();
-        guard.clone()
-    };
-
+    let new_map = get_client_stats();
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
@@ -474,9 +468,7 @@ where
             format!("{:#08X}", client.process_id),
             client.pool_name,
             client.username,
-            client.application_name,
-            client.bytes_sent.to_string(),
-            client.bytes_received.to_string(),
+            client.application_name.clone(),
             client.transaction_count.to_string(),
             client.query_count.to_string(),
             client.error_count.to_string(),

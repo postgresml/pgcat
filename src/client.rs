@@ -577,14 +577,13 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-        if !self.admin {
-            self.stats.register_client(
-                self.process_id,
-                self.pool_name.clone(),
-                self.username.clone(),
-                self.application_name.clone(),
-            );
-        }
+        self.stats.register_client(
+            self.process_id,
+            self.pool_name.clone(),
+            self.username.clone(),
+            self.application_name.clone(),
+        );
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -769,11 +768,7 @@ where
             server.claim(self.process_id, self.secret_key);
             self.connected_to_server = true;
 
-            // Update statistics.
-            if let Some(last_address_id) = self.last_address_id {
-                self.stats
-                    .client_disconnecting(self.process_id, last_address_id);
-            }
+            // Update statistics
             self.stats.client_active(self.process_id, address.id);
 
             self.last_address_id = Some(address.id);
@@ -1079,14 +1074,9 @@ impl<S, T> Drop for Client<S, T> {
 
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
-        if let Some(address_id) = self.last_address_id {
-            self.stats.client_disconnecting(self.process_id, address_id);
-
-            if self.connected_to_server {
-                if let Some(process_id) = self.last_server_id {
-                    self.stats.server_idle(process_id, address_id);
-                }
-            }
+        self.stats.client_disconnecting(self.process_id, 0);
+        if self.connected_to_server && self.last_server_id.is_some() && self.last_address_id.is_some() {
+            self.stats.server_idle(self.last_server_id.unwrap(), self.last_address_id.unwrap());
         }
     }
 }
