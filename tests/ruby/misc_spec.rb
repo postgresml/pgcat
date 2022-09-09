@@ -159,6 +159,12 @@ describe "Miscellaneous" do
           conn.async_exec("PREPARE prepared_q (int) AS SELECT $1")
           conn.close
         end
+
+        15.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.prepare("prepared_q", "SELECT $1")
+          conn.close
+        end
       end
 
       it "Does not send DISCARD ALL unless necessary" do
@@ -166,6 +172,7 @@ describe "Miscellaneous" do
           conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
           conn.async_exec("SET SERVER ROLE to 'primary'")
           conn.async_exec("SELECT 1")
+          conn.exec_params("SELECT $1", [1])
           conn.close
         end
 

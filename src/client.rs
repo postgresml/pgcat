@@ -95,7 +95,7 @@ pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
-    drain: Sender<i8>,
+    drain: Sender<i32>,
     admin_only: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
@@ -204,7 +204,7 @@ pub async fn client_entrypoint(
                 Ok(mut client) => {
                     info!("Client {:?} connected (plain)", addr);
 
-                    if client.is_admin() {
+                    if !client.is_admin() {
                         let _ = drain.send(1).await;
                     }
 
@@ -229,7 +229,7 @@ pub async fn client_entrypoint(
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
-                    if client.is_admin() {
+                    if !client.is_admin() {
                         let _ = drain.send(1).await;
                     }
 
@@ -754,7 +754,9 @@ where
                     }
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
-                    error!("Could not get connection from pool: {:?}", err);
+
+                    error!("Could not get connection from pool: {{ pool_name: {:?}, username: {:?}, shard: {:?}, role: \"{:?}\", error: \"{:?}\" }}",
+                    self.pool_name.clone(), self.username.clone(), query_router.shard(), query_router.role(), err);
                     continue;
                 }
             };
@@ -878,6 +880,23 @@ where
                         debug!("Sending query to server");
 
                         self.buffer.put(&original[..]);
+
+                        // Clone after freeze does not allocate
+                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
+
+                        // Almost certainly true
+                        if first_message_code == 'P' {
+                            // Message layout
+                            // P followed by 32 int followed by null-terminated statement name
+                            // So message code should be in offset 0 of the buffer, first character
+                            // in prepared statement name would be index 5
+                            let first_char_in_name = *self.buffer.get(5).unwrap_or(&0);
+                            if first_char_in_name != 0 {
+                                // This is a named prepared statement
+                                // Server connection state will need to be cleared at checkin
+                                server.mark_dirty();
+                            }
+                        }
 
                         self.send_and_receive_loop(
                             code,

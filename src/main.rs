@@ -74,7 +74,8 @@ use crate::stats::{Collector, Reporter, REPORTER};
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
-    env_logger::init();
+    env_logger::builder().format_timestamp_micros().init();
+
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
     if !query_router::QueryRouter::setup() {
@@ -178,7 +179,7 @@ async fn main() {
     let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
     let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
-    let (drain_tx, mut drain_rx) = mpsc::channel::<i8>(2048);
+    let (drain_tx, mut drain_rx) = mpsc::channel::<i32>(2048);
     let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
 
     info!("Waiting for clients");
@@ -221,13 +222,16 @@ async fn main() {
                     interval.tick().await;
 
                     // We're done waiting.
-                    error!("Timed out waiting for clients");
+                    error!("Graceful shutdown timed out. {} active clients being closed", total_clients);
 
                     let _ = exit_tx.send(()).await;
                 });
             },
 
-            _ = term_signal.recv() => break,
+            _ = term_signal.recv() => {
+                info!("Got SIGTERM, closing with {} clients active", total_clients);
+                break;
+            },
 
             new_client = listener.accept() => {
                 let (socket, addr) = match new_client {
@@ -304,34 +308,18 @@ async fn main() {
 ///
 /// * `duration` - A duration of time
 fn format_duration(duration: &chrono::Duration) -> String {
-    let seconds = {
-        let seconds = duration.num_seconds() % 60;
-        if seconds < 10 {
-            format!("0{}", seconds)
-        } else {
-            format!("{}", seconds)
-        }
-    };
+    let milliseconds = format!("{:0>3}", duration.num_milliseconds() % 1000);
 
-    let minutes = {
-        let minutes = duration.num_minutes() % 60;
-        if minutes < 10 {
-            format!("0{}", minutes)
-        } else {
-            format!("{}", minutes)
-        }
-    };
+    let seconds = format!("{:0>2}", duration.num_seconds() % 60);
 
-    let hours = {
-        let hours = duration.num_hours() % 24;
-        if hours < 10 {
-            format!("0{}", hours)
-        } else {
-            format!("{}", hours)
-        }
-    };
+    let minutes = format!("{:0>2}", duration.num_minutes() % 60);
+
+    let hours = format!("{:0>2}", duration.num_hours() % 24);
 
     let days = duration.num_days().to_string();
 
-    format!("{}d {}:{}:{}", days, hours, minutes, seconds)
+    format!(
+        "{}d {}:{}:{}.{}",
+        days, hours, minutes, seconds, milliseconds
+    )
 }

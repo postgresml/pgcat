@@ -1,8 +1,11 @@
-# PgCat
+![PgCat](./pgcat3.png)
+
+##### PgCat: PostgreSQL at petabyte scale
 
 [![CircleCI](https://circleci.com/gh/levkk/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/levkk/pgcat/tree/main)
-
-![PgCat](./pgcat3.png)
+<a href="https://discord.gg/DmyJP3qJ7U" target="_blank">
+    <img src="https://img.shields.io/discord/1013868243036930099" alt="Join our Discord!" />
+</a>
 
 PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover support.
 
