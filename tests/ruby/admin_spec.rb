@@ -122,6 +122,40 @@ describe "Admin" do
         expect(results["sv_idle"]).to eq("5")
       end
     end
+
+    context "clients overwhelm server pools" do
+      let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
+
+      it "cl_waiting is updated to show it" do
+        threads = []
+        connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT pg_sleep(1.5)") }
+        end
+
+        sleep(1.1) # Allow time for stats to update
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_idle cl_cancel_req sv_idle sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+
+        expect(results["cl_waiting"]).to eq("2")
+        expect(results["cl_active"]).to eq("2")
+        expect(results["sv_active"]).to eq("2")
+
+        sleep(2.5) # Allow time for stats to update
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["cl_idle"]).to eq("4")
+        expect(results["sv_idle"]).to eq("2")
+
+        threads.map(&:join)
+        connections.map(&:close)
+      end
+    end
   end
 
   describe "SHOW CLIENTS" do
@@ -172,8 +206,6 @@ describe "Admin" do
       expect(normal_client_results[1]["transaction_count"]).to eq("4")
       expect(normal_client_results[0]["query_count"]).to eq("7")
       expect(normal_client_results[1]["query_count"]).to eq("7")
-
-      # puts processes.pgcat.logs
 
       admin_conn.close
       connections.map(&:close)

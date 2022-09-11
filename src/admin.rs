@@ -472,7 +472,7 @@ where
 
     for (_, client) in new_map {
         let row = vec![
-            format!("{:#08X}", client.client_id),
+            format!("{:#010X}", client.client_id),
             client.pool_name,
             client.username,
             client.application_name.clone(),
@@ -524,7 +524,7 @@ where
 
     for (_, server) in new_map {
         let row = vec![
-            format!("{:#08X}", server.server_id),
+            format!("{:#010X}", server.server_id),
             server.pool_name,
             server.username,
             server.address_name,
