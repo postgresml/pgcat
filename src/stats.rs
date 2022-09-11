@@ -43,6 +43,16 @@ pub enum ClientState {
     Waiting,
     Active,
 }
+impl std::fmt::Display for ClientState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            ClientState::Idle => write!(f, "idle"),
+            ClientState::Waiting => write!(f, "waiting"),
+            ClientState::Active => write!(f, "active"),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ServerState {
@@ -50,6 +60,16 @@ pub enum ServerState {
     Active,
     Tested,
     Idle,
+}
+impl std::fmt::Display for ServerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            ServerState::Login => write!(f, "login"),
+            ServerState::Active => write!(f, "active"),
+            ServerState::Tested => write!(f, "test"),
+            ServerState::Idle => write!(f, "idle"),
+        }
+    }
 }
 
 /// Information we keep track off which can be queried by SHOW CLIENTS
