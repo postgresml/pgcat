@@ -332,7 +332,7 @@ impl ConnectionPool {
             }
 
             // Indicate we're waiting on a server connection from a pool.
-            self.stats.client_waiting(process_id, address.id);
+            self.stats.client_waiting(process_id);
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -343,8 +343,7 @@ impl ConnectionPool {
                 Err(err) => {
                     error!("Banning instance {:?}, error: {:?}", address, err);
                     self.ban(&address, process_id);
-                    self.stats
-                        .checkout_time(now.elapsed().as_micros(), process_id, address.id);
+                    self.stats.client_checkout_error(process_id, address.id);
                     continue;
                 }
             };
@@ -361,14 +360,14 @@ impl ConnectionPool {
             // Health checks are pretty expensive.
             if !require_healthcheck {
                 self.stats
-                    .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                self.stats.server_active(conn.process_id(), address.id);
+                    .checkout_time(now.elapsed().as_micros(), process_id, server.server_id());
+                self.stats.server_active(process_id, server.server_id());
                 return Ok((conn, address.clone()));
             }
 
             debug!("Running health check on server {:?}", address);
 
-            self.stats.server_tested(server.process_id(), address.id);
+            self.stats.server_tested(server.server_id());
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
@@ -379,9 +378,12 @@ impl ConnectionPool {
                 // Check if health check succeeded.
                 Ok(res) => match res {
                     Ok(_) => {
-                        self.stats
-                            .checkout_time(now.elapsed().as_micros(), process_id, address.id);
-                        self.stats.server_active(conn.process_id(), address.id);
+                        self.stats.checkout_time(
+                            now.elapsed().as_micros(),
+                            process_id,
+                            conn.server_id(),
+                        );
+                        self.stats.server_active(process_id, conn.server_id());
                         return Ok((conn, address.clone()));
                     }
 
@@ -421,10 +423,9 @@ impl ConnectionPool {
     /// Ban an address (i.e. replica). It no longer will serve
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
-    pub fn ban(&self, address: &Address, process_id: i32) {
-        self.stats.client_disconnecting(process_id, address.id);
-
+    pub fn ban(&self, address: &Address, client_id: i32) {
         error!("Banning {:?}", address);
+        self.stats.client_ban_error(client_id, address.id);
 
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
@@ -560,14 +561,22 @@ impl ManageConnection for ServerPool {
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         info!("Creating a new server connection {:?}", self.address);
+        let server_id = rand::random::<i32>();
 
         // Put a temporary process_id into the stats
         // for server login.
-        let process_id = rand::random::<i32>();
-        self.stats.server_login(process_id, self.address.id);
+        self.stats.server_register(
+            server_id,
+            self.address.id,
+            self.address.name(),
+            self.address.pool_name.clone(),
+            self.address.username.clone(),
+        );
+        self.stats.server_login(server_id);
 
         // Connect to the PostgreSQL server.
         match Server::startup(
+            server_id,
             &self.address,
             &self.user,
             &self.database,
@@ -577,13 +586,12 @@ impl ManageConnection for ServerPool {
         .await
         {
             Ok(conn) => {
-                // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id, self.address.id);
+                self.stats.server_idle(server_id);
                 Ok(conn)
             }
             Err(err) => {
                 // Remove the temporary process_id from the stats.
-                self.stats.server_disconnecting(process_id, self.address.id);
+                self.stats.server_disconnecting(server_id);
                 Err(err)
             }
         }
@@ -608,15 +616,15 @@ pub fn get_pool(db: String, user: String) -> Option<ConnectionPool> {
     }
 }
 
+/// Get a pointer to all configured pools.
+pub fn get_all_pools() -> HashMap<(String, String), ConnectionPool> {
+    return (*(*POOLS.load())).clone();
+}
+
 /// How many total servers we have in the config.
 pub fn get_number_of_addresses() -> usize {
     get_all_pools()
         .iter()
         .map(|(_, pool)| pool.databases())
         .sum()
-}
-
-/// Get a pointer to all configured pools.
-pub fn get_all_pools() -> HashMap<(String, String), ConnectionPool> {
-    return (*(*POOLS.load())).clone();
 }

@@ -8,7 +8,6 @@ use std::net::SocketAddr;
 
 use crate::config::Address;
 use crate::pool::get_all_pools;
-use crate::stats::get_stats;
 
 struct MetricHelpType {
     help: &'static str,
@@ -164,7 +163,7 @@ impl PrometheusMetric {
 async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/metrics") => {
-            let stats = get_stats();
+            let stats: HashMap<usize, HashMap<String, i64>> = HashMap::default(); //get_stats();
 
             let mut lines = Vec::new();
             for (_, pool) in get_all_pools() {

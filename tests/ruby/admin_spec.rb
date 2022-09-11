@@ -1,12 +1,127 @@
 # frozen_string_literal: true
+require 'uri'
 require_relative 'spec_helper'
 
 describe "Admin" do
-  let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5) }
+  let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 10) }
+  let(:pgcat_conn_str) { processes.pgcat.connection_string("sharded_db", "sharding_user") }
 
   after do
     processes.all_databases.map(&:reset)
     processes.pgcat.shutdown
+  end
+
+  describe "SHOW POOLS" do
+    context "bad credentials" do
+      it "does not change any stats" do
+        bad_passsword_url = URI(pgcat_conn_str)
+        bad_passsword_url.password = "wrong"
+        expect { PG::connect("#{bad_passsword_url.to_s}?application_name=bad_password") }.to raise_error(PG::ConnectionBad)
+
+        sleep(1)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_idle cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+
+        expect(results["sv_idle"]).to eq("1")
+      end
+    end
+
+    context "bad database name" do
+      it "does not change any stats" do
+        bad_db_url = URI(pgcat_conn_str)
+        bad_db_url.path = "/wrong_db"
+        expect { PG::connect("#{bad_db_url.to_s}?application_name=bad_db") }.to raise_error(PG::ConnectionBad)
+
+        sleep(1)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_idle cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+
+        expect(results["sv_idle"]).to eq("1")
+      end
+    end
+
+    context "client connects but issues no queries" do
+      it "only affects cl_idle stats" do
+        connections = Array.new(20) { PG::connect(pgcat_conn_str) }
+        sleep(1)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["cl_idle"]).to eq("20")
+        expect(results["sv_idle"]).to eq("1")
+
+        connections.map(&:close)
+        sleep(1.1)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_active cl_idle cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["sv_idle"]).to eq("1")
+      end
+    end
+
+    context "clients connect and make one query" do
+      it "only affects cl_idle, sv_idle stats" do
+        connections = Array.new(5) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          Thread.new { c.async_exec("SELECT pg_sleep(2.5)") }
+        end
+
+        sleep(1.1)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_idle cl_waiting cl_cancel_req sv_idle sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["cl_active"]).to eq("5")
+        expect(results["sv_active"]).to eq("5")
+
+        sleep(3)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["cl_idle"]).to eq("5")
+        expect(results["sv_idle"]).to eq("5")
+
+        connections.map(&:close)
+        sleep(1)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_idle cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["sv_idle"]).to eq("5")
+      end
+    end
+
+    context "client connects and opens a transaction and closes connection uncleanly" do
+      it "produces correct statistics" do
+        connections = Array.new(5) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          Thread.new do
+            c.async_exec("BEGIN")
+            c.async_exec("SELECT pg_sleep(0.01)")
+            c.close
+          end
+        end
+
+        sleep(1.1)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_idle cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["sv_idle"]).to eq("5")
+      end
+    end
   end
 
   describe "SHOW CLIENTS" do
@@ -42,6 +157,8 @@ describe "Admin" do
         c.async_exec("SELECT 2")
         c.async_exec("SELECT 3")
         c.async_exec("BEGIN")
+        c.async_exec("SELECT 4")
+        c.async_exec("SELECT 5")
         c.async_exec("COMMIT")
       end
 
@@ -52,9 +169,9 @@ describe "Admin" do
       expect(results.count).to eq(3)
       normal_client_results = results.reject { |r| r["database"] == "pgcat" }
       expect(normal_client_results[0]["transaction_count"]).to eq("4")
-      expect(normal_client_results[1]["transaction_count"]).to eq("4") # Obviously wrong, will fix in a follow up PR
-      expect(normal_client_results[0]["query_count"]).to eq("5")
-      expect(normal_client_results[1]["query_count"]).to eq("5")
+      expect(normal_client_results[1]["transaction_count"]).to eq("4")
+      expect(normal_client_results[0]["query_count"]).to eq("7")
+      expect(normal_client_results[1]["query_count"]).to eq("7")
 
       # puts processes.pgcat.logs
 
@@ -62,5 +179,4 @@ describe "Admin" do
       connections.map(&:close)
     end
   end
-
 end

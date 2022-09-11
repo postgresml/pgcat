@@ -577,7 +577,7 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-        self.stats.register_client(
+        self.stats.client_register(
             self.process_id,
             self.pool_name.clone(),
             self.username.clone(),
@@ -771,10 +771,11 @@ where
             self.connected_to_server = true;
 
             // Update statistics
-            self.stats.client_active(self.process_id, address.id);
+            self.stats
+                .client_active(self.process_id, server.server_id());
 
             self.last_address_id = Some(address.id);
-            self.last_server_id = Some(server.process_id());
+            self.last_server_id = Some(server.server_id());
 
             debug!(
                 "Client {:?} talking to server {:?}",
@@ -832,7 +833,7 @@ where
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(self.process_id, server.server_id());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -910,7 +911,7 @@ where
                         self.buffer.clear();
 
                         if !server.in_transaction() {
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(self.process_id, server.server_id());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -945,7 +946,7 @@ where
                         };
 
                         if !server.in_transaction() {
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(self.process_id, server.server_id());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -966,11 +967,11 @@ where
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
             server.checkin_cleanup().await?;
-            self.stats.server_idle(server.process_id(), address.id);
+            self.stats.server_idle(server.server_id());
             self.connected_to_server = false;
 
             self.release();
-            self.stats.client_idle(self.process_id, address.id);
+            self.stats.client_idle(self.process_id);
         }
     }
 
@@ -1012,7 +1013,7 @@ where
         }
 
         // Report query executed statistics.
-        self.stats.query(self.process_id, address.id);
+        self.stats.query(self.process_id, server.server_id());
 
         Ok(())
     }
@@ -1093,13 +1094,9 @@ impl<S, T> Drop for Client<S, T> {
 
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
-        self.stats.client_disconnecting(self.process_id, 0);
-        if self.connected_to_server
-            && self.last_server_id.is_some()
-            && self.last_address_id.is_some()
-        {
-            self.stats
-                .server_idle(self.last_server_id.unwrap(), self.last_address_id.unwrap());
+        self.stats.client_disconnecting(self.process_id);
+        if self.connected_to_server && self.last_server_id.is_some() {
+            self.stats.server_idle(self.last_server_id.unwrap());
         }
     }
 }
