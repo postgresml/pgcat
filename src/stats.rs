@@ -10,25 +10,34 @@ use tokio::time::Instant;
 
 use crate::pool::{get_all_pools, get_number_of_addresses};
 
+/// Convenience types for various stats
 type ClientStatesLookup = HashMap<i32, ClientInformation>;
 type ServerStatesLookup = HashMap<i32, ServerInformation>;
 type PoolStatsLookup = HashMap<(String, String), HashMap<String, i64>>;
 type AddressStatsLookup = HashMap<usize, HashMap<String, i64>>;
 
-/// Latest client stats updated every second; used in SHOW CLIENTS.
+/// Stats for individual client connections updated every second
+/// Used in SHOW CLIENTS.
 static LATEST_CLIENT_STATS: Lazy<ArcSwap<ClientStatesLookup>> =
     Lazy::new(|| ArcSwap::from_pointee(ClientStatesLookup::default()));
 
-/// Latest client stats updated every second; used in SHOW CLIENTS.
+/// Stats for individual server connections updated every second
+/// Used in SHOW SERVERS.
 static LATEST_SERVER_STATS: Lazy<ArcSwap<ServerStatesLookup>> =
     Lazy::new(|| ArcSwap::from_pointee(ServerStatesLookup::default()));
 
+/// Aggregate stats for each pool (a pool is identified by database name and username) updated every second
+/// Used in SHOW POOLS.
 static LATEST_POOL_STATS: Lazy<ArcSwap<PoolStatsLookup>> =
     Lazy::new(|| ArcSwap::from_pointee(PoolStatsLookup::default()));
 
+/// Aggregate stats for individual database instances, updated every second, averages are calculated every 15
+/// Used in SHOW STATS.
 static LATEST_ADDRESS_STATS: Lazy<ArcSwap<AddressStatsLookup>> =
     Lazy::new(|| ArcSwap::from_pointee(AddressStatsLookup::default()));
 
+/// The statistics reporter. An instance is given to each possible source of statistics,
+/// e.g. clients, servers, connection pool.
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =
     Lazy::new(|| ArcSwap::from_pointee(Reporter::default()));
 
@@ -53,6 +62,7 @@ impl std::fmt::Display for ClientState {
     }
 }
 
+/// The various states that a server can be in
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ServerState {
     Login,
@@ -65,7 +75,7 @@ impl std::fmt::Display for ServerState {
         match *self {
             ServerState::Login => write!(f, "login"),
             ServerState::Active => write!(f, "active"),
-            ServerState::Tested => write!(f, "test"),
+            ServerState::Tested => write!(f, "tested"),
             ServerState::Idle => write!(f, "idle"),
         }
     }
@@ -76,12 +86,15 @@ impl std::fmt::Display for ServerState {
 pub struct ClientInformation {
     pub state: ClientState,
     pub connect_time: Instant,
+
+    /// A random integer assigned to the client and used by stats to track the client
     pub client_id: i32,
 
     pub application_name: String,
     pub username: String,
     pub pool_name: String,
 
+    /// Total time spent waiting for a connection from pool, measures in microseconds
     pub total_wait_time: u64,
 
     pub transaction_count: u64,
@@ -94,9 +107,12 @@ pub struct ClientInformation {
 pub struct ServerInformation {
     pub state: ServerState,
     pub connect_time: Instant,
+
+    /// A random integer assigned to the server and used by stats to track the server
+    pub server_id: i32,
+
     pub address_name: String,
     pub address_id: usize,
-    pub server_id: i32,
 
     pub username: String,
     pub pool_name: String,
@@ -251,8 +267,7 @@ impl Reporter {
         };
     }
 
-    /// Report a query executed by a client against
-    /// a server identified by the `address_id`.
+    /// Report a query executed by a client against a server
     pub fn query(&self, client_id: i32, server_id: i32) {
         let event = Event {
             name: EventName::Query {
@@ -264,8 +279,10 @@ impl Reporter {
         self.send(event);
     }
 
-    /// Report a transaction executed by a client against
-    /// a server identified by the `address_id`.
+    /// Report a transaction executed by a client a server
+    /// we report each individual queries outside a transaction as a transaction
+    /// We only count the initial BEGIN as a transaction, all queries within do not
+    /// count as transactions
     pub fn transaction(&self, client_id: i32, server_id: i32) {
         let event = Event {
             name: EventName::Transaction {
@@ -277,40 +294,38 @@ impl Reporter {
         self.send(event);
     }
 
-    /// Report data sent to a server identified by `address_id`.
-    /// The `amount` is measured in bytes.
-    pub fn data_sent(&self, amount: usize, server_id: i32) {
+    /// Report data sent to a server
+    pub fn data_sent(&self, amount_bytes: usize, server_id: i32) {
         let event = Event {
             name: EventName::DataSentToServer { server_id },
-            value: amount as i64,
+            value: amount_bytes as i64,
         };
         self.send(event)
     }
 
-    /// Report data received from a server identified by `address_id`.
-    /// The `amount` is measured in bytes.
-    pub fn data_received(&self, amount: usize, server_id: i32) {
+    /// Report data received from a server
+    pub fn data_received(&self, amount_bytes: usize, server_id: i32) {
         let event = Event {
             name: EventName::DataReceivedFromServer { server_id },
-            value: amount as i64,
+            value: amount_bytes as i64,
         };
         self.send(event)
     }
 
-    /// Time spent waiting to get a healthy connection from the pool
-    /// for a server identified by `address_id`.
-    /// Measured in milliseconds.
-    pub fn checkout_time(&self, ms: u128, client_id: i32, server_id: i32) {
+    /// Reportes the time spent by a client waiting to get a healthy connection from the pool
+    pub fn checkout_time(&self, microseconds: u128, client_id: i32, server_id: i32) {
         let event = Event {
             name: EventName::CheckoutTime {
                 client_id,
                 server_id,
             },
-            value: ms as i64,
+            value: microseconds as i64,
         };
         self.send(event)
     }
 
+    /// Register a client with the stats system. The stats system we use client_id
+    /// to track and aggregate statistics from all source that relate to that client
     pub fn client_register(
         &self,
         client_id: i32,
@@ -330,8 +345,7 @@ impl Reporter {
         self.send(event);
     }
 
-    /// Reports a client identified by `client_id` waiting for a connection
-    /// to a server identified by `address_id`.
+    /// Reports a client is waiting for a connection
     pub fn client_waiting(&self, client_id: i32) {
         let event = Event {
             name: EventName::ClientWaiting { client_id },
@@ -340,8 +354,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a client identified by `process_id` is done waiting for a connection
-    /// to a server identified by `address_id` and is about to query the server.
+    /// Reports a client has had the server assigned to it be banned
     pub fn client_ban_error(&self, client_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientBanError {
@@ -353,8 +366,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a client identified by `process_id` is done waiting for a connection
-    /// to a server identified by `address_id` and is about to query the server.
+    /// Reports a client has failed to obtain a connection from a connection pool
     pub fn client_checkout_error(&self, client_id: i32, address_id: usize) {
         let event = Event {
             name: EventName::ClientCheckoutError {
@@ -366,8 +378,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a client identified by `process_id` is done waiting for a connection
-    /// to a server identified by `address_id` and is about to query the server.
+    /// Reports a client is done waiting for a connection and is about to query the server.
     pub fn client_active(&self, client_id: i32, server_id: i32) {
         let event = Event {
             name: EventName::ClientActive {
@@ -379,8 +390,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a client identified by `process_id` is done querying the server
-    /// identified by `address_id` and is no longer active.
+    /// Reports a client is done querying the server and is no longer assigned a server connection
     pub fn client_idle(&self, client_id: i32) {
         let event = Event {
             name: EventName::ClientIdle { client_id },
@@ -389,8 +399,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a client identified by `process_id` is disconecting from the pooler.
-    /// The last server it was connected to is identified by `address_id`.
+    /// Reports a client is disconecting from the pooler.
     pub fn client_disconnecting(&self, client_id: i32) {
         let event = Event {
             name: EventName::ClientDisconnecting { client_id },
@@ -399,6 +408,8 @@ impl Reporter {
         self.send(event)
     }
 
+    /// Register a server connection with the stats system. The stats system we use server_id
+    /// to track and aggregate statistics from all source that relate to that server
     pub fn server_register(
         &self,
         server_id: i32,
@@ -420,9 +431,8 @@ impl Reporter {
         self.send(event);
     }
 
-    /// Reports a server connection identified by `process_id` for
-    /// a configured server identified by `address_id` is actively used
-    /// by a client.
+    /// Reports a server connection has been assigned to a client that
+    /// is about to query the server
     pub fn server_active(&self, client_id: i32, server_id: i32) {
         let event = Event {
             name: EventName::ServerActive {
@@ -434,9 +444,8 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a server connection identified by `process_id` for
-    /// a configured server identified by `address_id` is no longer
-    /// actively used by a client and is now idle.
+    /// Reports a server connection is no longer assigned to a client
+    /// and is available for the next client to pick it up
     pub fn server_idle(&self, server_id: i32) {
         let event = Event {
             name: EventName::ServerIdle { server_id },
@@ -445,9 +454,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a server connection identified by `process_id` for
-    /// a configured server identified by `address_id` is attempting
-    /// to login.
+    /// Reports a server connection is attempting to login.
     pub fn server_login(&self, server_id: i32) {
         let event = Event {
             name: EventName::ServerLogin { server_id },
@@ -456,9 +463,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a server connection identified by `process_id` for
-    /// a configured server identified by `address_id` is being
-    /// tested before being given to a client.
+    /// Reports a server connection is being tested before being given to a client.
     pub fn server_tested(&self, server_id: i32) {
         let event = Event {
             name: EventName::ServerTested { server_id },
@@ -468,8 +473,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a server connection identified by `process_id` is disconecting from the pooler.
-    /// The configured server it was connected to is identified by `address_id`.
+    /// Reports a server connection is disconecting from the pooler.
     pub fn server_disconnecting(&self, server_id: i32) {
         let event = Event {
             name: EventName::ServerDisconnecting { server_id },
@@ -935,6 +939,8 @@ impl Collector {
                         };
                     }
 
+                    // The following calls publish the internal stats making it visible
+                    // to clients using admin database to issue queries like `SHOW STATS`
                     LATEST_CLIENT_STATS.store(Arc::new(client_states.clone()));
                     LATEST_SERVER_STATS.store(Arc::new(server_states.clone()));
                     LATEST_POOL_STATS.store(Arc::new(pool_stat_lookup.clone()));
@@ -984,14 +990,20 @@ pub fn get_client_stats() -> ClientStatesLookup {
     (*(*LATEST_CLIENT_STATS.load())).clone()
 }
 
+/// Get a snapshot of server statistics. Updated once a second
+/// by the `Collector`.
 pub fn get_server_stats() -> ServerStatesLookup {
     (*(*LATEST_SERVER_STATS.load())).clone()
 }
 
+/// Get a snapshot of pool statistics. Updated once a second
+/// by the `Collector`.
 pub fn get_pool_stats() -> PoolStatsLookup {
     (*(*LATEST_POOL_STATS.load())).clone()
 }
 
+/// Get a snapshot of address statistics. Updated once a second
+/// by the `Collector`.
 pub fn get_address_stats() -> AddressStatsLookup {
     (*(*LATEST_ADDRESS_STATS.load())).clone()
 }
