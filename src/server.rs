@@ -631,7 +631,8 @@ impl Server {
         self.address.clone()
     }
 
-    /// Get the server's unique identifier.
+    /// Get the server connection identifier
+    /// Used to uniquely identify connection in statistics
     pub fn server_id(&self) -> i32 {
         self.server_id
     }
