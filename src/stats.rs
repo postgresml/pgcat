@@ -89,6 +89,7 @@ pub struct ClientInformation {
     pub error_count: u64,
 }
 
+/// Information we keep track off which can be queried by SHOW SERVERS
 #[derive(Debug, Clone)]
 pub struct ServerInformation {
     pub state: ServerState,
@@ -99,6 +100,7 @@ pub struct ServerInformation {
 
     pub username: String,
     pub pool_name: String,
+    pub application_name: String,
 
     pub bytes_sent: u64,
     pub bytes_received: u64,
@@ -128,7 +130,6 @@ enum EventName {
     DataSentToServer {
         server_id: i32,
     },
-
     DataReceivedFromServer {
         server_id: i32,
     },
@@ -153,13 +154,11 @@ enum EventName {
     ClientDisconnecting {
         client_id: i32,
     },
-
     ClientCheckoutError {
         client_id: i32,
         #[allow(dead_code)]
         address_id: usize,
     },
-
     ClientBanError {
         client_id: i32,
         #[allow(dead_code)]
@@ -195,7 +194,6 @@ enum EventName {
         pool_name: String,
         username: String,
     },
-
     UpdateAverages {
         address_id: usize,
     },
@@ -561,15 +559,19 @@ impl Collector {
                     server_id,
                 } => {
                     // Update client stats
-                    match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.query_count += stat.value as u64,
-                        None => (),
-                    }
+                    let app_name = match client_states.get_mut(&client_id) {
+                        Some(client_info) => {
+                            client_info.query_count += stat.value as u64;
+                            client_info.application_name.to_string()
+                        }
+                        None => String::from("Undefined"),
+                    };
 
                     // Update server stats and pool aggergation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.query_count += stat.value as u64;
+                            server_info.application_name = app_name;
 
                             let pool_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -588,14 +590,19 @@ impl Collector {
                     server_id,
                 } => {
                     // Update client stats
-                    match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.transaction_count += stat.value as u64,
-                        None => (),
-                    }
+                    let app_name = match client_states.get_mut(&client_id) {
+                        Some(client_info) => {
+                            client_info.transaction_count += stat.value as u64;
+                            client_info.application_name.to_string()
+                        }
+                        None => String::from("Undefined"),
+                    };
+
                     // Update server stats and pool aggergation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.transaction_count += stat.value as u64;
+                            server_info.application_name = app_name;
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -649,13 +656,19 @@ impl Collector {
                     server_id,
                 } => {
                     // Update client stats
-                    match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.total_wait_time += stat.value as u64,
-                        None => (),
-                    }
+                    let app_name = match client_states.get_mut(&client_id) {
+                        Some(client_info) => {
+                            client_info.total_wait_time += stat.value as u64;
+                            client_info.application_name.to_string()
+                        }
+                        None => String::from("Undefined"),
+                    };
+
                     // Update server stats and pool aggergation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
+                            server_info.application_name = app_name;
+
                             let pool_stats = address_stat_lookup
                                 .entry(server_info.address_id)
                                 .or_insert(HashMap::default());
@@ -689,10 +702,7 @@ impl Collector {
                     application_name,
                 } => {
                     match client_states.get_mut(&client_id) {
-                        Some(_) => {
-                            warn!("Client double registered!");
-                        }
-
+                        Some(_) => warn!("Client {:?} was double registered!", client_id),
                         None => {
                             client_states.insert(
                                 client_id,
@@ -789,6 +799,7 @@ impl Collector {
                             pool_name,
 
                             state: ServerState::Idle,
+                            application_name: String::from("Undefined"),
                             connect_time: Instant::now(),
                             bytes_sent: 0,
                             bytes_received: 0,
@@ -801,31 +812,49 @@ impl Collector {
 
                 EventName::ServerLogin { server_id } => {
                     match server_states.get_mut(&server_id) {
-                        Some(server_state) => server_state.state = ServerState::Login,
+                        Some(server_state) => {
+                            server_state.state = ServerState::Login;
+                            server_state.application_name = String::from("Undefined");
+                        }
                         None => warn!("Stats on unregistered Server!"),
                     };
                 }
 
                 EventName::ServerTested { server_id } => {
                     match server_states.get_mut(&server_id) {
-                        Some(server_state) => server_state.state = ServerState::Tested,
+                        Some(server_state) => {
+                            server_state.state = ServerState::Tested;
+                            server_state.application_name = String::from("Undefined");
+                        }
                         None => warn!("Stats on unregistered Server!"),
                     };
                 }
 
                 EventName::ServerIdle { server_id } => {
                     match server_states.get_mut(&server_id) {
-                        Some(server_state) => server_state.state = ServerState::Idle,
+                        Some(server_state) => {
+                            server_state.state = ServerState::Idle;
+                            server_state.application_name = String::from("Undefined");
+                        }
                         None => warn!("Stats on unregistered Server!"),
                     };
                 }
 
                 EventName::ServerActive {
-                    client_id: _,
+                    client_id,
                     server_id,
                 } => {
+                    // Update client stats
+                    let app_name = match client_states.get_mut(&client_id) {
+                        Some(client_info) => client_info.application_name.to_string(),
+                        None => String::from("Undefined"),
+                    };
+
                     match server_states.get_mut(&server_id) {
-                        Some(server_state) => server_state.state = ServerState::Active,
+                        Some(server_state) => {
+                            server_state.state = ServerState::Active;
+                            server_state.application_name = app_name;
+                        }
                         None => warn!("Stats on unregistered Server!"),
                     };
                 }
