@@ -563,8 +563,6 @@ impl ManageConnection for ServerPool {
         info!("Creating a new server connection {:?}", self.address);
         let server_id = rand::random::<i32>();
 
-        // Put a temporary process_id into the stats
-        // for server login.
         self.stats.server_register(
             server_id,
             self.address.id,
@@ -590,7 +588,6 @@ impl ManageConnection for ServerPool {
                 Ok(conn)
             }
             Err(err) => {
-                // Remove the temporary process_id from the stats.
                 self.stats.server_disconnecting(server_id);
                 Err(err)
             }
