@@ -324,7 +324,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Register a client with the stats system. The stats system we use client_id
+    /// Register a client with the stats system. The stats system uses client_id
     /// to track and aggregate statistics from all source that relate to that client
     pub fn client_register(
         &self,
@@ -408,7 +408,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Register a server connection with the stats system. The stats system we use server_id
+    /// Register a server connection with the stats system. The stats system uses server_id
     /// to track and aggregate statistics from all source that relate to that server
     pub fn server_register(
         &self,
