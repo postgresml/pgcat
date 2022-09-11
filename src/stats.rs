@@ -53,7 +53,6 @@ impl std::fmt::Display for ClientState {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ServerState {
     Login,
