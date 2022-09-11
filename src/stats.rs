@@ -9,6 +9,7 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::Instant;
 
 use crate::pool::{get_all_pools, get_number_of_addresses};
+use crate::server;
 
 /// Convenience types for various stats
 type ClientStatesLookup = HashMap<i32, ClientInformation>;
@@ -621,7 +622,7 @@ impl Collector {
                 }
 
                 EventName::DataSentToServer { server_id } => {
-                    // Update server stats and pool aggergation stats
+                    // Update server stats and address aggergation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.bytes_sent += stat.value as u64;
@@ -638,7 +639,7 @@ impl Collector {
                 }
 
                 EventName::DataReceivedFromServer { server_id } => {
-                    // Update server states and server aggergation stats
+                    // Update server states and address aggergation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.bytes_received += stat.value as u64;
@@ -668,7 +669,7 @@ impl Collector {
                         None => String::from("Undefined"),
                     };
 
-                    // Update server stats and pool aggergation stats
+                    // Update server stats and address aggergation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.application_name = app_name;
@@ -733,9 +734,10 @@ impl Collector {
                 } => {
                     match client_states.get_mut(&client_id) {
                         Some(client_info) => client_info.error_count += stat.value as u64,
-                        None => (),
+                        None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 
+                    // Update address aggregation stats
                     let address_stats = address_stat_lookup
                         .entry(address_id)
                         .or_insert(HashMap::default());
@@ -749,8 +751,10 @@ impl Collector {
                 } => {
                     match client_states.get_mut(&client_id) {
                         Some(client_info) => client_info.error_count += stat.value as u64,
-                        None => (),
+                        None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
+
+                    // Update address aggregation stats
                     let address_stats = address_stat_lookup
                         .entry(address_id)
                         .or_insert(HashMap::default());
@@ -761,14 +765,14 @@ impl Collector {
                 EventName::ClientIdle { client_id } => {
                     match client_states.get_mut(&client_id) {
                         Some(client_state) => client_state.state = ClientState::Idle,
-                        None => warn!("Stats on unregistered client!"),
+                        None => warn!("Got event {:?} for unregistered client", stat.name),
                     };
                 }
 
                 EventName::ClientWaiting { client_id } => {
                     match client_states.get_mut(&client_id) {
                         Some(client_state) => client_state.state = ClientState::Waiting,
-                        None => warn!("Stats on unregistered client!"),
+                        None => warn!("Got event {:?} for unregistered client", stat.name),
                     };
                 }
 
@@ -778,7 +782,7 @@ impl Collector {
                 } => {
                     match client_states.get_mut(&client_id) {
                         Some(client_state) => client_state.state = ClientState::Active,
-                        None => warn!("Stats on unregistered client!"),
+                        None => warn!("Got event {:?} for unregistered client", stat.name),
                     };
                 }
 
@@ -820,7 +824,7 @@ impl Collector {
                             server_state.state = ServerState::Login;
                             server_state.application_name = String::from("Undefined");
                         }
-                        None => warn!("Stats on unregistered Server!"),
+                        None => warn!("Got event {:?} for unregistered server", stat.name),
                     };
                 }
 
@@ -830,7 +834,7 @@ impl Collector {
                             server_state.state = ServerState::Tested;
                             server_state.application_name = String::from("Undefined");
                         }
-                        None => warn!("Stats on unregistered Server!"),
+                        None => warn!("Got event {:?} for unregistered server", stat.name),
                     };
                 }
 
@@ -840,7 +844,7 @@ impl Collector {
                             server_state.state = ServerState::Idle;
                             server_state.application_name = String::from("Undefined");
                         }
-                        None => warn!("Stats on unregistered Server!"),
+                        None => warn!("Got event {:?} for unregistered server", stat.name),
                     };
                 }
 
@@ -854,12 +858,13 @@ impl Collector {
                         None => String::from("Undefined"),
                     };
 
+                    // Update server stats
                     match server_states.get_mut(&server_id) {
                         Some(server_state) => {
                             server_state.state = ServerState::Active;
                             server_state.application_name = app_name;
                         }
-                        None => warn!("Stats on unregistered Server!"),
+                        None => warn!("Got event {:?} for unregistered server", stat.name),
                     };
                 }
 
