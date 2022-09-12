@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -68,6 +69,9 @@ pub struct PoolSettings {
 
     // Sharding function.
     pub sharding_function: ShardingFunction,
+
+    // Automatically detect sharding key in query.
+    pub sharding_key_regex: Option<Regex>,
 }
 
 impl Default for PoolSettings {
@@ -80,6 +84,7 @@ impl Default for PoolSettings {
             query_parser_enabled: false,
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
+            sharding_key_regex: None,
         }
     }
 }
@@ -228,6 +233,20 @@ impl ConnectionPool {
                             "pg_bigint_hash" => ShardingFunction::PgBigintHash,
                             "sha1" => ShardingFunction::Sha1,
                             _ => unreachable!(),
+                        },
+                        sharding_key_regex: match &pool_config.sharding_key {
+                            Some(sharding_key) => match Regex::new(&format!(
+                                r"(?i) *{} *= *'?([0-9]+)'?",
+                                sharding_key
+                            )) {
+                                Ok(regex) => Some(regex),
+                                Err(err) => {
+                                    error!("Sharding key regex error: {:?}", err);
+                                    return Err(Error::BadConfig);
+                                }
+                            },
+
+                            None => None,
                         },
                     },
                 };

@@ -662,7 +662,7 @@ where
                 // Normal query, not a custom command.
                 None => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer_role(message.clone());
+                        query_router.infer_role_and_shard(message.clone());
                     }
                 }
 

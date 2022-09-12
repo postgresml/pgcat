@@ -185,6 +185,7 @@ pub struct Pool {
     pub query_parser_enabled: bool,
     pub primary_reads_enabled: bool,
     pub sharding_function: String,
+    pub sharding_key: Option<String>,
     pub shards: HashMap<String, Shard>,
     pub users: HashMap<String, User>,
 }
@@ -198,6 +199,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: true,
             sharding_function: "pg_bigint_hash".to_string(),
+            sharding_key: None,
         }
     }
 }

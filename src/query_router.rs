@@ -104,6 +104,8 @@ impl QueryRouter {
     /// Pool settings can change because of a config reload.
     pub fn update_pool_settings(&mut self, pool_settings: PoolSettings) {
         self.pool_settings = pool_settings;
+        self.query_parser_enabled = self.pool_settings.query_parser_enabled;
+        self.primary_reads_enabled = self.pool_settings.primary_reads_enabled;
     }
 
     /// Try to parse a command and execute it.
@@ -256,7 +258,7 @@ impl QueryRouter {
     }
 
     /// Try to infer which server to connect to based on the contents of the query.
-    pub fn infer_role(&mut self, mut buf: BytesMut) -> bool {
+    pub fn infer_role_and_shard(&mut self, mut buf: BytesMut) -> bool {
         debug!("Inferring role");
 
         let code = buf.get_u8() as char;
@@ -295,6 +297,31 @@ impl QueryRouter {
             }
 
             _ => return false,
+        };
+
+        // First find the shard key
+        match &self.pool_settings.sharding_key_regex {
+            Some(re) => {
+                match re.captures(&query) {
+                    Some(group) => match group.get(1) {
+                        Some(value) => {
+                            let value = value.as_str().parse::<i64>().unwrap();
+                            let sharder = Sharder::new(
+                                self.pool_settings.shards,
+                                self.pool_settings.sharding_function,
+                            );
+                            let shard = sharder.shard(value);
+                            self.active_shard = Some(shard);
+
+                            debug!("Automatically routing to shard {}", shard);
+                        }
+                        None => (),
+                    },
+
+                    None => (),
+                };
+            }
+            None => (),
         };
 
         let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
@@ -373,7 +400,7 @@ mod test {
     }
 
     #[test]
-    fn test_infer_role_replica() {
+    fn test__replica() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
@@ -391,13 +418,13 @@ mod test {
 
         for query in queries {
             // It's a recognized query
-            assert!(qr.infer_role(query));
+            assert!(qr.infer_role_and_shard(query));
             assert_eq!(qr.role(), Some(Role::Replica));
         }
     }
 
     #[test]
-    fn test_infer_role_primary() {
+    fn test_infer_role_and_shard_primary() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
 
@@ -410,24 +437,24 @@ mod test {
 
         for query in queries {
             // It's a recognized query
-            assert!(qr.infer_role(query));
+            assert!(qr.infer_role_and_shard(query));
             assert_eq!(qr.role(), Some(Role::Primary));
         }
     }
 
     #[test]
-    fn test_infer_role_primary_reads_enabled() {
+    fn test_infer_role_and_shard_primary_reads_enabled() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         let query = simple_query("SELECT * FROM items WHERE id = 5");
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO on")) != None);
 
-        assert!(qr.infer_role(query));
+        assert!(qr.infer_role_and_shard(query));
         assert_eq!(qr.role(), None);
     }
 
     #[test]
-    fn test_infer_role_parse_prepared() {
+    fn test_infer_role_and_shard_parse_prepared() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'"));
@@ -442,7 +469,7 @@ mod test {
         res.put(prepared_stmt);
         res.put_i16(0);
 
-        assert!(qr.infer_role(res));
+        assert!(qr.infer_role_and_shard(res));
         assert_eq!(qr.role(), Some(Role::Replica));
     }
 
@@ -606,11 +633,11 @@ mod test {
         assert_eq!(qr.role(), None);
 
         let query = simple_query("INSERT INTO test_table VALUES (1)");
-        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.infer_role_and_shard(query), true);
         assert_eq!(qr.role(), Some(Role::Primary));
 
         let query = simple_query("SELECT * FROM test_table");
-        assert_eq!(qr.infer_role(query), true);
+        assert_eq!(qr.infer_role_and_shard(query), true);
         assert_eq!(qr.role(), Some(Role::Replica));
 
         assert!(qr.query_parser_enabled());

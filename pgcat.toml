@@ -82,6 +82,7 @@ primary_reads_enabled = true
 # sha1: A hashing function based on SHA1
 #
 sharding_function = "pg_bigint_hash"
+sharding_key = "id"
 
 # Credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
