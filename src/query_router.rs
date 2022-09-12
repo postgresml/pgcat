@@ -13,7 +13,7 @@ use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
 /// Regexes used to parse custom commands.
-const CUSTOM_SQL_REGEXES: [&str; 7] = [
+const CUSTOM_SQL_REGEXES: [&str; 8] = [
     r"(?i)^ *SET SHARDING KEY TO '?([0-9]+)'? *;? *$",
     r"(?i)^ *SET SHARD TO '?([0-9]+|ANY)'? *;? *$",
     r"(?i)^ *SHOW SHARD *;? *$",
@@ -21,6 +21,7 @@ const CUSTOM_SQL_REGEXES: [&str; 7] = [
     r"(?i)^ *SHOW SERVER ROLE *;? *$",
     r"(?i)^ *SET PRIMARY READS TO '?(on|off|default)'? *;? *$",
     r"(?i)^ *SHOW PRIMARY READS *;? *$",
+    r"(?i)^ *SHARDED_COPY '?([0-9]+)'? *;? *$",
 ];
 
 /// Custom commands.
@@ -33,6 +34,7 @@ pub enum Command {
     ShowServerRole,
     SetPrimaryReads,
     ShowPrimaryReads,
+    StartShardedCopy,
 }
 
 /// Quickly test for match when a query is received.
@@ -57,6 +59,9 @@ pub struct QueryRouter {
 
     /// Pool configuration.
     pool_settings: PoolSettings,
+
+    // Sharding key column
+    sharding_key_column: Option<usize>,
 }
 
 impl QueryRouter {
@@ -98,6 +103,7 @@ impl QueryRouter {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             pool_settings: PoolSettings::default(),
+            sharding_key_column: None,
         }
     }
 
@@ -145,6 +151,7 @@ impl QueryRouter {
             4 => Command::ShowServerRole,
             5 => Command::SetPrimaryReads,
             6 => Command::ShowPrimaryReads,
+            7 => Command::StartShardedCopy,
             _ => unreachable!(),
         };
 
@@ -152,7 +159,8 @@ impl QueryRouter {
             Command::SetShardingKey
             | Command::SetShard
             | Command::SetServerRole
-            | Command::SetPrimaryReads => {
+            | Command::SetPrimaryReads
+            | Command::StartShardedCopy => {
                 // Capture value. I know this re-runs the regex engine, but I haven't
                 // figured out a better way just yet. I think I can write a single Regex
                 // that matches all 5 custom SQL patterns, but maybe that's not very legible?
@@ -202,6 +210,13 @@ impl QueryRouter {
                     "ANY" => Some(rand::random::<usize>() % self.pool_settings.shards),
                     _ => Some(value.parse::<usize>().unwrap()),
                 };
+            }
+
+            Command::StartShardedCopy => {
+                self.sharding_key_column = match value.parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => return None,
+                }
             }
 
             Command::SetServerRole => {
