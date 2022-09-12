@@ -55,6 +55,8 @@ pub struct QueryRouter {
     /// Include the primary into the replica pool for reads.
     primary_reads_enabled: bool,
 
+    set_manually: bool,
+
     /// Pool configuration.
     pool_settings: PoolSettings,
 }
@@ -97,6 +99,7 @@ impl QueryRouter {
             active_role: None,
             query_parser_enabled: false,
             primary_reads_enabled: false,
+            set_manually: false,
             pool_settings: PoolSettings::default(),
         }
     }
@@ -104,8 +107,11 @@ impl QueryRouter {
     /// Pool settings can change because of a config reload.
     pub fn update_pool_settings(&mut self, pool_settings: PoolSettings) {
         self.pool_settings = pool_settings;
-        self.query_parser_enabled = self.pool_settings.query_parser_enabled;
-        self.primary_reads_enabled = self.pool_settings.primary_reads_enabled;
+
+        if !self.set_manually {
+            self.query_parser_enabled = self.pool_settings.query_parser_enabled;
+            self.primary_reads_enabled = self.pool_settings.primary_reads_enabled;
+        }
     }
 
     /// Try to parse a command and execute it.
@@ -207,6 +213,8 @@ impl QueryRouter {
             }
 
             Command::SetServerRole => {
+                self.set_manually = true;
+
                 self.active_role = match value.to_ascii_lowercase().as_ref() {
                     "primary" => {
                         self.query_parser_enabled = false;
@@ -230,7 +238,7 @@ impl QueryRouter {
 
                     "default" => {
                         self.active_role = self.pool_settings.default_role;
-                        self.query_parser_enabled = self.query_parser_enabled;
+                        self.query_parser_enabled = self.pool_settings.query_parser_enabled;
                         self.active_role
                     }
 
@@ -239,6 +247,8 @@ impl QueryRouter {
             }
 
             Command::SetPrimaryReads => {
+                self.set_manually = true;
+
                 if value == "on" {
                     debug!("Setting primary reads to on");
                     self.primary_reads_enabled = true;
@@ -400,7 +410,7 @@ mod test {
     }
 
     #[test]
-    fn test__replica() {
+    fn test_infer_role_and_shard_replica() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
@@ -409,17 +419,20 @@ mod test {
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
         let queries = vec![
-            simple_query("SELECT * FROM items WHERE id = 5"),
+            simple_query("SELECT * FROM items WHERE id = 4"),
             simple_query(
                 "SELECT id, name, value FROM items INNER JOIN prices ON item.id = prices.item_id",
             ),
             simple_query("WITH t AS (SELECT * FROM items) SELECT * FROM t"),
         ];
 
-        for query in queries {
+        let shards = vec![0, 0, 0];
+
+        for (idx, query) in queries.iter().enumerate() {
             // It's a recognized query
-            assert!(qr.infer_role_and_shard(query));
+            assert!(qr.infer_role_and_shard(query.clone()));
             assert_eq!(qr.role(), Some(Role::Replica));
+            assert_eq!(qr.shard(), shards[idx]);
         }
     }
 
@@ -643,7 +656,7 @@ mod test {
         assert!(qr.query_parser_enabled());
         let query = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(query) != None);
-        assert!(qr.query_parser_enabled());
+        assert!(!qr.query_parser_enabled());
     }
 
     #[test]
@@ -656,7 +669,8 @@ mod test {
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
-            primary_reads_enabled: false,
+            primary_reads_enabled: true,
+            sharding_key_regex: None,
             sharding_function: ShardingFunction::PgBigintHash,
         };
         let mut qr = QueryRouter::new();
@@ -670,8 +684,8 @@ mod test {
 
         assert_eq!(qr.active_role, None);
         assert_eq!(qr.active_shard, None);
-        assert_eq!(qr.query_parser_enabled, false);
-        assert_eq!(qr.primary_reads_enabled, false);
+        assert_eq!(qr.query_parser_enabled, true);
+        assert_eq!(qr.primary_reads_enabled, true);
 
         let q1 = simple_query("SET SERVER ROLE TO 'primary'");
         assert!(qr.try_execute_command(q1) != None);
