@@ -46,6 +46,50 @@ module Helpers
       end
     end
 
+    def self.single_instance_setup(pool_name, pool_size, pool_mode="transaction")
+      user = {
+        "password" => "sharding_user",
+        "pool_size" => pool_size,
+        "statement_timeout" => 0,
+        "username" => "sharding_user"
+      }
+
+      pgcat = PgcatProcess.new("trace")
+      pgcat_cfg = pgcat.current_config
+
+      primary  = PgInstance.new(5432, user["username"], user["password"], "shard0")
+
+      # Main proxy configs
+      pgcat_cfg["pools"] = {
+        "#{pool_name}" => {
+          "default_role" => "primary",
+          "pool_mode" => pool_mode,
+          "primary_reads_enabled" => false,
+          "query_parser_enabled" => false,
+          "sharding_function" => "pg_bigint_hash",
+          "shards" => {
+            "0" => {
+              "database" => "shard0",
+              "servers" => [
+                ["localhost", primary.port.to_s, "primary"]
+              ]
+            },
+          },
+          "users" => { "0" => user }
+        }
+      }
+      pgcat_cfg["general"]["port"] = pgcat.port
+      pgcat.update_config(pgcat_cfg)
+      pgcat.start
+      pgcat.wait_until_ready
+
+      OpenStruct.new.tap do |struct|
+        struct.pgcat = pgcat
+        struct.primary = primary
+        struct.all_databases = [primary]
+      end
+    end
+
     def self.single_shard_setup(pool_name, pool_size, pool_mode="transaction")
       user = {
         "password" => "sharding_user",

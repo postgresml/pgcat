@@ -111,6 +111,6 @@ class PgcatProcess
     username = cfg["pools"][first_pool_name]["users"]["0"]["username"]
     password = cfg["pools"][first_pool_name]["users"]["0"]["password"]
 
-    "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/#{db_name}"
+    "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/#{db_name}?application_name=example_app"
   end
 end

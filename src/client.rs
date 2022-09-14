@@ -577,6 +577,12 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
+        self.stats.client_register(
+            self.process_id,
+            self.pool_name.clone(),
+            self.username.clone(),
+            self.application_name.clone(),
+        );
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
@@ -764,15 +770,12 @@ where
             server.claim(self.process_id, self.secret_key);
             self.connected_to_server = true;
 
-            // Update statistics.
-            if let Some(last_address_id) = self.last_address_id {
-                self.stats
-                    .client_disconnecting(self.process_id, last_address_id);
-            }
-            self.stats.client_active(self.process_id, address.id);
+            // Update statistics
+            self.stats
+                .client_active(self.process_id, server.server_id());
 
             self.last_address_id = Some(address.id);
-            self.last_server_id = Some(server.process_id());
+            self.last_server_id = Some(server.server_id());
 
             debug!(
                 "Client {:?} talking to server {:?}",
@@ -830,7 +833,7 @@ where
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(self.process_id, server.server_id());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -908,7 +911,7 @@ where
                         self.buffer.clear();
 
                         if !server.in_transaction() {
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(self.process_id, server.server_id());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -943,7 +946,7 @@ where
                         };
 
                         if !server.in_transaction() {
-                            self.stats.transaction(self.process_id, address.id);
+                            self.stats.transaction(self.process_id, server.server_id());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -964,11 +967,11 @@ where
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
             server.checkin_cleanup().await?;
-            self.stats.server_idle(server.process_id(), address.id);
+            self.stats.server_idle(server.server_id());
             self.connected_to_server = false;
 
             self.release();
-            self.stats.client_idle(self.process_id, address.id);
+            self.stats.client_idle(self.process_id);
         }
     }
 
@@ -1010,7 +1013,7 @@ where
         }
 
         // Report query executed statistics.
-        self.stats.query(self.process_id, address.id);
+        self.stats.query(self.process_id, server.server_id());
 
         Ok(())
     }
@@ -1091,14 +1094,9 @@ impl<S, T> Drop for Client<S, T> {
 
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
-        if let Some(address_id) = self.last_address_id {
-            self.stats.client_disconnecting(self.process_id, address_id);
-
-            if self.connected_to_server {
-                if let Some(process_id) = self.last_server_id {
-                    self.stats.server_idle(process_id, address_id);
-                }
-            }
+        self.stats.client_disconnecting(self.process_id);
+        if self.connected_to_server && self.last_server_id.is_some() {
+            self.stats.server_idle(self.last_server_id.unwrap());
         }
     }
 }

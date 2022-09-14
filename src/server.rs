@@ -20,6 +20,8 @@ use crate::ClientServerMap;
 
 /// Server state.
 pub struct Server {
+    server_id: i32,
+
     /// Server host, e.g. localhost,
     /// port, e.g. 5432, and role, e.g. primary or replica.
     address: Address,
@@ -72,6 +74,7 @@ impl Server {
     /// Pretend to be the Postgres client and connect to the server given host, port and credentials.
     /// Perform the authentication and return the server in a ready for query state.
     pub async fn startup(
+        server_id: i32,
         address: &Address,
         user: &User,
         database: &str,
@@ -315,6 +318,7 @@ impl Server {
                         write: write,
                         buffer: BytesMut::with_capacity(8196),
                         server_info: server_info,
+                        server_id: server_id,
                         process_id: process_id,
                         secret_key: secret_key,
                         in_transaction: false,
@@ -372,8 +376,7 @@ impl Server {
 
     /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
-        self.stats
-            .data_sent(messages.len(), self.process_id, self.address.id);
+        self.stats.data_sent(messages.len(), self.server_id);
 
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => {
@@ -505,8 +508,7 @@ impl Server {
         let bytes = self.buffer.clone();
 
         // Keep track of how much data we got from the server for stats.
-        self.stats
-            .data_received(bytes.len(), self.process_id, self.address.id);
+        self.stats.data_received(bytes.len(), self.server_id);
 
         // Clear the buffer for next query.
         self.buffer.clear();
@@ -629,9 +631,10 @@ impl Server {
         self.address.clone()
     }
 
-    /// Get the server's unique identifier.
-    pub fn process_id(&self) -> i32 {
-        self.process_id
+    /// Get the server connection identifier
+    /// Used to uniquely identify connection in statistics
+    pub fn server_id(&self) -> i32 {
+        self.server_id
     }
 
     // Get server's latest response timestamp
@@ -650,8 +653,7 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
-        self.stats
-            .server_disconnecting(self.process_id(), self.address.id);
+        self.stats.server_disconnecting(self.server_id);
 
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');
