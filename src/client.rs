@@ -1015,11 +1015,7 @@ where
         }
 
         // Report query executed statistics.
-<<<<<<< Updated upstream
-        self.stats.query(self.process_id, server.server_id());
-=======
-        self.stats.query(self.process_id, address.id, Instant::now().duration_since(query_start).as_millis());
->>>>>>> Stashed changes
+        self.stats.query(self.process_id, server.server_id(), Instant::now().duration_since(query_start).as_millis());
 
         Ok(())
     }

@@ -11,6 +11,29 @@ describe "Admin" do
     processes.pgcat.shutdown
   end
 
+  describe "SHOW STATS" do
+    context "clients connect and make one query" do
+      it "updates *_query_time and *_wait_time" do
+        connection = PG::connect("#{pgcat_conn_str}?application_name=one_query")
+        connection.async_exec("SELECT pg_sleep(0.25)")
+        connection.async_exec("SELECT pg_sleep(0.25)")
+        connection.async_exec("SELECT pg_sleep(0.25)")
+        connection.close
+
+        # wait for averages to be calculated, we shouldn't do this too often
+        sleep(15.5)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW STATS")[0]
+        admin_conn.close
+        expect(results["total_query_time"].to_i).to be_within(200).of(750)
+        expect(results["avg_query_time"].to_i).to_not eq(0)
+
+        expect(results["total_wait_time"].to_i).to_not eq(0)
+        expect(results["avg_wait_time"].to_i).to_not eq(0)
+      end
+    end
+  end
+
   describe "SHOW POOLS" do
     context "bad credentials" do
       it "does not change any stats" do

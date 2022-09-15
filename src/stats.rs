@@ -9,7 +9,6 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::Instant;
 
 use crate::pool::{get_all_pools, get_number_of_addresses};
-use crate::server;
 
 /// Convenience types for various stats
 type ClientStatesLookup = HashMap<i32, ClientInformation>;
@@ -592,7 +591,7 @@ impl Collector {
                             let duration = pool_stats
                                 .entry("total_query_time".to_string())
                                 .or_insert(0);
-                            *duration = duration_ms as i64;
+                            *duration += duration_ms as i64;
                         }
                         None => (),
                     }
