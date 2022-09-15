@@ -137,7 +137,7 @@ enum EventName {
     Query {
         client_id: i32,
         server_id: i32,
-        duration_ms: u128
+        duration_ms: u128,
     },
     Transaction {
         client_id: i32,
@@ -274,7 +274,7 @@ impl Reporter {
             name: EventName::Query {
                 client_id,
                 server_id,
-                duration_ms
+                duration_ms,
             },
             value: 1,
         };
@@ -563,7 +563,7 @@ impl Collector {
                 EventName::Query {
                     client_id,
                     server_id,
-                    duration_ms
+                    duration_ms,
                 } => {
                     // Update client stats
                     let app_name = match client_states.get_mut(&client_id) {

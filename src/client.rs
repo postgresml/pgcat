@@ -1015,7 +1015,11 @@ where
         }
 
         // Report query executed statistics.
-        self.stats.query(self.process_id, server.server_id(), Instant::now().duration_since(query_start).as_millis());
+        self.stats.query(
+            self.process_id,
+            server.server_id(),
+            Instant::now().duration_since(query_start).as_millis(),
+        );
 
         Ok(())
     }
