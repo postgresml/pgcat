@@ -9,7 +9,6 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::Instant;
 
 use crate::pool::{get_all_pools, get_number_of_addresses};
-use crate::server;
 
 /// Convenience types for various stats
 type ClientStatesLookup = HashMap<i32, ClientInformation>;
@@ -138,6 +137,7 @@ enum EventName {
     Query {
         client_id: i32,
         server_id: i32,
+        duration_ms: u128,
     },
     Transaction {
         client_id: i32,
@@ -269,11 +269,12 @@ impl Reporter {
     }
 
     /// Report a query executed by a client against a server
-    pub fn query(&self, client_id: i32, server_id: i32) {
+    pub fn query(&self, client_id: i32, server_id: i32, duration_ms: u128) {
         let event = Event {
             name: EventName::Query {
                 client_id,
                 server_id,
+                duration_ms,
             },
             value: 1,
         };
@@ -562,6 +563,7 @@ impl Collector {
                 EventName::Query {
                     client_id,
                     server_id,
+                    duration_ms,
                 } => {
                     // Update client stats
                     let app_name = match client_states.get_mut(&client_id) {
@@ -585,6 +587,11 @@ impl Collector {
                                 .entry("total_query_count".to_string())
                                 .or_insert(0);
                             *counter += stat.value;
+
+                            let duration = pool_stats
+                                .entry("total_query_time".to_string())
+                                .or_insert(0);
+                            *duration += duration_ms as i64;
                         }
                         None => (),
                     }
