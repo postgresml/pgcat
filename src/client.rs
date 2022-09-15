@@ -2,6 +2,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace};
 use std::collections::HashMap;
+use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
@@ -994,6 +995,7 @@ where
         self.send_server_message(server, message, &address, &pool)
             .await?;
 
+        let query_start = Instant::now();
         // Read all data the server has to offer, which can be multiple messages
         // buffered in 8196 bytes chunks.
         loop {
@@ -1013,7 +1015,11 @@ where
         }
 
         // Report query executed statistics.
+<<<<<<< Updated upstream
         self.stats.query(self.process_id, server.server_id());
+=======
+        self.stats.query(self.process_id, address.id, Instant::now().duration_since(query_start).as_millis());
+>>>>>>> Stashed changes
 
         Ok(())
     }
