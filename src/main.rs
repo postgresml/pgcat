@@ -40,6 +40,7 @@ extern crate toml;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
+use tokio::process::Command;
 use tokio::{
     signal::unix::{signal as unix_signal, SignalKind},
     sync::mpsc,
@@ -77,6 +78,27 @@ async fn main() {
     env_logger::builder().format_timestamp_micros().init();
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
+
+    // File descriptor limit check
+    // We require at least 64k limit or we exit. This might seem excessive
+    // but failing at start up is better than failing under production load
+    match Command::new("ulimit").arg("-n").output().await {
+        Ok(output) => {
+            let result = String::from_utf8_lossy(&output.stdout);
+            match result.trim_end().parse::<i64>() {
+                Ok(ulimit) => {
+                    info!("Open file descriptors limit was found to be {}", ulimit);
+                    if ulimit < 64_000 {
+                        error!("Please verify that the open file descriptors limit is at least 64k");
+                        std::process::exit(1);
+                    }
+                },
+                Err(err) => error!("Failed to check the limit on open file descriptors. {}", err)
+
+            }
+        }
+        Err(err) => error!("Failed to check the limit on open file descriptors. {}", err)
+    }
 
     if !query_router::QueryRouter::setup() {
         error!("Could not setup query router");
