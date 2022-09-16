@@ -89,15 +89,22 @@ async fn main() {
                 Ok(ulimit) => {
                     info!("Open file descriptors limit was found to be {}", ulimit);
                     if ulimit < 64_000 {
-                        error!("Please verify that the open file descriptors limit is at least 64k");
+                        error!(
+                            "Please verify that the open file descriptors limit is at least 64k"
+                        );
                         std::process::exit(1);
                     }
-                },
-                Err(err) => error!("Failed to check the limit on open file descriptors. {}", err)
-
+                }
+                Err(err) => error!(
+                    "Failed to check the limit on open file descriptors. {}",
+                    err
+                ),
             }
         }
-        Err(err) => error!("Failed to check the limit on open file descriptors. {}", err)
+        Err(err) => error!(
+            "Failed to check the limit on open file descriptors. {}",
+            err
+        ),
     }
 
     if !query_router::QueryRouter::setup() {
