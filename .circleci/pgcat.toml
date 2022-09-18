@@ -108,6 +108,7 @@ servers = [
 ]
 # Database name (e.g. "postgres")
 database = "shard0"
+search_path = "\"$user\",public"
 
 [pools.sharded_db.shards.1]
 servers = [

@@ -72,6 +72,9 @@ pub struct Address {
     /// The name of the Postgres database.
     pub database: String,
 
+    /// Default search_path.
+    pub search_path: Option<String>,
+
     /// Server role: replica, primary.
     pub role: Role,
 
@@ -98,6 +101,7 @@ impl Default for Address {
             address_index: 0,
             replica_number: 0,
             database: String::from("database"),
+            search_path: None,
             role: Role::Replica,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
@@ -206,6 +210,7 @@ impl Default for Pool {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
     pub database: String,
+    pub search_path: Option<String>,
     pub servers: Vec<(String, u16, String)>,
 }
 
@@ -213,6 +218,7 @@ impl Default for Shard {
     fn default() -> Shard {
         Shard {
             servers: vec![(String::from("localhost"), 5432, String::from("primary"))],
+            search_path: None,
             database: String::from("postgres"),
         }
     }

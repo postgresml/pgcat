@@ -93,7 +93,13 @@ impl Server {
         trace!("Sending StartupMessage");
 
         // StartupMessage
-        startup(&mut stream, &user.username, database).await?;
+        startup(
+            &mut stream,
+            &user.username,
+            database,
+            address.search_path.as_ref(),
+        )
+        .await?;
 
         let mut server_info = BytesMut::new();
         let mut process_id: i32 = 0;
