@@ -595,7 +595,7 @@ impl ManageConnection for ServerPool {
     }
 
     /// Determines if the connection is still connected to the database.
-    async fn is_valid(&self, _conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+    async fn is_valid(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
         Ok(())
     }
 
