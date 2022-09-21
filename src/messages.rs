@@ -496,7 +496,7 @@ where
     Ok(bytes)
 }
 
-pub fn server_paramater_message(key: &str, value: &str) -> BytesMut {
+pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {
     let mut server_info = BytesMut::new();
 
     let null_byte_size = 1;

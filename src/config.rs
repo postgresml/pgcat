@@ -12,8 +12,8 @@ use tokio::io::AsyncReadExt;
 use toml;
 
 use crate::errors::Error;
+use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::tls::{load_certs, load_keys};
-use crate::{ClientServerMap, ConnectionPool};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

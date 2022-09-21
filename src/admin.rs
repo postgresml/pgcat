@@ -16,11 +16,11 @@ use crate::ClientServerMap;
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
 
-    server_info.put(server_paramater_message("application_name", ""));
-    server_info.put(server_paramater_message("client_encoding", "UTF8"));
-    server_info.put(server_paramater_message("server_encoding", "UTF8"));
-    server_info.put(server_paramater_message("server_version", VERSION));
-    server_info.put(server_paramater_message("DateStyle", "ISO, MDY"));
+    server_info.put(server_parameter_message("application_name", ""));
+    server_info.put(server_parameter_message("client_encoding", "UTF8"));
+    server_info.put(server_parameter_message("server_encoding", "UTF8"));
+    server_info.put(server_parameter_message("server_version", VERSION));
+    server_info.put(server_parameter_message("DateStyle", "ISO, MDY"));
 
     return server_info;
 }
