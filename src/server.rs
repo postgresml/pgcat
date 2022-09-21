@@ -14,9 +14,9 @@ use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
+use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::Reporter;
-use crate::pool::ClientServerMap;
 
 /// Server state.
 pub struct Server {

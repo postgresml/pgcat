@@ -1,13 +1,13 @@
 pub mod config;
-pub mod errors;
-pub mod pool;
 pub mod constants;
-pub mod tls;
-pub mod sharding;
-pub mod server;
-pub mod stats;
+pub mod errors;
 pub mod messages;
+pub mod pool;
 pub mod scram;
+pub mod server;
+pub mod sharding;
+pub mod stats;
+pub mod tls;
 
 /// Format chrono::Duration to be more human-friendly.
 ///
