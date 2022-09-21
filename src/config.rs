@@ -13,7 +13,7 @@ use toml;
 
 use crate::errors::Error;
 use crate::tls::{load_certs, load_keys};
-use crate::{ClientServerMap, ConnectionPool};
+use crate::pool::{ClientServerMap, ConnectionPool};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
