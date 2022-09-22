@@ -374,7 +374,7 @@ pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
     let mut res = BytesMut::new();
     let mut row_desc = BytesMut::new();
 
-    // how many colums we are storing
+    // how many columns we are storing
     row_desc.put_i16(columns.len() as i16);
 
     for (name, data_type) in columns {

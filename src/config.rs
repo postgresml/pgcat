@@ -245,7 +245,7 @@ pub struct Config {
     // so we should always put simple fields before nested fields
     // in all serializable structs to avoid ValueAfterTable errors
     // These errors occur when the toml serializer is about to produce
-    // ambigous toml structure like the one below
+    // ambiguous toml structure like the one below
     // [main]
     // field1_under_main = 1
     // field2_under_main = 2
