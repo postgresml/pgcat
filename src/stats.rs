@@ -943,30 +943,46 @@ impl Collector {
                         if client_info.pool_name != pool_name || client_info.username != username {
                             continue;
                         }
-                        client_info.client_id;
-                        let stat_name = match client_info.state {
-                            ClientState::Idle => "cl_idle",
-                            ClientState::Waiting => "cl_waiting",
-                            ClientState::Active => "cl_active",
-                        };
-
-                        let counter = pool_stats.entry(stat_name.to_string()).or_insert(0);
-                        *counter += 1;
+                        match client_info.state {
+                            ClientState::Idle => {
+                                let counter = pool_stats.entry("cl_idle".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
+                            ClientState::Waiting => {
+                                let counter =
+                                    pool_stats.entry("cl_waiting".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
+                            ClientState::Active => {
+                                let counter =
+                                    pool_stats.entry("cl_active".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
                     }
 
                     for (_, server_info) in server_states.iter() {
                         if server_info.pool_name != pool_name || server_info.username != username {
                             continue;
                         }
-                        let stat_name = match server_info.state {
-                            ServerState::Login => "sv_login",
-                            ServerState::Tested => "sv_tested",
-                            ServerState::Active => "sv_active",
-                            ServerState::Idle => "sv_idle",
-                        };
-
-                        let counter = pool_stats.entry(stat_name.to_string()).or_insert(0);
-                        *counter += 1;
+                        match server_info.state {
+                            ServerState::Login => {
+                                let counter = pool_stats.entry("sv_login".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
+                            ServerState::Tested => {
+                                let counter =
+                                    pool_stats.entry("sv_tested".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
+                            ServerState::Active => {
+                                let counter =
+                                    pool_stats.entry("sv_active".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
+                            ServerState::Idle => {
+                                let counter = pool_stats.entry("sv_idle".to_string()).or_insert(0);
+                                *counter += 1;
+                            }
                     }
 
                     // The following calls publish the internal stats making it visible
