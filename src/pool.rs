@@ -143,21 +143,12 @@ impl ConnectionPool {
                     let mut replica_number = 0;
 
                     for server in shard.servers.iter() {
-                        let role = match server.2.as_ref() {
-                            "primary" => Role::Primary,
-                            "replica" => Role::Replica,
-                            _ => {
-                                error!("Config error: server role can be 'primary' or 'replica', have: '{}'. Defaulting to 'replica'.", server.2);
-                                Role::Replica
-                            }
-                        };
-
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
-                            host: server.0.clone(),
-                            port: server.1 as u16,
-                            role: role,
+                            host: server.host.clone(),
+                            port: server.port,
+                            role: server.role,
                             address_index,
                             replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
@@ -168,7 +159,7 @@ impl ConnectionPool {
                         address_id += 1;
                         address_index += 1;
 
-                        if role == Role::Replica {
+                        if server.role == Role::Replica {
                             replica_number += 1;
                         }
 

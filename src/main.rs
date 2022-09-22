@@ -37,7 +37,7 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
-use log::{debug, error, info};
+use log::{error, info, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
 use tokio::net::TcpListener;
@@ -279,7 +279,7 @@ async fn main() {
                                 }
                             }
 
-                            debug!("Client disconnected with error {:?}", err);
+                            warn!("Client disconnected with error {:?}", err);
                         }
                     };
                 });

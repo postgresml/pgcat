@@ -23,7 +23,9 @@ static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config
 /// Server role: primary or replica.
 #[derive(Clone, PartialEq, Serialize, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
 pub enum Role {
+    #[serde(alias = "primary", alias = "Primary")]
     Primary,
+    #[serde(alias = "replica", alias = "Replica")]
     Replica,
 }
 
@@ -202,17 +204,28 @@ impl Default for Pool {
     }
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
+    pub role: Role,
+}
+
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Shard {
     pub database: String,
-    pub servers: Vec<(String, u16, String)>,
+    pub servers: Vec<ServerConfig>,
 }
 
 impl Default for Shard {
     fn default() -> Shard {
         Shard {
-            servers: vec![(String::from("localhost"), 5432, String::from("primary"))],
+            servers: vec![ServerConfig {
+                host: String::from("localhost"),
+                port: 5432,
+                role: Role::Primary,
+            }],
             database: String::from("postgres"),
         }
     }
@@ -538,22 +551,9 @@ pub async fn parse(path: &str) -> Result<(), Error> {
                 dup_check.insert(server);
 
                 // Check that we define only zero or one primary.
-                match server.2.as_ref() {
-                    "primary" => primary_count += 1,
+                match server.role {
+                    Role::Primary => primary_count += 1,
                     _ => (),
-                };
-
-                // Check role spelling.
-                match server.2.as_ref() {
-                    "primary" => (),
-                    "replica" => (),
-                    _ => {
-                        error!(
-                            "Shard {} server role must be either 'primary' or 'replica', got: '{}'",
-                            shard.0, server.2
-                        );
-                        return Err(Error::BadConfig);
-                    }
                 };
             }
 
@@ -617,12 +617,12 @@ mod test {
         assert_eq!(get_config().pools["simple_db"].users.len(), 1);
 
         assert_eq!(
-            get_config().pools["sharded_db"].shards["0"].servers[0].0,
+            get_config().pools["sharded_db"].shards["0"].servers[0].host,
             "127.0.0.1"
         );
         assert_eq!(
-            get_config().pools["sharded_db"].shards["1"].servers[0].2,
-            "primary"
+            get_config().pools["sharded_db"].shards["1"].servers[0].role,
+            Role::Primary
         );
         assert_eq!(
             get_config().pools["sharded_db"].shards["1"].database,
@@ -640,11 +640,11 @@ mod test {
         assert_eq!(get_config().pools["sharded_db"].default_role, "any");
 
         assert_eq!(
-            get_config().pools["simple_db"].shards["0"].servers[0].0,
+            get_config().pools["simple_db"].shards["0"].servers[0].host,
             "127.0.0.1"
         );
         assert_eq!(
-            get_config().pools["simple_db"].shards["0"].servers[0].1,
+            get_config().pools["simple_db"].shards["0"].servers[0].port,
             5432
         );
         assert_eq!(
