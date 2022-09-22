@@ -1,6 +1,6 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
@@ -457,6 +457,8 @@ where
                         ),
                     )
                     .await?;
+
+                    warn!("Failed client login {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name.clone(), username.clone(), application_name.clone());
 
                     return Err(Error::ClientError);
                 }
