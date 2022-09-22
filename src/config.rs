@@ -23,9 +23,9 @@ static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config
 /// Server role: primary or replica.
 #[derive(Clone, PartialEq, Serialize, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
 pub enum Role {
-    #[serde(alias="primary", alias="Primary")]
+    #[serde(alias = "primary", alias = "Primary")]
     Primary,
-    #[serde(alias="replica", alias="Replica")]
+    #[serde(alias = "replica", alias = "Replica")]
     Replica,
 }
 
