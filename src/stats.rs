@@ -3,11 +3,19 @@ use arc_swap::ArcSwap;
 use log::{error, info, trace, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::net::UdpSocket;
+use std::os::unix::net::UnixDatagram;
 use std::sync::Arc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::Instant;
 
+use cadence::{
+    prelude::*, BufferedUdpMetricSink, BufferedUnixMetricSink, MetricBuilder, NopMetricSink,
+    QueuingMetricSink, StatsdClient,
+};
+
+use crate::config::{get_config, Role, StatsDMode};
 use crate::pool::{get_all_pools, get_number_of_addresses};
 
 /// Convenience types for various stats
@@ -114,6 +122,8 @@ pub struct ServerInformation {
     pub address_name: String,
     pub address_id: usize,
 
+    pub role: Role,
+
     pub username: String,
     pub pool_name: String,
     pub application_name: String,
@@ -188,6 +198,7 @@ enum EventName {
         address_name: String,
         pool_name: String,
         username: String,
+        role: Role,
     },
     ServerLogin {
         server_id: i32,
@@ -314,7 +325,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reportes the time spent by a client waiting to get a healthy connection from the pool
+    /// Reports the time spent by a client waiting to get a healthy connection from the pool
     pub fn checkout_time(&self, microseconds: u128, client_id: i32, server_id: i32) {
         let event = Event {
             name: EventName::CheckoutTime {
@@ -401,7 +412,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a client is disconecting from the pooler.
+    /// Reports a client is disconnecting from the pooler.
     pub fn client_disconnecting(&self, client_id: i32) {
         let event = Event {
             name: EventName::ClientDisconnecting { client_id },
@@ -419,6 +430,7 @@ impl Reporter {
         address_name: String,
         pool_name: String,
         username: String,
+        role: Role,
     ) {
         let event = Event {
             name: EventName::ServerRegistered {
@@ -427,6 +439,7 @@ impl Reporter {
                 address_name,
                 pool_name,
                 username,
+                role,
             },
             value: 1,
         };
@@ -475,7 +488,7 @@ impl Reporter {
         self.send(event)
     }
 
-    /// Reports a server connection is disconecting from the pooler.
+    /// Reports a server connection is disconnecting from the pooler.
     pub fn server_disconnecting(&self, server_id: i32) {
         let event = Event {
             name: EventName::ServerDisconnecting { server_id },
@@ -494,13 +507,18 @@ impl Reporter {
 pub struct Collector {
     rx: Receiver<Event>,
     tx: Sender<Event>,
+    statsd_client: StatsdClient,
 }
 
 impl Collector {
     /// Create a new collector instance. There should only be one instance
     /// at a time. This is ensured by mpsc which allows only one receiver.
     pub fn new(rx: Receiver<Event>, tx: Sender<Event>) -> Collector {
-        Collector { rx, tx }
+        Collector {
+            rx,
+            tx,
+            statsd_client: new_statsd_client(),
+        }
     }
 
     /// The statistics collection handler. It will collect statistics
@@ -565,20 +583,26 @@ impl Collector {
                     server_id,
                     duration_ms,
                 } => {
+                    let mut tags = HashMap::new();
+
                     // Update client stats
                     let app_name = match client_states.get_mut(&client_id) {
                         Some(client_info) => {
+                            add_client_tags(&mut tags, &client_info);
+
                             client_info.query_count += stat.value as u64;
                             client_info.application_name.to_string()
                         }
                         None => String::from("Undefined"),
                     };
 
-                    // Update server stats and pool aggergation stats
+                    // Update server stats and pool aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.query_count += stat.value as u64;
                             server_info.application_name = app_name;
+
+                            add_server_tags(&mut tags, &server_info);
 
                             let pool_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -595,26 +619,34 @@ impl Collector {
                         }
                         None => (),
                     }
+
+                    self.statsd_client.send_count("query_count", 1, tags);
                 }
 
                 EventName::Transaction {
                     client_id,
                     server_id,
                 } => {
+                    let mut tags = HashMap::new();
+
                     // Update client stats
                     let app_name = match client_states.get_mut(&client_id) {
                         Some(client_info) => {
+                            add_client_tags(&mut tags, &client_info);
+
                             client_info.transaction_count += stat.value as u64;
                             client_info.application_name.to_string()
                         }
                         None => String::from("Undefined"),
                     };
 
-                    // Update server stats and pool aggergation stats
+                    // Update server stats and pool aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.transaction_count += stat.value as u64;
                             server_info.application_name = app_name;
+
+                            add_server_tags(&mut tags, &server_info);
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -626,10 +658,12 @@ impl Collector {
                         }
                         None => (),
                     }
+
+                    self.statsd_client.send_count("tx_count", 1, tags);
                 }
 
                 EventName::DataSentToServer { server_id } => {
-                    // Update server stats and address aggergation stats
+                    // Update server stats and address aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.bytes_sent += stat.value as u64;
@@ -646,7 +680,7 @@ impl Collector {
                 }
 
                 EventName::DataReceivedFromServer { server_id } => {
-                    // Update server states and address aggergation stats
+                    // Update server states and address aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.bytes_received += stat.value as u64;
@@ -676,7 +710,7 @@ impl Collector {
                         None => String::from("Undefined"),
                     };
 
-                    // Update server stats and address aggergation stats
+                    // Update server stats and address aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.application_name = app_name;
@@ -803,6 +837,7 @@ impl Collector {
                     address_id,
                     pool_name,
                     username,
+                    role,
                 } => {
                     server_states.insert(
                         server_id,
@@ -812,6 +847,7 @@ impl Collector {
                             server_id,
                             username,
                             pool_name,
+                            role,
 
                             state: ServerState::Idle,
                             application_name: String::from("Undefined"),
@@ -907,48 +943,30 @@ impl Collector {
                         if client_info.pool_name != pool_name || client_info.username != username {
                             continue;
                         }
-                        match client_info.state {
-                            ClientState::Idle => {
-                                let counter = pool_stats.entry("cl_idle".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
-                            ClientState::Waiting => {
-                                let counter =
-                                    pool_stats.entry("cl_waiting".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
-                            ClientState::Active => {
-                                let counter =
-                                    pool_stats.entry("cl_active".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
+                        client_info.client_id;
+                        let stat_name = match client_info.state {
+                            ClientState::Idle => "cl_idle",
+                            ClientState::Waiting => "cl_waiting",
+                            ClientState::Active => "cl_active",
                         };
+
+                        let counter = pool_stats.entry(stat_name.to_string()).or_insert(0);
+                        *counter += 1;
                     }
 
                     for (_, server_info) in server_states.iter() {
                         if server_info.pool_name != pool_name || server_info.username != username {
                             continue;
                         }
-                        match server_info.state {
-                            ServerState::Login => {
-                                let counter = pool_stats.entry("sv_login".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
-                            ServerState::Tested => {
-                                let counter =
-                                    pool_stats.entry("sv_tested".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
-                            ServerState::Active => {
-                                let counter =
-                                    pool_stats.entry("sv_active".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
-                            ServerState::Idle => {
-                                let counter = pool_stats.entry("sv_idle".to_string()).or_insert(0);
-                                *counter += 1;
-                            }
+                        let stat_name = match server_info.state {
+                            ServerState::Login => "sv_login",
+                            ServerState::Tested => "sv_tested",
+                            ServerState::Active => "sv_active",
+                            ServerState::Idle => "sv_idle",
                         };
+
+                        let counter = pool_stats.entry(stat_name.to_string()).or_insert(0);
+                        *counter += 1;
                     }
 
                     // The following calls publish the internal stats making it visible
@@ -1023,4 +1041,133 @@ pub fn get_address_stats() -> AddressStatsLookup {
 /// Get the statistics reporter used to update stats across the pools/clients.
 pub fn get_reporter() -> Reporter {
     (*(*REPORTER.load())).clone()
+}
+
+trait StatSubmitter<T>
+where
+    T: cadence::Metric + From<String>,
+{
+    fn submit_stat(&self, metric_builder: MetricBuilder<T>);
+}
+
+impl<T> StatSubmitter<T> for StatsdClient
+where
+    T: cadence::Metric + From<String>,
+{
+    fn submit_stat(&self, metric_builder: cadence::MetricBuilder<T>) {
+        // TODO: Move tagging logic here
+        if metric_builder.try_send().is_err() {
+            warn!("Error sending query metrics to client");
+        }
+    }
+}
+
+trait StatCreator {
+    fn send_count(&self, name: &str, count: i64, tags: HashMap<String, String>);
+
+    fn send_time(&self, name: &str, time: u64, tags: HashMap<String, String>);
+
+    fn send_gauge(&self, name: &str, value: u64, tags: HashMap<String, String>);
+}
+
+impl StatCreator for StatsdClient {
+    fn send_count(&self, name: &str, count: i64, tags: HashMap<String, String>) {
+        let mut metric_builder = self.count_with_tags(name, count);
+
+        for (k, v) in tags.iter() {
+            metric_builder = metric_builder.with_tag(k, v);
+        }
+
+        self.submit_stat(metric_builder);
+    }
+
+    fn send_time(&self, name: &str, time: u64, tags: HashMap<String, String>) {
+        let mut metric_builder = self.time_with_tags(name, time);
+
+        for (k, v) in tags.iter() {
+            metric_builder = metric_builder.with_tag(k, v);
+        }
+
+        self.submit_stat(metric_builder);
+    }
+
+    fn send_gauge(&self, name: &str, value: u64, tags: HashMap<String, String>) {
+        let mut metric_builder = self.gauge_with_tags(name, value);
+
+        for (k, v) in tags.iter() {
+            metric_builder = metric_builder.with_tag(k, v);
+        }
+
+        self.submit_stat(metric_builder);
+    }
+}
+
+fn new_statsd_client() -> StatsdClient {
+    let config = get_config();
+
+    // Queue with a maximum capacity of 128K elements
+    const QUEUE_SIZE: usize = 128 * 1024;
+
+    if let Some(statsd_mode) = config.general.statsd {
+        let (prefix, sink) = match statsd_mode {
+            StatsDMode::UnixSocket { prefix, path } => {
+                let socket = UnixDatagram::unbound().unwrap();
+                socket.set_nonblocking(true).unwrap();
+                let buffered_sink = BufferedUnixMetricSink::from(path, socket);
+                (
+                    prefix,
+                    QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
+                )
+            }
+            StatsDMode::Udp { prefix, host, port } => {
+                // Try to create
+                let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+                socket.set_nonblocking(true).unwrap();
+                let buffered_sink = BufferedUdpMetricSink::from((host, port), socket).unwrap();
+                (
+                    prefix,
+                    QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
+                )
+            }
+        };
+
+        info!("Started Statsd Client");
+        let statsd_builder = StatsdClient::builder(&prefix, sink);
+        // TODO: Add default tags for statsd client
+        statsd_builder.build()
+    } else {
+        // No-op client
+        StatsdClient::from_sink("prefix", NopMetricSink)
+    }
+}
+
+fn add_client_tags(tags: &mut HashMap<String, String>, client_information: &ClientInformation) {
+    tags.insert(
+        String::from("application_name"),
+        client_information.application_name.to_string(),
+    );
+    tags.insert(
+        String::from("username"),
+        client_information.username.to_string(),
+    );
+    tags.insert(
+        String::from("pool_name"),
+        client_information.pool_name.to_string(),
+    );
+}
+
+fn add_server_tags(tags: &mut HashMap<String, String>, server_information: &ServerInformation) {
+    tags.insert(
+        String::from("pool_name"),
+        server_information.pool_name.to_string(),
+    );
+    tags.insert(
+        String::from("address_name"),
+        server_information.address_name.to_string(),
+    );
+    tags.insert(
+        String::from("username"),
+        server_information.username.to_string(),
+    );
+    tags.insert(String::from("role"), server_information.role.to_string());
 }

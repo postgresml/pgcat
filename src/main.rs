@@ -140,6 +140,11 @@ async fn main() {
     let (stats_tx, stats_rx) = mpsc::channel(100_000);
     REPORTER.store(Arc::new(Reporter::new(stats_tx.clone())));
 
+    let mut stats_collector = Collector::new(stats_rx, stats_tx.clone());
+    tokio::task::spawn(async move {
+        stats_collector.collect().await;
+    });
+
     // Connection pool that allows to query all shards and replicas.
     match ConnectionPool::from_config(client_server_map.clone()).await {
         Ok(_) => (),
@@ -148,11 +153,6 @@ async fn main() {
             std::process::exit(exitcode::CONFIG);
         }
     };
-
-    tokio::task::spawn(async move {
-        let mut stats_collector = Collector::new(stats_rx, stats_tx.clone());
-        stats_collector.collect().await;
-    });
 
     info!("Config autoreloader: {}", config.general.autoreload);
 

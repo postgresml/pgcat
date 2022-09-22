@@ -569,6 +569,7 @@ impl ManageConnection for ServerPool {
             self.address.name(),
             self.address.pool_name.clone(),
             self.address.username.clone(),
+            self.address.role,
         );
         self.stats.server_login(server_id);
 
