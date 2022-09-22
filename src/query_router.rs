@@ -169,8 +169,8 @@ impl QueryRouter {
 
             Command::ShowShard => self.shard().to_string(),
             Command::ShowServerRole => match self.active_role {
-                Some(Role::Primary) => String::from("primary"),
-                Some(Role::Replica) => String::from("replica"),
+                Some(Role::Primary) => Role::Primary.to_string(),
+                Some(Role::Replica) => Role::Replica.to_string(),
                 None => {
                     if self.query_parser_enabled {
                         String::from("auto")
