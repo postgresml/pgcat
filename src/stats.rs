@@ -517,7 +517,7 @@ impl Collector {
         Collector {
             rx,
             tx,
-            statsd_client: new_statsd_client(),
+            statsd_client: StatsdClient::new_client(),
         }
     }
 
@@ -1068,6 +1068,8 @@ trait StatCreator {
     fn send_time(&self, name: &str, time: u64, tags: HashMap<String, String>);
 
     fn send_gauge(&self, name: &str, value: u64, tags: HashMap<String, String>);
+
+    fn new_client() -> Self;
 }
 
 impl StatCreator for StatsdClient {
@@ -1100,44 +1102,44 @@ impl StatCreator for StatsdClient {
 
         self.submit_stat(metric_builder);
     }
-}
 
-fn new_statsd_client() -> StatsdClient {
-    let config = get_config();
+    fn new_client() -> StatsdClient {
+        let config = get_config();
 
-    // Queue with a maximum capacity of 128K elements
-    const QUEUE_SIZE: usize = 128 * 1024;
+        // Queue with a maximum capacity of 128K elements
+        const QUEUE_SIZE: usize = 128 * 1024;
 
-    if let Some(statsd_mode) = config.general.statsd {
-        let (prefix, sink) = match statsd_mode {
-            StatsDMode::UnixSocket { prefix, path } => {
-                let socket = UnixDatagram::unbound().unwrap();
-                socket.set_nonblocking(true).unwrap();
-                let buffered_sink = BufferedUnixMetricSink::from(path, socket);
-                (
-                    prefix,
-                    QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
-                )
-            }
-            StatsDMode::Udp { prefix, host, port } => {
-                // Try to create
-                let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-                socket.set_nonblocking(true).unwrap();
-                let buffered_sink = BufferedUdpMetricSink::from((host, port), socket).unwrap();
-                (
-                    prefix,
-                    QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
-                )
-            }
-        };
+        if let Some(statsd_mode) = config.general.statsd {
+            let (prefix, sink) = match statsd_mode {
+                StatsDMode::UnixSocket { prefix, path } => {
+                    let socket = UnixDatagram::unbound().unwrap();
+                    socket.set_nonblocking(true).unwrap();
+                    let buffered_sink = BufferedUnixMetricSink::from(path, socket);
+                    (
+                        prefix,
+                        QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
+                    )
+                }
+                StatsDMode::Udp { prefix, host, port } => {
+                    // Try to create
+                    let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+                    socket.set_nonblocking(true).unwrap();
+                    let buffered_sink = BufferedUdpMetricSink::from((host, port), socket).unwrap();
+                    (
+                        prefix,
+                        QueuingMetricSink::with_capacity(buffered_sink, QUEUE_SIZE),
+                    )
+                }
+            };
 
-        info!("Started Statsd Client");
-        let statsd_builder = StatsdClient::builder(&prefix, sink);
-        // TODO: Add default tags for statsd client
-        statsd_builder.build()
-    } else {
-        // No-op client
-        StatsdClient::from_sink("prefix", NopMetricSink)
+            info!("Started Statsd Client");
+            let statsd_builder = StatsdClient::builder(&prefix, sink);
+            // TODO: Add default tags for statsd client
+            statsd_builder.build()
+        } else {
+            // No-op client
+            StatsdClient::from_sink("prefix", NopMetricSink)
+        }
     }
 }
 
