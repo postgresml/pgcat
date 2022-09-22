@@ -958,7 +958,7 @@ impl Collector {
                                     pool_stats.entry("cl_active".to_string()).or_insert(0);
                                 *counter += 1;
                             }
-                        }
+                        };
                     }
 
                     for (_, server_info) in server_states.iter() {
@@ -984,7 +984,7 @@ impl Collector {
                                 let counter = pool_stats.entry("sv_idle".to_string()).or_insert(0);
                                 *counter += 1;
                             }
-                        }
+                        };
                     }
 
                     // The following calls publish the internal stats making it visible
@@ -1190,4 +1190,8 @@ fn add_server_tags(tags: &mut HashMap<String, String>, server_information: &Serv
         server_information.username.to_string(),
     );
     tags.insert(String::from("role"), server_information.role.to_string());
+    tags.insert(
+        String::from("application_name"),
+        server_information.application_name.to_string(),
+    );
 }
