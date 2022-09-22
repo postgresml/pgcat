@@ -958,6 +958,7 @@ impl Collector {
                                     pool_stats.entry("cl_active".to_string()).or_insert(0);
                                 *counter += 1;
                             }
+                        }
                     }
 
                     for (_, server_info) in server_states.iter() {
@@ -983,6 +984,7 @@ impl Collector {
                                 let counter = pool_stats.entry("sv_idle".to_string()).or_insert(0);
                                 *counter += 1;
                             }
+                        }
                     }
 
                     // The following calls publish the internal stats making it visible
