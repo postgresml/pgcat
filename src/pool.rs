@@ -221,11 +221,7 @@ impl ConnectionPool {
                         },
                         query_parser_enabled: pool_config.query_parser_enabled.clone(),
                         primary_reads_enabled: pool_config.primary_reads_enabled,
-                        sharding_function: match pool_config.sharding_function.as_str() {
-                            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
-                            "sha1" => ShardingFunction::Sha1,
-                            _ => unreachable!(),
-                        },
+                        sharding_function: pool_config.sharding_function,
                     },
                 };
 
