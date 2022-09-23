@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, Role, User};
+use crate::config::{get_config, Address, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -26,24 +26,6 @@ pub type PoolMap = HashMap<(String, String), ConnectionPool>;
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
-
-/// Pool mode:
-/// - transaction: server serves one transaction,
-/// - session: server is attached to the client.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PoolMode {
-    Session,
-    Transaction,
-}
-
-impl std::fmt::Display for PoolMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            PoolMode::Session => write!(f, "session"),
-            PoolMode::Transaction => write!(f, "transaction"),
-        }
-    }
-}
 
 /// Pool settings.
 #[derive(Clone, Debug)]
@@ -199,11 +181,7 @@ impl ConnectionPool {
                     stats: get_reporter(),
                     server_info: BytesMut::new(),
                     settings: PoolSettings {
-                        pool_mode: match pool_config.pool_mode.as_str() {
-                            "transaction" => PoolMode::Transaction,
-                            "session" => PoolMode::Session,
-                            _ => unreachable!(),
-                        },
+                        pool_mode: pool_config.pool_mode,
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
                         user: user.clone(),
