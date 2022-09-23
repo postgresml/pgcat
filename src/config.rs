@@ -230,7 +230,7 @@ impl Default for General {
             port: General::default_port(),
             enable_prometheus_exporter: Some(false),
             prometheus_exporter_port: 9930,
-             statsd: None,
+            statsd: None,
             connect_timeout: General::default_connect_timeout(),
             shutdown_timeout: General::default_shutdown_timeout(),
             healthcheck_timeout: General::default_healthcheck_timeout(),
