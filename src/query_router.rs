@@ -359,8 +359,8 @@ impl QueryRouter {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::config::PoolMode;
     use crate::messages::simple_query;
-    use crate::pool::PoolMode;
     use crate::sharding::ShardingFunction;
     use bytes::BufMut;
 

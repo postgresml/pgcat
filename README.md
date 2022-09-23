@@ -60,6 +60,8 @@ psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
 | **`user`**                   |                                                                                                                                            |                                  |
 | `name`                       | The user name.                                                                                                                             | `sharding_user`                  |
 | `password`                   | The user password in plaintext.                                                                                                            | `hunter2`                        |
+| `statement_timeout`                   | Timeout in milliseconds for how long a query takes to execute                                                                                                            | `0 (disabled)`                        |
+
 |                              |                                                                                                                                            |                                  |
 | **`shards`**                 | Shards are numerically numbered starting from 0; the order in the config is preserved by the pooler to route queries accordingly.          | `[shards.0]`                     |
 | `servers`                    | List of servers to connect to and their roles. A server is: `[host, port, role]`, where `role` is either `primary` or `replica`.           | `["127.0.0.1", 5432, "primary"]` |
