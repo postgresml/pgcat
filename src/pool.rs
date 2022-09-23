@@ -155,6 +155,7 @@ impl ConnectionPool {
 
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
+                            .max_lifetime(Some(std::time::Duration::from_secs(60 * 60 * 24)))
                             .connection_timeout(std::time::Duration::from_millis(
                                 config.general.connect_timeout,
                             ))
