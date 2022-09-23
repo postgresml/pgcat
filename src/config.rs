@@ -672,10 +672,9 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
     };
     let new_config = get_config();
 
-    ConnectionPool::from_config(client_server_map).await?;
     if old_config.pools != new_config.pools {
         info!("Pool configuration changed");
-        // ConnectionPool::from_config(client_server_map).await?;
+        ConnectionPool::from_config(client_server_map).await?;
         Ok(true)
     } else if old_config != new_config {
         Ok(true)
