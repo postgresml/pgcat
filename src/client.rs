@@ -660,7 +660,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name.clone(), self.username.clone(), self.application_name.clone());
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name);
                     return Err(Error::ClientError);
                 }
             };
