@@ -263,6 +263,9 @@ pub struct Pool {
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
+    #[serde(default = "General::default_connect_timeout")]
+    pub connect_timeout: u64,
+
     pub sharding_function: String,
     pub shards: HashMap<String, Shard>,
     pub users: HashMap<String, User>,
@@ -274,8 +277,8 @@ impl Hash for Pool {
         self.default_role.hash(state);
         self.query_parser_enabled.hash(state);
         self.primary_reads_enabled.hash(state);
-
         self.sharding_function.hash(state);
+        self.connect_timeout.hash(state);
 
         for (key, value) in &self.shards {
             key.hash(state);
@@ -305,6 +308,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: "pg_bigint_hash".to_string(),
+            connect_timeout: General::default_connect_timeout(),
         }
     }
 }
@@ -596,7 +600,10 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         None => (),
     };
 
-    for (pool_name, pool) in &config.pools {
+    for (pool_name, mut pool) in &mut config.pools {
+        // Copy the connect timeout over for hashing.
+        pool.connect_timeout = config.general.connect_timeout;
+
         match pool.sharding_function.as_ref() {
             "pg_bigint_hash" => (),
             "sha1" => (),
