@@ -1,4 +1,4 @@
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 /// Implements various sharding functions.
 use sha1::{Digest, Sha1};
 

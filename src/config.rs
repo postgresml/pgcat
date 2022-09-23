@@ -594,21 +594,26 @@ impl Config {
                     Ok(_) => {
                         // Cert is okay, but what about the private key?
                         match self.general.tls_private_key.clone() {
-                            Some(tls_private_key) => match load_keys(&Path::new(&tls_private_key)) {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    error!("tls_private_key is incorrectly configured: {:?}", err);
-                                    return Err(Error::BadConfig);
+                            Some(tls_private_key) => {
+                                match load_keys(&Path::new(&tls_private_key)) {
+                                    Ok(_) => (),
+                                    Err(err) => {
+                                        error!(
+                                            "tls_private_key is incorrectly configured: {:?}",
+                                            err
+                                        );
+                                        return Err(Error::BadConfig);
+                                    }
                                 }
-                            },
-    
+                            }
+
                             None => {
                                 error!("tls_certificate is set, but the tls_private_key is not");
                                 return Err(Error::BadConfig);
                             }
                         };
                     }
-    
+
                     Err(err) => {
                         error!("tls_certificate is incorrectly configured: {:?}", err);
                         return Err(Error::BadConfig);
@@ -617,11 +622,11 @@ impl Config {
             }
             None => (),
         };
-    
+
         for (_, pool) in &self.pools {
             pool.validate()?;
         }
-    
+
         Ok(())
     }
 }
