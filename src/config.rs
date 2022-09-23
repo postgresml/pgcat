@@ -4,7 +4,7 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -122,7 +122,7 @@ impl Address {
 }
 
 /// PostgreSQL user.
-#[derive(Clone, PartialEq, Hash, std::cmp::Eq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Hash, Eq, Serialize, Deserialize, Debug)]
 pub struct User {
     pub username: String,
     pub password: String,
@@ -232,7 +232,7 @@ impl Default for General {
 /// Pool mode:
 /// - transaction: server serves one transaction,
 /// - session: server is attached to the client.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum PoolMode {
     #[serde(alias = "transaction", alias = "Transaction")]
     Transaction,
@@ -250,7 +250,7 @@ impl ToString for PoolMode {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Pool {
     #[serde(default = "Pool::default_pool_mode")]
     pub pool_mode: PoolMode,
@@ -263,9 +263,33 @@ pub struct Pool {
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
+    #[serde(default = "General::default_connect_timeout")]
+    pub connect_timeout: u64,
+
     pub sharding_function: String,
     pub shards: HashMap<String, Shard>,
     pub users: HashMap<String, User>,
+}
+
+impl Hash for Pool {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.pool_mode.hash(state);
+        self.default_role.hash(state);
+        self.query_parser_enabled.hash(state);
+        self.primary_reads_enabled.hash(state);
+        self.sharding_function.hash(state);
+        self.connect_timeout.hash(state);
+
+        for (key, value) in &self.shards {
+            key.hash(state);
+            value.hash(state);
+        }
+
+        for (key, value) in &self.users {
+            key.hash(state);
+            value.hash(state);
+        }
+    }
 }
 
 impl Pool {
@@ -284,6 +308,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: "pg_bigint_hash".to_string(),
+            connect_timeout: General::default_connect_timeout(),
         }
     }
 }
@@ -296,7 +321,7 @@ pub struct ServerConfig {
 }
 
 /// Shard configuration.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Shard {
     pub database: String,
     pub servers: Vec<ServerConfig>,
@@ -575,7 +600,10 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         None => (),
     };
 
-    for (pool_name, pool) in &config.pools {
+    for (pool_name, mut pool) in &mut config.pools {
+        // Copy the connect timeout over for hashing.
+        pool.connect_timeout = config.general.connect_timeout;
+
         match pool.sharding_function.as_ref() {
             "pg_bigint_hash" => (),
             "sha1" => (),
@@ -666,7 +694,7 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
     let new_config = get_config();
 
     if old_config.pools != new_config.pools {
-        info!("Pool configuration changed, re-creating server pools");
+        info!("Pool configuration changed");
         ConnectionPool::from_config(client_server_map).await?;
         Ok(true)
     } else if old_config != new_config {

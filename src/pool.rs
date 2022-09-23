@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -26,6 +26,8 @@ pub type PoolMap = HashMap<(String, String), ConnectionPool>;
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+static POOLS_HASH: Lazy<ArcSwap<HashSet<crate::config::Pool>>> =
+    Lazy::new(|| ArcSwap::from_pointee(HashSet::default()));
 
 /// Pool settings.
 #[derive(Clone, Debug)]
@@ -101,9 +103,23 @@ impl ConnectionPool {
         let mut new_pools = HashMap::new();
         let mut address_id = 0;
 
+        let mut pools_hash = (*(*POOLS_HASH.load())).clone();
+
         for (pool_name, pool_config) in &config.pools {
+            let changed = pools_hash.insert(pool_config.clone());
+
+            if !changed {
+                info!("[db: {}] has not changed", pool_name);
+                continue;
+            }
+
             // There is one pool per database/user pair.
             for (_, user) in &pool_config.users {
+                info!(
+                    "[pool: {}][user: {}] creating new pool",
+                    pool_name, user.username
+                );
+
                 let mut shards = Vec::new();
                 let mut addresses = Vec::new();
                 let mut banlist = Vec::new();
@@ -156,7 +172,7 @@ impl ConnectionPool {
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
                             .connection_timeout(std::time::Duration::from_millis(
-                                config.general.connect_timeout,
+                                pool_config.connect_timeout,
                             ))
                             .test_on_check_out(false)
                             .build(manager)
@@ -217,6 +233,7 @@ impl ConnectionPool {
         }
 
         POOLS.store(Arc::new(new_pools.clone()));
+        POOLS_HASH.store(Arc::new(pools_hash.clone()));
 
         Ok(())
     }
