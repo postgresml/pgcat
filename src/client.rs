@@ -1,6 +1,6 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
@@ -436,7 +436,7 @@ where
             );
 
             if password_hash != password_response {
-                debug!("Password authentication failed");
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
                 return Err(Error::ClientError);
@@ -458,6 +458,7 @@ where
                     )
                     .await?;
 
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                     return Err(Error::ClientError);
                 }
             };
@@ -466,7 +467,7 @@ where
             let password_hash = md5_hash_password(&username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
-                debug!("Password authentication failed");
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
                 return Err(Error::ClientError);
@@ -658,6 +659,8 @@ where
                         ),
                     )
                     .await?;
+
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name);
                     return Err(Error::ClientError);
                 }
             };
