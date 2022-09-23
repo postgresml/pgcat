@@ -172,7 +172,7 @@ impl ConnectionPool {
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
                             .connection_timeout(std::time::Duration::from_millis(
-                                config.general.connect_timeout,
+                                pool_config.connect_timeout,
                             ))
                             .test_on_check_out(false)
                             .build(manager)
