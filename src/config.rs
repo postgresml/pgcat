@@ -302,7 +302,6 @@ impl Pool {
                     return Err(Error::BadConfig);
                 }
             };
-
             shard.validate()?;
         }
 
