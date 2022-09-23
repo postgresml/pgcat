@@ -436,7 +436,7 @@ where
             );
 
             if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name.clone(), username.clone(), application_name.clone());
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
                 return Err(Error::ClientError);
@@ -458,7 +458,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name.clone(), username.clone(), application_name.clone());
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                     return Err(Error::ClientError);
                 }
             };
@@ -467,7 +467,7 @@ where
             let password_hash = md5_hash_password(&username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name.clone(), username.clone(), application_name.clone());
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
                 return Err(Error::ClientError);
