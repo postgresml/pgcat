@@ -3,8 +3,8 @@ use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::Hash;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -250,7 +250,7 @@ impl ToString for PoolMode {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Pool {
     #[serde(default = "Pool::default_pool_mode")]
     pub pool_mode: PoolMode,
@@ -267,29 +267,8 @@ pub struct Pool {
     pub connect_timeout: u64,
 
     pub sharding_function: String,
-    pub shards: HashMap<String, Shard>,
-    pub users: HashMap<String, User>,
-}
-
-impl Hash for Pool {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.pool_mode.hash(state);
-        self.default_role.hash(state);
-        self.query_parser_enabled.hash(state);
-        self.primary_reads_enabled.hash(state);
-        self.sharding_function.hash(state);
-        self.connect_timeout.hash(state);
-
-        for (key, value) in &self.shards {
-            key.hash(state);
-            value.hash(state);
-        }
-
-        for (key, value) in &self.users {
-            key.hash(state);
-            value.hash(state);
-        }
-    }
+    pub shards: BTreeMap<String, Shard>,
+    pub users: BTreeMap<String, User>,
 }
 
 impl Pool {
@@ -302,8 +281,8 @@ impl Default for Pool {
     fn default() -> Pool {
         Pool {
             pool_mode: Pool::default_pool_mode(),
-            shards: HashMap::from([(String::from("1"), Shard::default())]),
-            users: HashMap::default(),
+            shards: BTreeMap::from([(String::from("1"), Shard::default())]),
+            users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
             primary_reads_enabled: false,
@@ -693,9 +672,10 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
     };
     let new_config = get_config();
 
+    ConnectionPool::from_config(client_server_map).await?;
     if old_config.pools != new_config.pools {
         info!("Pool configuration changed");
-        ConnectionPool::from_config(client_server_map).await?;
+        // ConnectionPool::from_config(client_server_map).await?;
         Ok(true)
     } else if old_config != new_config {
         Ok(true)

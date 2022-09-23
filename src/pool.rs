@@ -108,13 +108,25 @@ impl ConnectionPool {
         for (pool_name, pool_config) in &config.pools {
             let changed = pools_hash.insert(pool_config.clone());
 
-            if !changed {
-                info!("[db: {}] has not changed", pool_name);
-                continue;
-            }
-
             // There is one pool per database/user pair.
             for (_, user) in &pool_config.users {
+                // If the pool hasn't changed, get existing reference and insert it into the new_pools.
+                // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
+                if !changed {
+                    match get_pool(pool_name.clone(), user.username.clone()) {
+                        Some(pool) => {
+                            info!(
+                                "[pool: {}][user: {}] has not changed",
+                                pool_name, user.username
+                            );
+                            new_pools
+                                .insert((pool_name.clone(), user.username.clone()), pool.clone());
+                            continue;
+                        }
+                        None => (),
+                    }
+                }
+
                 info!(
                     "[pool: {}][user: {}] creating new pool",
                     pool_name, user.username
