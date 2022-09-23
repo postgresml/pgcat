@@ -260,7 +260,7 @@ pub struct Pool {
     #[serde(default)] // False
     pub query_parser_enabled: bool,
 
-    #[serde(default = "Pool::default_primary_reads_enabled")]
+    #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
     pub sharding_function: String,
@@ -272,10 +272,6 @@ impl Pool {
     fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
     }
-
-    fn default_primary_reads_enabled() -> bool {
-        true
-    }
 }
 
 impl Default for Pool {
@@ -286,7 +282,7 @@ impl Default for Pool {
             users: HashMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
-            primary_reads_enabled: Pool::default_primary_reads_enabled(),
+            primary_reads_enabled: false,
             sharding_function: "pg_bigint_hash".to_string(),
         }
     }
