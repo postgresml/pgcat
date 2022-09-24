@@ -740,7 +740,10 @@ impl Collector {
                     address_id,
                 } => {
                     match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.error_count += stat.value as u64,
+                        Some(client_info) => {
+                            client_info.state = ClientState::Idle;
+                            client_info.error_count += stat.value as u64;
+                        },
                         None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 
@@ -757,7 +760,10 @@ impl Collector {
                     address_id,
                 } => {
                     match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.error_count += stat.value as u64,
+                        Some(client_info) => {
+                            client_info.state = ClientState::Idle;
+                            client_info.error_count += stat.value as u64;
+                        },
                         None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 

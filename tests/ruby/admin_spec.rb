@@ -146,6 +146,33 @@ describe "Admin" do
       end
     end
 
+    context "client fail to checkout connection from the pool" do
+      it "produces counts clients as idle" do
+        new_configs = processes.pgcat.current_config
+        new_configs["general"]["connect_timeout"] = 500
+        new_configs["general"]["ban_time"] = 1
+        new_configs["general"]["shutdown_timeout"] = 1
+        new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+        processes.pgcat.update_config(new_configs)
+        processes.pgcat.reload_config
+
+
+        connections = Array.new(5) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          Thread.new { c.async_exec("SELECT pg_sleep(1)") rescue PG::SystemError }
+        end
+
+        sleep(2)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["cl_idle"]).to eq("5")
+        expect(results["sv_idle"]).to eq("1")
+      end
+    end
+
     context "clients overwhelm server pools" do
       let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
 
