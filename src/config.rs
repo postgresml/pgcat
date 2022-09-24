@@ -631,10 +631,7 @@ impl Config {
         };
 
         for (_, pool) in &mut self.pools {
-            // Don't override with general connect_timeout if the pool connect_timeout is non-default
-            if pool.connect_timeout == Pool::default_connect_timeout() {
-                pool.connect_timeout = connect_timeout;
-            }
+            pool.connect_timeout = connect_timeout;
 
             pool.validate()?;
         }
