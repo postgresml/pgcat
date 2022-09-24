@@ -212,15 +212,15 @@ impl General {
 impl Default for General {
     fn default() -> General {
         General {
-            host: General::default_host(),
-            port: General::default_port(),
+            host: Self::default_host(),
+            port: Self::default_port(),
             enable_prometheus_exporter: Some(false),
             prometheus_exporter_port: 9930,
             connect_timeout: General::default_connect_timeout(),
-            shutdown_timeout: General::default_shutdown_timeout(),
-            healthcheck_timeout: General::default_healthcheck_timeout(),
-            healthcheck_delay: General::default_healthcheck_delay(),
-            ban_time: General::default_ban_time(),
+            shutdown_timeout: Self::default_shutdown_timeout(),
+            healthcheck_timeout: Self::default_healthcheck_timeout(),
+            healthcheck_delay: Self::default_healthcheck_delay(),
+            ban_time: Self::default_ban_time(),
             autoreload: false,
             tls_certificate: None,
             tls_private_key: None,
@@ -312,7 +312,7 @@ impl Pool {
 impl Default for Pool {
     fn default() -> Pool {
         Pool {
-            pool_mode: Pool::default_pool_mode(),
+            pool_mode: Self::default_pool_mode(),
             shards: BTreeMap::from([(String::from("1"), Shard::default())]),
             users: BTreeMap::default(),
             default_role: String::from("any"),
@@ -420,7 +420,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            path: Config::default_path(),
+            path: Self::default_path(),
             general: General::default(),
             pools: HashMap::default(),
         }
@@ -549,6 +549,10 @@ impl Config {
                 pool_name, pool_config.pool_mode
             );
             info!(
+                "[pool: {}] Connection timeout: {}ms",
+                pool_name, pool_config.connect_timeout
+            );
+            info!(
                 "[pool: {}] Sharding function: {}",
                 pool_name,
                 pool_config.sharding_function.to_string()
@@ -585,7 +589,7 @@ impl Config {
         }
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&mut self, connect_timeout: u64) -> Result<(), Error> {
         // Validate TLS!
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
@@ -622,7 +626,8 @@ impl Config {
             None => (),
         };
 
-        for (_, pool) in &self.pools {
+        for (_, pool) in &mut self.pools {
+            pool.connect_timeout = connect_timeout;
             pool.validate()?;
         }
 
@@ -664,7 +669,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
-    config.validate()?;
+    config.validate(config.general.connect_timeout)?;
 
     config.path = path.to_string();
 
