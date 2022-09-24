@@ -743,7 +743,7 @@ impl Collector {
                         Some(client_info) => {
                             client_info.state = ClientState::Idle;
                             client_info.error_count += stat.value as u64;
-                        },
+                        }
                         None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 
@@ -763,7 +763,7 @@ impl Collector {
                         Some(client_info) => {
                             client_info.state = ClientState::Idle;
                             client_info.error_count += stat.value as u64;
-                        },
+                        }
                         None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 
