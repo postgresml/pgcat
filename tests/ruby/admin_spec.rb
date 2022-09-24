@@ -156,10 +156,10 @@ describe "Admin" do
         processes.pgcat.update_config(new_configs)
         processes.pgcat.reload_config
 
-
+        threads = []
         connections = Array.new(5) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
         connections.each do |c|
-          Thread.new { c.async_exec("SELECT pg_sleep(1)") rescue PG::SystemError }
+          threads << Thread.new { c.async_exec("SELECT pg_sleep(1)") rescue PG::SystemError }
         end
 
         sleep(2)
@@ -170,6 +170,9 @@ describe "Admin" do
         end
         expect(results["cl_idle"]).to eq("5")
         expect(results["sv_idle"]).to eq("1")
+
+        threads.map(&:join)
+        connections.map(&:close)
       end
     end
 
