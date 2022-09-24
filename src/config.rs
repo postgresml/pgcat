@@ -264,7 +264,7 @@ pub struct Pool {
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
-    #[serde(default = "General::default_connect_timeout")]
+    #[serde(default = "Pool::default_connect_timeout")]
     pub connect_timeout: u64,
 
     pub sharding_function: ShardingFunction,
@@ -275,6 +275,10 @@ pub struct Pool {
 impl Pool {
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
+    }
+
+    pub fn default_connect_timeout() -> u64 {
+        General::default_connect_timeout()
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -319,7 +323,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            connect_timeout: General::default_connect_timeout(),
+            connect_timeout: Self::default_connect_timeout(),
         }
     }
 }
@@ -397,7 +401,7 @@ pub struct Config {
     // so we should always put simple fields before nested fields
     // in all serializable structs to avoid ValueAfterTable errors
     // These errors occur when the toml serializer is about to produce
-    // ambigous toml structure like the one below
+    // ambiguous toml structure like the one below
     // [main]
     // field1_under_main = 1
     // field2_under_main = 2
@@ -627,7 +631,11 @@ impl Config {
         };
 
         for (_, pool) in &mut self.pools {
-            pool.connect_timeout = connect_timeout;
+            // Don't override general connect_timeout the pool connect_timeout is non-default
+            if pool.connect_timeout != Pool::default_connect_timeout() {
+                pool.connect_timeout = connect_timeout;
+            }
+
             pool.validate()?;
         }
 
