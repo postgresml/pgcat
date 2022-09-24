@@ -147,7 +147,7 @@ describe "Admin" do
     end
 
     context "client fail to checkout connection from the pool" do
-      it "produces counts clients as idle" do
+      it "counts clients as idle" do
         new_configs = processes.pgcat.current_config
         new_configs["general"]["connect_timeout"] = 500
         new_configs["general"]["ban_time"] = 1
