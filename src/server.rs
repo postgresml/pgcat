@@ -546,7 +546,7 @@ impl Server {
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
-        error!("Server {:?} marked bad", self.address);
+        error!("{} marked bad", self.address);
         self.bad = true;
     }
 
@@ -673,7 +673,7 @@ impl Drop for Server {
         let duration = now - self.connected_at;
 
         info!(
-            "Server connection closed {:?}, session duration: {}",
+            "{} server connection closed, session duration: {}",
             self.address,
             crate::format_duration(&duration)
         );

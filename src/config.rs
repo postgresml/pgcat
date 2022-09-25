@@ -29,15 +29,6 @@ pub enum Role {
     Replica,
 }
 
-impl ToString for Role {
-    fn to_string(&self) -> String {
-        match *self {
-            Role::Primary => "primary".to_string(),
-            Role::Replica => "replica".to_string(),
-        }
-    }
-}
-
 impl PartialEq<Option<Role>> for Role {
     fn eq(&self, other: &Option<Role>) -> bool {
         match other {
@@ -52,6 +43,15 @@ impl PartialEq<Role> for Option<Role> {
         match *self {
             None => true,
             Some(role) => role == *other,
+        }
+    }
+}
+
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            Role::Primary => write!(f, "primary"),
+            Role::Replica => write!(f, "replica"),
         }
     }
 }
@@ -88,6 +88,22 @@ pub struct Address {
 
     /// The name of this pool (i.e. database name visible to the client).
     pub pool_name: String,
+}
+
+impl std::fmt::Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "[pool: {}][user: {}][host: {}][port: {}][db: {}][shard: {}][role: {}]",
+            self.pool_name,
+            self.username,
+            self.host,
+            self.port,
+            self.database,
+            self.shard,
+            self.role,
+        )
+    }
 }
 
 impl Default for Address {

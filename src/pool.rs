@@ -558,7 +558,7 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        info!("Creating a new server connection {:?}", self.address);
+        info!("{} creating a new server connection", self.address);
         let server_id = rand::random::<i32>();
 
         self.stats.server_register(
