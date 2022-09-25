@@ -147,6 +147,16 @@ pub struct User {
     pub statement_timeout: u64,
 }
 
+impl std::fmt::Display for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "[user: {}][pool_size: {}][statement_timeout: {}]",
+            self.username, self.pool_size, self.statement_timeout
+        )
+    }
+}
+
 impl Default for User {
     fn default() -> User {
         User {
@@ -168,6 +178,8 @@ pub struct General {
     pub port: i16,
 
     pub enable_prometheus_exporter: Option<bool>,
+
+    #[serde(default = "General::default_prometheus_exporter_port")]
     pub prometheus_exporter_port: i16,
 
     #[serde(default = "General::default_connect_timeout")]
@@ -201,6 +213,10 @@ impl General {
 
     fn default_port() -> i16 {
         5432
+    }
+
+    fn default_prometheus_exporter_port() -> i16 {
+        9930
     }
 
     fn default_connect_timeout() -> u64 {
@@ -257,11 +273,11 @@ pub enum PoolMode {
     Session,
 }
 
-impl ToString for PoolMode {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for PoolMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            PoolMode::Transaction => "transaction".to_string(),
-            PoolMode::Session => "session".to_string(),
+            PoolMode::Transaction => write!(f, "transaction"),
+            PoolMode::Session => write!(f, "session"),
         }
     }
 }
@@ -271,6 +287,7 @@ pub struct Pool {
     #[serde(default = "Pool::default_pool_mode")]
     pub pool_mode: PoolMode,
 
+    #[serde(default = "Pool::default_default_role")]
     pub default_role: String,
 
     #[serde(default)] // False
@@ -282,7 +299,9 @@ pub struct Pool {
     #[serde(default = "General::default_connect_timeout")]
     pub connect_timeout: u64,
 
+    #[serde(default = "Pool::default_sharding_function")]
     pub sharding_function: String,
+
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
 }
@@ -290,6 +309,14 @@ pub struct Pool {
 impl Pool {
     fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
+    }
+
+    fn default_sharding_function() -> String {
+        "pg_bigint_hash".to_string()
+    }
+
+    fn default_default_role() -> String {
+        "any".to_string()
     }
 }
 

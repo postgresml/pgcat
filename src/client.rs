@@ -138,6 +138,8 @@ pub async fn client_entrypoint(
             // TLS is not configured, we cannot offer it.
             else {
                 // Rejecting client request for TLS.
+                debug!("Rejecting TLS request");
+
                 let mut no = BytesMut::new();
                 no.put_u8(b'N');
                 write_all(&mut stream, no).await?;

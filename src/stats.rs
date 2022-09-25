@@ -52,6 +52,7 @@ pub enum ClientState {
     Waiting,
     Active,
 }
+
 impl std::fmt::Display for ClientState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
@@ -70,6 +71,7 @@ pub enum ServerState {
     Tested,
     Idle,
 }
+
 impl std::fmt::Display for ServerState {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
@@ -250,20 +252,21 @@ impl Reporter {
 
     /// Send statistics to the task keeping track of stats.
     fn send(&self, event: Event) {
-        let name = event.name.clone();
         let result = self.tx.try_send(event.clone());
 
         match result {
             Ok(_) => trace!(
-                "{:?} event reported successfully, capacity: {} {:?}",
-                name,
+                "{:?} event reported successfully, capacity: {}, value: {}",
+                event.name,
                 self.tx.capacity(),
-                event
+                event.value
             ),
 
             Err(err) => match err {
-                TrySendError::Full { .. } => error!("{:?} event dropped, buffer full", name),
-                TrySendError::Closed { .. } => error!("{:?} event dropped, channel closed", name),
+                TrySendError::Full { .. } => error!("{:?} event dropped, buffer full", event.name),
+                TrySendError::Closed { .. } => {
+                    error!("{:?} event dropped, channel closed", event.name)
+                }
             },
         };
     }

@@ -37,7 +37,7 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
 use tokio::net::TcpListener;
@@ -242,6 +242,8 @@ async fn main() {
                         continue;
                     }
                 };
+
+                trace!("Connection request from {:?}", addr);
 
                 let shutdown_rx = shutdown_tx.subscribe();
                 let drain_tx = drain_tx.clone();
