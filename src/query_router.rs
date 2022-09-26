@@ -627,6 +627,7 @@ mod test {
             pool_mode: PoolMode::Transaction,
             shards: 0,
             user: crate::config::User::default(),
+            name: String::from("some_pool"),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
             primary_reads_enabled: false,

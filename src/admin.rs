@@ -277,7 +277,7 @@ where
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
                 let pool_state = pool.pool_state(shard, server);
-                let banned = pool.is_banned(address, Some(address.role));
+                let banned = pool.is_banned(address);
 
                 res.put(data_row(&vec![
                     address.name(),                         // name

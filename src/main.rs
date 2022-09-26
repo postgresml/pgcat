@@ -52,6 +52,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 mod admin;
+mod bans;
 mod client;
 mod config;
 mod constants;
@@ -138,6 +139,8 @@ async fn main() {
     // Statistics reporting.
     let (stats_tx, stats_rx) = mpsc::channel(100_000);
     REPORTER.store(Arc::new(Reporter::new(stats_tx.clone())));
+
+    bans::start_ban_manager();
 
     // Connection pool that allows to query all shards and replicas.
     match ConnectionPool::from_config(client_server_map.clone()).await {

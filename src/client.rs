@@ -1,6 +1,6 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
@@ -9,6 +9,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
+use crate::bans::BanReason;
 use crate::config::{get_config, Address};
 use crate::constants::*;
 use crate::errors::Error;
@@ -436,7 +437,7 @@ where
             );
 
             if password_hash != password_response {
-                debug!("Password authentication failed");
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
                 return Err(Error::ClientError);
@@ -458,6 +459,7 @@ where
                     )
                     .await?;
 
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                     return Err(Error::ClientError);
                 }
             };
@@ -466,7 +468,7 @@ where
             let password_hash = md5_hash_password(&username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
-                debug!("Password authentication failed");
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
                 return Err(Error::ClientError);
@@ -658,6 +660,8 @@ where
                         ),
                     )
                     .await?;
+
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name.clone());
                     return Err(Error::ClientError);
                 }
             };
@@ -1034,7 +1038,7 @@ where
         match server.send(message).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                pool.ban(address, self.process_id);
+                pool.ban(address, self.process_id, BanReason::MessageSendFailed);
                 Err(err)
             }
         }
@@ -1056,7 +1060,7 @@ where
                 Ok(result) => match result {
                     Ok(message) => Ok(message),
                     Err(err) => {
-                        pool.ban(address, self.process_id);
+                        pool.ban(address, self.process_id, BanReason::MessageReceiveFailed);
                         error_response_terminal(
                             &mut self.write,
                             &format!("error receiving data from server: {:?}", err),
@@ -1071,7 +1075,7 @@ where
                         address, pool.settings.user.username
                     );
                     server.mark_bad();
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, self.process_id, BanReason::StatementTimeout);
                     error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(Error::StatementTimeout)
                 }
@@ -1080,7 +1084,7 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, self.process_id, BanReason::MessageReceiveFailed);
                     error_response_terminal(
                         &mut self.write,
                         &format!("error receiving data from server: {:?}", err),
