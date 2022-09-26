@@ -264,8 +264,7 @@ pub struct Pool {
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
-    #[serde(default = "Pool::default_connect_timeout")]
-    pub connect_timeout: u64,
+    pub connect_timeout: Option<u64>,
 
     pub sharding_function: ShardingFunction,
     pub shards: BTreeMap<String, Shard>,
@@ -275,10 +274,6 @@ pub struct Pool {
 impl Pool {
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
-    }
-
-    pub fn default_connect_timeout() -> u64 {
-        General::default_connect_timeout()
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -323,7 +318,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            connect_timeout: Self::default_connect_timeout(),
+            connect_timeout: None,
         }
     }
 }
@@ -552,9 +547,13 @@ impl Config {
                 "[pool: {}] Pool mode: {:?}",
                 pool_name, pool_config.pool_mode
             );
+            let connect_timeout = match pool_config.connect_timeout  {
+                Some(connect_timeout) => connect_timeout,
+                None => self.general.connect_timeout
+            };
             info!(
                 "[pool: {}] Connection timeout: {}ms",
-                pool_name, pool_config.connect_timeout
+                pool_name, connect_timeout
             );
             info!(
                 "[pool: {}] Sharding function: {}",
@@ -593,7 +592,7 @@ impl Config {
         }
     }
 
-    pub fn validate(&mut self, connect_timeout: u64) -> Result<(), Error> {
+    pub fn validate(&mut self) -> Result<(), Error> {
         // Validate TLS!
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
@@ -631,8 +630,6 @@ impl Config {
         };
 
         for (_, pool) in &mut self.pools {
-            pool.connect_timeout = connect_timeout;
-
             pool.validate()?;
         }
 
@@ -674,7 +671,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
         }
     };
 
-    config.validate(config.general.connect_timeout)?;
+    config.validate()?;
 
     config.path = path.to_string();
 

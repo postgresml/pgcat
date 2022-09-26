@@ -181,11 +181,14 @@ impl ConnectionPool {
                             get_reporter(),
                         );
 
+                        let connect_timeout = match pool_config.connect_timeout {
+                            Some(connect_timeout) => connect_timeout,
+                            None => config.general.connect_timeout,
+                        };
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
-                            .connection_timeout(std::time::Duration::from_millis(
-                                pool_config.connect_timeout,
-                            ))
+                            .connection_timeout(std::time::Duration::from_millis(connect_timeout))
                             .test_on_check_out(false)
                             .build(manager)
                             .await
