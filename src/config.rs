@@ -547,9 +547,9 @@ impl Config {
                 "[pool: {}] Pool mode: {:?}",
                 pool_name, pool_config.pool_mode
             );
-            let connect_timeout = match pool_config.connect_timeout  {
+            let connect_timeout = match pool_config.connect_timeout {
                 Some(connect_timeout) => connect_timeout,
-                None => self.general.connect_timeout
+                None => self.general.connect_timeout,
             };
             info!(
                 "[pool: {}] Connection timeout: {}ms",
