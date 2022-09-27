@@ -14,9 +14,9 @@ use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
+use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::Reporter;
-use crate::ClientServerMap;
 
 /// Server state.
 pub struct Server {
@@ -591,6 +591,7 @@ impl Server {
         // server connection thrashing if clients repeatedly do this.
         // Instead, we ROLLBACK that transaction before putting the connection back in the pool
         if self.in_transaction() {
+            warn!("Server returned while still in transaction, rolling back transaction");
             self.query("ROLLBACK").await?;
         }
 
@@ -600,6 +601,7 @@ impl Server {
         // send `DISCARD ALL` if we think the session is altered instead of just sending
         // it before each checkin.
         if self.needs_cleanup {
+            warn!("Server returned with session state altered, discarding state");
             self.query("DISCARD ALL").await?;
             self.needs_cleanup = false;
         }

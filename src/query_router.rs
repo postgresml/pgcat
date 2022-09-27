@@ -169,8 +169,8 @@ impl QueryRouter {
 
             Command::ShowShard => self.shard().to_string(),
             Command::ShowServerRole => match self.active_role {
-                Some(Role::Primary) => String::from("primary"),
-                Some(Role::Replica) => String::from("replica"),
+                Some(Role::Primary) => Role::Primary.to_string(),
+                Some(Role::Replica) => Role::Replica.to_string(),
                 None => {
                     if self.query_parser_enabled {
                         String::from("auto")
@@ -359,8 +359,8 @@ impl QueryRouter {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::config::PoolMode;
     use crate::messages::simple_query;
-    use crate::pool::PoolMode;
     use crate::sharding::ShardingFunction;
     use bytes::BufMut;
 

@@ -10,11 +10,11 @@ use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::bans::BanReason;
-use crate::config::{get_config, Address};
+use crate::config::{get_config, Address, PoolMode};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::{get_pool, ClientServerMap, ConnectionPool, PoolMode};
+use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{get_reporter, Reporter};
@@ -661,7 +661,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name.clone());
+                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name);
                     return Err(Error::ClientError);
                 }
             };
