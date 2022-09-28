@@ -181,11 +181,14 @@ impl ConnectionPool {
                             get_reporter(),
                         );
 
+                        let connect_timeout = match pool_config.connect_timeout {
+                            Some(connect_timeout) => connect_timeout,
+                            None => config.general.connect_timeout,
+                        };
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
-                            .connection_timeout(std::time::Duration::from_millis(
-                                pool_config.connect_timeout,
-                            ))
+                            .connection_timeout(std::time::Duration::from_millis(connect_timeout))
                             .test_on_check_out(false)
                             .build(manager)
                             .await
@@ -221,11 +224,7 @@ impl ConnectionPool {
                         },
                         query_parser_enabled: pool_config.query_parser_enabled.clone(),
                         primary_reads_enabled: pool_config.primary_reads_enabled,
-                        sharding_function: match pool_config.sharding_function.as_str() {
-                            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
-                            "sha1" => ShardingFunction::Sha1,
-                            _ => unreachable!(),
-                        },
+                        sharding_function: pool_config.sharding_function,
                     },
                 };
 
