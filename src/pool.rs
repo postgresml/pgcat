@@ -19,15 +19,42 @@ use crate::server::Server;
 use crate::sharding::ShardingFunction;
 use crate::stats::{get_reporter, Reporter};
 
+pub type ProcessId = i32;
+pub type SecretKey = i32;
+pub type ServerHost = String;
+pub type ServerPort = u16;
+
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
-pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, u16)>>>;
-pub type PoolMap = HashMap<(String, String), ConnectionPool>;
+pub type ClientServerMap =
+    Arc<Mutex<HashMap<(ProcessId, SecretKey), (ProcessId, SecretKey, ServerHost, ServerPort)>>>;
+pub type PoolMap = HashMap<UserPool, ConnectionPool>;
 /// The connection pool, globally available.
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 static POOLS_HASH: Lazy<ArcSwap<HashSet<crate::config::Pool>>> =
     Lazy::new(|| ArcSwap::from_pointee(HashSet::default()));
+
+/// An identifier for a PgCat pool,
+/// a database visible to clients.
+#[derive(Hash, Debug, Clone, PartialEq, Eq)]
+pub struct UserPool {
+    // The name of the database clients want to connect to.
+    pub db: String,
+
+    /// The username the client connects with. Each user gets its own pool.
+    pub user: String,
+}
+
+impl UserPool {
+    /// Create a new user/pool identifier.
+    pub fn new(db: &str, user: &str) -> UserPool {
+        UserPool {
+            db: db.to_string(),
+            user: user.to_string(),
+        }
+    }
+}
 
 /// Pool settings.
 #[derive(Clone, Debug)]
@@ -113,14 +140,14 @@ impl ConnectionPool {
                 // If the pool hasn't changed, get existing reference and insert it into the new_pools.
                 // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
                 if !changed {
-                    match get_pool(pool_name.clone(), user.username.clone()) {
+                    match get_pool(&pool_name, &user.username) {
                         Some(pool) => {
                             info!(
                                 "[pool: {}][user: {}] has not changed",
                                 pool_name, user.username
                             );
                             new_pools
-                                .insert((pool_name.clone(), user.username.clone()), pool.clone());
+                                .insert(UserPool::new(&pool_name, &user.username), pool.clone());
                             continue;
                         }
                         None => (),
@@ -239,7 +266,7 @@ impl ConnectionPool {
                 };
 
                 // There is one pool per database/user pair.
-                new_pools.insert((pool_name.clone(), user.username.clone()), pool);
+                new_pools.insert(UserPool::new(&pool_name, &user.username), pool);
             }
         }
 
@@ -603,15 +630,15 @@ impl ManageConnection for ServerPool {
 }
 
 /// Get the connection pool
-pub fn get_pool(db: String, user: String) -> Option<ConnectionPool> {
-    match get_all_pools().get(&(db, user)) {
+pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
+    match get_all_pools().get(&UserPool::new(&db, &user)) {
         Some(pool) => Some(pool.clone()),
         None => None,
     }
 }
 
 /// Get a pointer to all configured pools.
-pub fn get_all_pools() -> HashMap<(String, String), ConnectionPool> {
+pub fn get_all_pools() -> HashMap<UserPool, ConnectionPool> {
     return (*(*POOLS.load())).clone();
 }
 
