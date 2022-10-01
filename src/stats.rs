@@ -521,11 +521,11 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD / 15));
             loop {
                 interval.tick().await;
-                for ((pool_name, username), _pool) in get_all_pools() {
+                for (user_pool, _) in get_all_pools() {
                     let _ = tx.try_send(Event {
                         name: EventName::UpdateStats {
-                            pool_name,
-                            username,
+                            pool_name: user_pool.db,
+                            username: user_pool.user,
                         },
                         value: 0,
                     });

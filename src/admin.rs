@@ -215,16 +215,16 @@ where
 
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
-    for ((pool_name, username), pool) in get_all_pools() {
+    for (user_pool, pool) in get_all_pools() {
         let def = HashMap::default();
         let pool_stats = all_pool_stats
-            .get(&(pool_name.clone(), username.clone()))
+            .get(&(user_pool.db.clone(), user_pool.user.clone()))
             .unwrap_or(&def);
 
         let pool_config = &pool.settings;
         let mut row = vec![
-            pool_name.clone(),
-            username.clone(),
+            user_pool.db.clone(),
+            user_pool.user.clone(),
             pool_config.pool_mode.to_string(),
         ];
         for column in &columns[3..columns.len()] {
@@ -420,7 +420,7 @@ where
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    for ((db, username), pool) in get_all_pools() {
+    for (user_pool, pool) in get_all_pools() {
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
@@ -429,7 +429,7 @@ where
                     None => HashMap::new(),
                 };
 
-                let mut row = vec![address.name(), db.clone(), username.clone()];
+                let mut row = vec![address.name(), user_pool.db.clone(), user_pool.user.clone()];
                 for column in &columns[3..] {
                     row.push(stats.get(column.0).unwrap_or(&0).to_string());
                 }
