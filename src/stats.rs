@@ -316,7 +316,7 @@ impl Reporter {
 
     /// Reportes the time spent by a client waiting to get a healthy connection from the pool
     pub fn checkout_time(&self, microseconds: u128, client_id: i32, server_id: i32) {
-          let event = Event {
+        let event = Event {
             name: EventName::CheckoutTime {
                 client_id,
                 server_id,
@@ -684,16 +684,21 @@ impl Collector {
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
                                 .or_insert(HashMap::default());
-                            let counter =
-                            address_stats.entry("total_wait_time".to_string()).or_insert(0);
+                            let counter = address_stats
+                                .entry("total_wait_time".to_string())
+                                .or_insert(0);
                             *counter += stat.value;
 
                             let pool_stats = pool_stat_lookup
-                                                                            .entry((server_info.pool_name.clone(), server_info.username.clone()))
-                                                                            .or_insert(HashMap::default());
+                                .entry((
+                                    server_info.pool_name.clone(),
+                                    server_info.username.clone(),
+                                ))
+                                .or_insert(HashMap::default());
 
                             // We record max wait in microseconds, we do the pgbouncer second/microsecond split on admin
-                            let old_microseconds = pool_stats.entry("maxwait_us".to_string()).or_insert(0);
+                            let old_microseconds =
+                                pool_stats.entry("maxwait_us".to_string()).or_insert(0);
                             if stat.value > *old_microseconds {
                                 *old_microseconds = stat.value;
                             }
@@ -950,7 +955,6 @@ impl Collector {
                         };
                     }
 
-
                     // The following calls publish the internal stats making it visible
                     // to clients using admin database to issue queries like `SHOW STATS`
                     LATEST_CLIENT_STATS.store(Arc::new(client_states.clone()));
@@ -962,7 +966,6 @@ impl Collector {
                         .entry((pool_name.clone(), username.clone()))
                         .or_insert(HashMap::default())
                         .insert("maxwait_us".to_string(), 0);
-
                 }
 
                 EventName::UpdateAverages { address_id } => {
