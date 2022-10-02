@@ -230,7 +230,9 @@ where
         for column in &columns[3..columns.len()] {
             let value = match column.0 {
                 "maxwait" => (pool_stats.get("maxwait_us").unwrap_or(&0) / 1_000_000).to_string(),
-                "maxwait_us" => (pool_stats.get("maxwait_us").unwrap_or(&0) % 1_000_000).to_string(),
+                "maxwait_us" => {
+                    (pool_stats.get("maxwait_us").unwrap_or(&0) % 1_000_000).to_string()
+                }
                 _other_values => pool_stats.get(column.0).unwrap_or(&0).to_string(),
             };
             row.push(value);
