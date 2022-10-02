@@ -316,7 +316,7 @@ impl Reporter {
 
     /// Reportes the time spent by a client waiting to get a healthy connection from the pool
     pub fn checkout_time(&self, microseconds: u128, client_id: i32, server_id: i32) {
-        let event = Event {
+          let event = Event {
             name: EventName::CheckoutTime {
                 client_id,
                 server_id,
@@ -580,15 +580,15 @@ impl Collector {
                             server_info.query_count += stat.value as u64;
                             server_info.application_name = app_name;
 
-                            let pool_stats = address_stat_lookup
+                            let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
                                 .or_insert(HashMap::default());
-                            let counter = pool_stats
+                            let counter = address_stats
                                 .entry("total_query_count".to_string())
                                 .or_insert(0);
                             *counter += stat.value;
 
-                            let duration = pool_stats
+                            let duration = address_stats
                                 .entry("total_query_time".to_string())
                                 .or_insert(0);
                             *duration += duration_ms as i64;
@@ -681,26 +681,21 @@ impl Collector {
                         Some(server_info) => {
                             server_info.application_name = app_name;
 
-                            let pool_stats = address_stat_lookup
+                            let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
                                 .or_insert(HashMap::default());
                             let counter =
-                                pool_stats.entry("total_wait_time".to_string()).or_insert(0);
+                            address_stats.entry("total_wait_time".to_string()).or_insert(0);
                             *counter += stat.value;
 
-                            let counter = pool_stats.entry("maxwait_us".to_string()).or_insert(0);
-                            let mic_part = stat.value % 1_000_000;
+                            let pool_stats = pool_stat_lookup
+                                                                            .entry((server_info.pool_name.clone(), server_info.username.clone()))
+                                                                            .or_insert(HashMap::default());
 
-                            // Report max time here
-                            if mic_part > *counter {
-                                *counter = mic_part;
-                            }
-
-                            let counter = pool_stats.entry("maxwait".to_string()).or_insert(0);
-                            let seconds = *counter / 1_000_000;
-
-                            if seconds > *counter {
-                                *counter = seconds;
+                            // We record max wait in microseconds, we do the pgbouncer second/microsecond split on admin
+                            let old_microseconds = pool_stats.entry("maxwait_us".to_string()).or_insert(0);
+                            if stat.value > *old_microseconds {
+                                *old_microseconds = stat.value;
                             }
                         }
                         None => (),
@@ -903,8 +898,6 @@ impl Collector {
                         "sv_active",
                         "sv_tested",
                         "sv_login",
-                        "maxwait",
-                        "maxwait_us",
                     ] {
                         pool_stats.insert(stat.to_string(), 0);
                     }
@@ -957,11 +950,19 @@ impl Collector {
                         };
                     }
 
+
                     // The following calls publish the internal stats making it visible
                     // to clients using admin database to issue queries like `SHOW STATS`
                     LATEST_CLIENT_STATS.store(Arc::new(client_states.clone()));
                     LATEST_SERVER_STATS.store(Arc::new(server_states.clone()));
                     LATEST_POOL_STATS.store(Arc::new(pool_stat_lookup.clone()));
+
+                    // Clear maxwait after reporting
+                    pool_stat_lookup
+                        .entry((pool_name.clone(), username.clone()))
+                        .or_insert(HashMap::default())
+                        .insert("maxwait_us".to_string(), 0);
+
                 }
 
                 EventName::UpdateAverages { address_id } => {

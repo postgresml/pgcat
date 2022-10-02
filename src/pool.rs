@@ -334,6 +334,10 @@ impl ConnectionPool {
         process_id: i32,    // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
+
+        // Indicate we're waiting on a server connection from a pool.
+        self.stats.client_waiting(process_id);
+
         let mut candidates: Vec<&Address> = self.addresses[shard]
             .iter()
             .filter(|address| address.role == role)
@@ -356,9 +360,6 @@ impl ConnectionPool {
                 debug!("Address {:?} is banned", address);
                 continue;
             }
-
-            // Indicate we're waiting on a server connection from a pool.
-            self.stats.client_waiting(process_id);
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -397,7 +398,7 @@ impl ConnectionPool {
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
-                server.query(";"), // Cheap query (query parser not used in PG)
+                server.query(";"), // Cheap query as it skips the query planner
             )
             .await
             {
