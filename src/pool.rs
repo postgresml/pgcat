@@ -8,39 +8,50 @@ use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, Role, User};
+use crate::config::{get_config, Address, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
 use crate::stats::{get_reporter, Reporter};
 
+pub type ProcessId = i32;
+pub type SecretKey = i32;
+pub type ServerHost = String;
+pub type ServerPort = u16;
+
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
-pub type ClientServerMap = Arc<Mutex<HashMap<(i32, i32), (i32, i32, String, u16)>>>;
-pub type PoolMap = HashMap<(String, String), ConnectionPool>;
+pub type ClientServerMap =
+    Arc<Mutex<HashMap<(ProcessId, SecretKey), (ProcessId, SecretKey, ServerHost, ServerPort)>>>;
+pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
 /// The connection pool, globally available.
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+static POOLS_HASH: Lazy<ArcSwap<HashSet<crate::config::Pool>>> =
+    Lazy::new(|| ArcSwap::from_pointee(HashSet::default()));
 
-/// Pool mode:
-/// - transaction: server serves one transaction,
-/// - session: server is attached to the client.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PoolMode {
-    Session,
-    Transaction,
+/// An identifier for a PgCat pool,
+/// a database visible to clients.
+#[derive(Hash, Debug, Clone, PartialEq, Eq)]
+pub struct PoolIdentifier {
+    // The name of the database clients want to connect to.
+    pub db: String,
+
+    /// The username the client connects with. Each user gets its own pool.
+    pub user: String,
 }
 
-impl std::fmt::Display for PoolMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            PoolMode::Session => write!(f, "session"),
-            PoolMode::Transaction => write!(f, "transaction"),
+impl PoolIdentifier {
+    /// Create a new user/pool identifier.
+    pub fn new(db: &str, user: &str) -> PoolIdentifier {
+        PoolIdentifier {
+            db: db.to_string(),
+            user: user.to_string(),
         }
     }
 }
@@ -119,9 +130,37 @@ impl ConnectionPool {
         let mut new_pools = HashMap::new();
         let mut address_id = 0;
 
+        let mut pools_hash = (*(*POOLS_HASH.load())).clone();
+
         for (pool_name, pool_config) in &config.pools {
+            let changed = pools_hash.insert(pool_config.clone());
+
             // There is one pool per database/user pair.
             for (_, user) in &pool_config.users {
+                // If the pool hasn't changed, get existing reference and insert it into the new_pools.
+                // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
+                if !changed {
+                    match get_pool(&pool_name, &user.username) {
+                        Some(pool) => {
+                            info!(
+                                "[pool: {}][user: {}] has not changed",
+                                pool_name, user.username
+                            );
+                            new_pools.insert(
+                                PoolIdentifier::new(&pool_name, &user.username),
+                                pool.clone(),
+                            );
+                            continue;
+                        }
+                        None => (),
+                    }
+                }
+
+                info!(
+                    "[pool: {}][user: {}] creating new pool",
+                    pool_name, user.username
+                );
+
                 let mut shards = Vec::new();
                 let mut addresses = Vec::new();
                 let mut banlist = Vec::new();
@@ -143,21 +182,12 @@ impl ConnectionPool {
                     let mut replica_number = 0;
 
                     for server in shard.servers.iter() {
-                        let role = match server.2.as_ref() {
-                            "primary" => Role::Primary,
-                            "replica" => Role::Replica,
-                            _ => {
-                                error!("Config error: server role can be 'primary' or 'replica', have: '{}'. Defaulting to 'replica'.", server.2);
-                                Role::Replica
-                            }
-                        };
-
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
-                            host: server.0.clone(),
-                            port: server.1 as u16,
-                            role: role,
+                            host: server.host.clone(),
+                            port: server.port,
+                            role: server.role,
                             address_index,
                             replica_number,
                             shard: shard_idx.parse::<usize>().unwrap(),
@@ -168,7 +198,7 @@ impl ConnectionPool {
                         address_id += 1;
                         address_index += 1;
 
-                        if role == Role::Replica {
+                        if server.role == Role::Replica {
                             replica_number += 1;
                         }
 
@@ -180,11 +210,14 @@ impl ConnectionPool {
                             get_reporter(),
                         );
 
+                        let connect_timeout = match pool_config.connect_timeout {
+                            Some(connect_timeout) => connect_timeout,
+                            None => config.general.connect_timeout,
+                        };
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
-                            .connection_timeout(std::time::Duration::from_millis(
-                                config.general.connect_timeout,
-                            ))
+                            .connection_timeout(std::time::Duration::from_millis(connect_timeout))
                             .test_on_check_out(false)
                             .build(manager)
                             .await
@@ -208,11 +241,7 @@ impl ConnectionPool {
                     stats: get_reporter(),
                     server_info: BytesMut::new(),
                     settings: PoolSettings {
-                        pool_mode: match pool_config.pool_mode.as_str() {
-                            "transaction" => PoolMode::Transaction,
-                            "session" => PoolMode::Session,
-                            _ => unreachable!(),
-                        },
+                        pool_mode: pool_config.pool_mode,
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
                         user: user.clone(),
@@ -224,11 +253,7 @@ impl ConnectionPool {
                         },
                         query_parser_enabled: pool_config.query_parser_enabled.clone(),
                         primary_reads_enabled: pool_config.primary_reads_enabled,
-                        sharding_function: match pool_config.sharding_function.as_str() {
-                            "pg_bigint_hash" => ShardingFunction::PgBigintHash,
-                            "sha1" => ShardingFunction::Sha1,
-                            _ => unreachable!(),
-                        },
+                        sharding_function: pool_config.sharding_function,
                     },
                 };
 
@@ -243,11 +268,12 @@ impl ConnectionPool {
                 };
 
                 // There is one pool per database/user pair.
-                new_pools.insert((pool_name.clone(), user.username.clone()), pool);
+                new_pools.insert(PoolIdentifier::new(&pool_name, &user.username), pool);
             }
         }
 
         POOLS.store(Arc::new(new_pools.clone()));
+        POOLS_HASH.store(Arc::new(pools_hash.clone()));
 
         Ok(())
     }
@@ -595,7 +621,7 @@ impl ManageConnection for ServerPool {
     }
 
     /// Determines if the connection is still connected to the database.
-    async fn is_valid(&self, _conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+    async fn is_valid(&self, _conn: &mut Self::Connection) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -606,15 +632,15 @@ impl ManageConnection for ServerPool {
 }
 
 /// Get the connection pool
-pub fn get_pool(db: String, user: String) -> Option<ConnectionPool> {
-    match get_all_pools().get(&(db, user)) {
+pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
+    match get_all_pools().get(&PoolIdentifier::new(&db, &user)) {
         Some(pool) => Some(pool.clone()),
         None => None,
     }
 }
 
 /// Get a pointer to all configured pools.
-pub fn get_all_pools() -> HashMap<(String, String), ConnectionPool> {
+pub fn get_all_pools() -> HashMap<PoolIdentifier, ConnectionPool> {
     return (*(*POOLS.load())).clone();
 }
 
