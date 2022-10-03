@@ -329,9 +329,9 @@ impl ConnectionPool {
     /// Get a connection from the pool.
     pub async fn get(
         &self,
-        shard: usize,       // shard number
-        role: Option<Role>, // primary or replica
-        process_id: i32,    // client id
+        shard: usize,           // shard number
+        role: Option<Role>,     // primary or replica
+        client_process_id: i32, // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let now = Instant::now();
         let mut candidates: Vec<&Address> = self.addresses[shard]
@@ -352,13 +352,16 @@ impl ConnectionPool {
                 None => break,
             };
 
-            if self.is_banned(&address, role) {
+            if self
+                .is_banned(&address, healthcheck_timeout, now, client_process_id, role)
+                .await
+            {
                 debug!("Address {:?} is banned", address);
                 continue;
             }
 
             // Indicate we're waiting on a server connection from a pool.
-            self.stats.client_waiting(process_id);
+            self.stats.client_waiting(client_process_id);
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -368,8 +371,9 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!("Banning instance {:?}, error: {:?}", address, err);
-                    self.ban(&address, process_id);
-                    self.stats.client_checkout_error(process_id, address.id);
+                    self.ban(&address, client_process_id);
+                    self.stats
+                        .client_checkout_error(client_process_id, address.id);
                     continue;
                 }
             };
@@ -385,73 +389,91 @@ impl ConnectionPool {
             // since we last checked the server is ok.
             // Health checks are pretty expensive.
             if !require_healthcheck {
+                self.stats.checkout_time(
+                    now.elapsed().as_micros(),
+                    client_process_id,
+                    server.server_id(),
+                );
                 self.stats
-                    .checkout_time(now.elapsed().as_micros(), process_id, server.server_id());
-                self.stats.server_active(process_id, server.server_id());
+                    .server_active(client_process_id, server.server_id());
                 return Ok((conn, address.clone()));
             }
 
-            debug!("Running health check on server {:?}", address);
-
-            self.stats.server_tested(server.server_id());
-
-            match tokio::time::timeout(
-                tokio::time::Duration::from_millis(healthcheck_timeout),
-                server.query(";"), // Cheap query (query parser not used in PG)
-            )
-            .await
+            if self
+                .run_health_check(address, server, healthcheck_timeout, now, client_process_id)
+                .await
             {
-                // Check if health check succeeded.
-                Ok(res) => match res {
-                    Ok(_) => {
-                        self.stats.checkout_time(
-                            now.elapsed().as_micros(),
-                            process_id,
-                            conn.server_id(),
-                        );
-                        self.stats.server_active(process_id, conn.server_id());
-                        return Ok((conn, address.clone()));
-                    }
-
-                    // Health check failed.
-                    Err(err) => {
-                        error!(
-                            "Banning instance {:?} because of failed health check, {:?}",
-                            address, err
-                        );
-
-                        // Don't leave a bad connection in the pool.
-                        server.mark_bad();
-
-                        self.ban(&address, process_id);
-                        continue;
-                    }
-                },
-
-                // Health check timed out.
-                Err(err) => {
-                    error!(
-                        "Banning instance {:?} because of health check timeout, {:?}",
-                        address, err
-                    );
-                    // Don't leave a bad connection in the pool.
-                    server.mark_bad();
-
-                    self.ban(&address, process_id);
-                    continue;
-                }
+                return Ok((conn, address.clone()));
+            } else {
+                continue;
             }
         }
 
         Err(Error::AllServersDown)
     }
 
+    async fn run_health_check(
+        &self,
+        address: &Address,
+        server: &mut Server,
+        healthcheck_timeout: u64,
+        start: Instant,
+        client_process_id: i32,
+    ) -> bool {
+        debug!("Running health check on server {:?}", address);
+
+        self.stats.server_tested(server.server_id());
+
+        match tokio::time::timeout(
+            tokio::time::Duration::from_millis(healthcheck_timeout),
+            server.query(";"), // Cheap query (query parser not used in PG)
+        )
+        .await
+        {
+            // Check if health check succeeded.
+            Ok(res) => match res {
+                Ok(_) => {
+                    self.stats.checkout_time(
+                        start.elapsed().as_micros(),
+                        client_process_id,
+                        server.server_id(),
+                    );
+                    self.stats
+                        .server_active(client_process_id, server.server_id());
+                    return true;
+                }
+
+                // Health check failed.
+                Err(err) => {
+                    error!(
+                        "Banning instance {:?} because of failed health check, {:?}",
+                        address, err
+                    );
+                }
+            },
+
+            // Health check timed out.
+            Err(err) => {
+                error!(
+                    "Banning instance {:?} because of health check timeout, {:?}",
+                    address, err
+                );
+            }
+        }
+
+        // Don't leave a bad connection in the pool.
+        server.mark_bad();
+
+        self.ban(&address, client_process_id);
+        return false;
+    }
+
     /// Ban an address (i.e. replica). It no longer will serve
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
-    pub fn ban(&self, address: &Address, client_id: i32) {
+    pub fn ban(&self, address: &Address, client_process_id: i32) {
         error!("Banning {:?}", address);
-        self.stats.client_ban_error(client_id, address.id);
+        self.stats.client_ban_error(client_process_id, address.id);
 
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
@@ -467,7 +489,14 @@ impl ConnectionPool {
 
     /// Check if a replica can serve traffic. If all replicas are banned,
     /// we unban all of them. Better to try then not to.
-    pub fn is_banned(&self, address: &Address, role: Option<Role>) -> bool {
+    async fn is_banned(
+        &self,
+        address: &Address,
+        healthcheck_timeout: u64,
+        start: Instant,
+        client_process_id: i32,
+        role: Option<Role>,
+    ) -> bool {
         let replicas_available = match role {
             Some(Role::Replica) => self.addresses[address.shard]
                 .iter()
@@ -499,6 +528,33 @@ impl ConnectionPool {
 
                 // Ban expired.
                 if now.timestamp() - timestamp.timestamp() > config.general.ban_time {
+                    // Get connection from the pool
+                    let mut connection = match self.databases[address.shard][address.address_index]
+                        .dedicated_connection()
+                        .await
+                    {
+                        Ok(connection) => connection,
+                        Err(err) => {
+                            debug!("Attempt to connect to banned connection failed: {:?}", err);
+                            return true;
+                        }
+                    };
+
+                    // Check if health check fails
+                    if !self
+                        .run_health_check(
+                            address,
+                            &mut connection,
+                            healthcheck_timeout,
+                            start,
+                            client_process_id,
+                        )
+                        .await
+                    {
+                        self.ban(address, client_process_id);
+                        return true;
+                    }
+
                     drop(guard);
                     warn!("Unbanning {:?}", address);
                     let mut guard = self.banlist.write();
