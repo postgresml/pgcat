@@ -352,12 +352,15 @@ impl ConnectionPool {
                 None => break,
             };
 
-            if self
-                .is_banned(&address, healthcheck_timeout, now, client_process_id, role)
-                .await
-            {
-                debug!("Address {:?} is banned", address);
-                continue;
+            let mut force_healthcheck = false;
+
+            if self.is_banned(&address) {
+                if self.can_unban(&address).await {
+                    force_healthcheck = true;
+                } else {
+                    debug!("Address {:?} is banned", address);
+                    continue;
+                }
             }
 
             // Indicate we're waiting on a server connection from a pool.
@@ -382,8 +385,8 @@ impl ConnectionPool {
             let server = &mut *conn;
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
-            let require_healthcheck =
-                server.last_activity().elapsed().unwrap().as_millis() > healthcheck_delay;
+            let require_healthcheck = force_healthcheck
+                || server.last_activity().elapsed().unwrap().as_millis() > healthcheck_delay;
 
             // Do not issue a health check unless it's been a little while
             // since we last checked the server is ok.
@@ -475,9 +478,12 @@ impl ConnectionPool {
         error!("Banning {:?}", address);
         self.stats.client_ban_error(client_process_id, address.id);
 
-        let now = chrono::offset::Utc::now().naive_utc();
-        let mut guard = self.banlist.write();
-        guard[address.shard].insert(address.clone(), now);
+        // Only ban replicas
+        if address.role == Role::Replica {
+            let now = chrono::offset::Utc::now().naive_utc();
+            let mut guard = self.banlist.write();
+            guard[address.shard].insert(address.clone(), now);
+        }
     }
 
     /// Clear the replica to receive traffic again. Takes effect immediately
@@ -487,90 +493,71 @@ impl ConnectionPool {
         guard[address.shard].remove(address);
     }
 
-    /// Check if a replica can serve traffic. If all replicas are banned,
-    /// we unban all of them. Better to try then not to.
-    async fn is_banned(
-        &self,
-        address: &Address,
-        healthcheck_timeout: u64,
-        start: Instant,
-        client_process_id: i32,
-        role: Option<Role>,
-    ) -> bool {
-        let replicas_available = match role {
-            Some(Role::Replica) => self.addresses[address.shard]
-                .iter()
-                .filter(|addr| addr.role == Role::Replica)
-                .count(),
-            None => self.addresses[address.shard].len(),
-            Some(Role::Primary) => return false, // Primary cannot be banned.
-        };
-
-        debug!("Available targets for {:?}: {}", role, replicas_available);
-
+    /// Check if address is banned
+    /// true if banned, false otherwise
+    pub fn is_banned(&self, address: &Address) -> bool {
         let guard = self.banlist.read();
 
+        match guard[address.shard].get(address) {
+            Some(_) => true,
+            None => false,
+        }
+    }
+
+    /// Check if a replica can serve traffic. If all replicas are banned,
+    /// we unban all of them. Better to try then not to.
+    /// returns true if can unban, false otherwise
+    async fn can_unban(&self, address: &Address) -> bool {
+        // If somehow primary ends up being banned we should return true here
+        if address.role == Role::Primary {
+            return true;
+        }
+
+        let replicas_available = self.addresses[address.shard]
+            .iter()
+            .filter(|addr| addr.role == Role::Replica)
+            .count();
+
+        debug!("Available targets: {}", replicas_available);
+
+        let banlist_guard = self.banlist.read();
+
         // Everything is banned = nothing is banned.
-        if guard[address.shard].len() == replicas_available {
-            drop(guard);
+        if banlist_guard[address.shard].len() == replicas_available {
+            drop(banlist_guard);
             let mut guard = self.banlist.write();
             guard[address.shard].clear();
             drop(guard);
             warn!("Unbanning all replicas.");
-            return false;
+            return true;
         }
 
-        // I expect this to miss 99.9999% of the time.
-        match guard[address.shard].get(address) {
+        // Check if instance is banned and past the ban timer
+        match banlist_guard[address.shard].get(address) {
             Some(timestamp) => {
                 let now = chrono::offset::Utc::now().naive_utc();
                 let config = get_config();
 
-                // Ban expired.
-                if now.timestamp() - timestamp.timestamp() > config.general.ban_time {
-                    // Get connection from the pool
-                    let mut connection = match self.databases[address.shard][address.address_index]
-                        .dedicated_connection()
-                        .await
-                    {
-                        Ok(connection) => connection,
-                        Err(err) => {
-                            debug!("Attempt to connect to banned connection failed: {:?}", err);
-                            return true;
-                        }
-                    };
-
-                    // Check if health check fails
-                    if !self
-                        .run_health_check(
-                            address,
-                            &mut connection,
-                            healthcheck_timeout,
-                            start,
-                            client_process_id,
-                        )
-                        .await
-                    {
-                        self.ban(address, client_process_id);
-                        return true;
-                    }
-
-                    drop(guard);
-                    warn!("Unbanning {:?}", address);
-                    let mut guard = self.banlist.write();
-                    guard[address.shard].remove(address);
-                    false
-                } else {
+                // If ban time hasn't elapsed, can't unban
+                if !(now.timestamp() - timestamp.timestamp() > config.general.ban_time) {
                     debug!("{:?} is banned", address);
-                    true
+                    return false;
                 }
             }
-
+            // address is not banned so unbanning will always "succeed" at unbanning
             None => {
                 debug!("{:?} is ok", address);
-                false
+                return true;
             }
-        }
+        };
+
+        drop(banlist_guard);
+
+        warn!("Unbanning {:?}", address);
+        let mut guard = self.banlist.write();
+        guard[address.shard].remove(address);
+
+        return true;
     }
 
     /// Get the number of configured shards.
