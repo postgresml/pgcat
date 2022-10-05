@@ -450,6 +450,11 @@ impl Server {
 
                 // CommandComplete
                 'C' => {
+
+                    if self.in_transaction {
+                        continue;
+                    }
+
                     let mut command_tag = String::new();
                     match message.reader().read_to_string(&mut command_tag) {
                         Ok(_) => {
