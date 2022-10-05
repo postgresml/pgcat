@@ -73,7 +73,7 @@ use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
 
-#[tokio::main(worker_threads = 4)]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     env_logger::builder().format_timestamp_micros().init();
 
