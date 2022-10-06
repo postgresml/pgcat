@@ -208,6 +208,28 @@ describe "Admin" do
         threads.map(&:join)
         connections.map(&:close)
       end
+
+      it "show correct max_wait" do
+        threads = []
+        connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT pg_sleep(1.5)") }
+        end
+
+        sleep(2.5) # Allow time for stats to update
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+
+        expect(results["maxwait"]).to eq("1")
+        expect(results["maxwait_us"].to_i).to be_within(100_000).of(500_000)
+
+        sleep(4.5) # Allow time for stats to update
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        expect(results["maxwait"]).to eq("0")
+
+        threads.map(&:join)
+        connections.map(&:close)
+      end
     end
   end
 

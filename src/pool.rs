@@ -333,7 +333,6 @@ impl ConnectionPool {
         role: Option<Role>, // primary or replica
         process_id: i32,    // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
-        let now = Instant::now();
         let mut candidates: Vec<&Address> = self.addresses[shard]
             .iter()
             .filter(|address| address.role == role)
@@ -358,6 +357,7 @@ impl ConnectionPool {
             }
 
             // Indicate we're waiting on a server connection from a pool.
+            let now = Instant::now();
             self.stats.client_waiting(process_id);
 
             // Check if we can connect
@@ -397,7 +397,7 @@ impl ConnectionPool {
 
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(healthcheck_timeout),
-                server.query(";"), // Cheap query (query parser not used in PG)
+                server.query(";"), // Cheap query as it skips the query planner
             )
             .await
             {
