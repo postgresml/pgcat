@@ -447,7 +447,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(pool_name.clone(), username.clone()) {
+            let pool = match get_pool(&pool_name, &username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -649,7 +649,7 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let pool = match get_pool(self.pool_name.clone(), self.username.clone()) {
+            let pool = match get_pool(&self.pool_name, &self.username) {
                 Some(pool) => pool,
                 None => {
                     error_response(

@@ -1,3 +1,4 @@
+use serde_derive::{Deserialize, Serialize};
 /// Implements various sharding functions.
 use sha1::{Digest, Sha1};
 
@@ -5,10 +6,21 @@ use sha1::{Digest, Sha1};
 const PARTITION_HASH_SEED: u64 = 0x7A5B22367996DCFD;
 
 /// The sharding functions we support.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize, Hash, std::cmp::Eq)]
 pub enum ShardingFunction {
+    #[serde(alias = "pg_bigint_hash", alias = "PgBigintHash")]
     PgBigintHash,
+    #[serde(alias = "sha1", alias = "Sha1")]
     Sha1,
+}
+
+impl ToString for ShardingFunction {
+    fn to_string(&self) -> String {
+        match *self {
+            ShardingFunction::PgBigintHash => "pg_bigint_hash".to_string(),
+            ShardingFunction::Sha1 => "sha1".to_string(),
+        }
+    }
 }
 
 /// The sharder.
