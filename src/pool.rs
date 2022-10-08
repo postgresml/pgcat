@@ -633,7 +633,7 @@ impl ManageConnection for ServerPool {
 
 /// Get the connection pool
 pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
-    match get_all_pools().get(&PoolIdentifier::new(&db, &user)) {
+    match (*(*POOLS.load())).get(&PoolIdentifier::new(db, user)) {
         Some(pool) => Some(pool.clone()),
         None => None,
     }
