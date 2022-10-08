@@ -644,6 +644,11 @@ pub fn get_config() -> Config {
     (*(*CONFIG.load())).clone()
 }
 
+pub fn get_ban_time() -> i64 {
+    (*(*CONFIG.load())).general.ban_time
+}
+
+
 /// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();

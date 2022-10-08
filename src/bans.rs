@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config::get_config;
+use crate::config::get_ban_time;
 use crate::config::Address;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -295,19 +295,21 @@ impl BanWorker {
         username: String,
         reason: BanReason,
     ) -> bool {
+        let ban_duration_from_conf = get_ban_time();
         let k = (pool_name.clone(), username.clone());
-        let ban_time = Instant::now(); // Technically, ban time is when client made the call but this should be close enough
-        let config = get_config();
         let ban_duration = match reason {
             BanReason::FailedHealthCheck
             | BanReason::MessageReceiveFailed
             | BanReason::MessageSendFailed
             | BanReason::FailedCheckout
             | BanReason::StatementTimeout => {
-                Duration::from_secs(config.general.ban_time.try_into().unwrap())
+                Duration::from_secs(ban_duration_from_conf.try_into().unwrap())
             }
             BanReason::ManualBan => Duration::from_secs(86400),
         };
+
+        // Technically, ban time is when client made the call but this should be close enough
+        let ban_time = Instant::now();
 
         let pool_banlist = internal_ban_list.entry(k).or_insert(HashMap::default());
 
