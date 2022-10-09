@@ -361,6 +361,7 @@ mod test {
     use super::*;
     use crate::config::PoolMode;
     use crate::messages::simple_query;
+    use crate::pool::PoolIdentifier;
     use crate::sharding::ShardingFunction;
     use bytes::BufMut;
 
@@ -626,8 +627,8 @@ mod test {
         let pool_settings = PoolSettings {
             pool_mode: PoolMode::Transaction,
             shards: 0,
+            pool_id: PoolIdentifier::new("db", "user"),
             user: crate::config::User::default(),
-            name: String::from("some_pool"),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
             primary_reads_enabled: false,

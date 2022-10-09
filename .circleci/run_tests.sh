@@ -91,7 +91,7 @@ cd tests/ruby
 sudo gem install bundler
 bundle install
 bundle exec ruby tests.rb || exit 1
-bundle exec rspec *_spec.rb || exit 1
+bundle exec rspec *_spec.rb --format documentation || exit 1
 cd ../..
 
 #

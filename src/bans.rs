@@ -6,13 +6,14 @@ use std::sync::Arc;
 
 use crate::config::get_ban_time;
 use crate::config::Address;
+use crate::pool::PoolIdentifier;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::Duration;
 use tokio::time::Instant;
 
-pub type GBanList = HashMap<(String, String), HashMap<Address, BanEntry>>;
+pub type BanList = HashMap<PoolIdentifier, HashMap<Address, BanEntry>>;
 
 #[derive(Debug, Clone, Copy)]
 pub enum BanReason {
@@ -32,17 +33,15 @@ pub struct BanEntry {
 }
 
 #[derive(Debug, Clone)]
-pub enum BanManagerEvent {
+pub enum BanEvent {
     Ban {
+        pool_id: PoolIdentifier,
         address: Address,
-        pool_name: String,
-        username: String,
         reason: BanReason,
     },
     Unban {
+        pool_id: PoolIdentifier,
         address: Address,
-        pool_name: String,
-        username: String,
     },
     CleanUpBanList,
 }
@@ -56,126 +55,113 @@ impl BanEntry {
         !self.has_expired()
     }
 }
-static BANLIST: Lazy<ArcSwap<GBanList>> = Lazy::new(|| ArcSwap::from_pointee(GBanList::default()));
+static BANLIST: Lazy<ArcSwap<BanList>> = Lazy::new(|| ArcSwap::from_pointee(BanList::default()));
 
-static BAN_REPORTER: Lazy<ArcSwap<BanReporter>> =
-    Lazy::new(|| ArcSwap::from_pointee(BanReporter::default()));
+static BAN_MANAGER: Lazy<ArcSwap<BanManager>> =
+    Lazy::new(|| ArcSwap::from_pointee(BanManager::default()));
 
 #[derive(Clone, Debug)]
-pub struct BanReporter {
-    channel_to_worker: Sender<BanManagerEvent>,
+pub struct BanManager {
+    channel_to_worker: Sender<BanEvent>,
 }
 
-impl Default for BanReporter {
-    fn default() -> BanReporter {
+impl Default for BanManager {
+    fn default() -> BanManager {
         let (channel_to_worker, _rx) = channel(1000);
-        BanReporter { channel_to_worker }
+        BanManager { channel_to_worker }
     }
 }
 
-impl BanReporter {
+impl BanManager {
     /// Create a new Reporter instance.
-    pub fn new(channel_to_worker: Sender<BanManagerEvent>) -> BanReporter {
-        BanReporter { channel_to_worker }
+    pub fn new(channel_to_worker: Sender<BanEvent>) -> BanManager {
+        BanManager { channel_to_worker }
     }
 
     /// Send statistics to the task keeping track of stats.
-    fn send(&self, event: BanManagerEvent) {
-        let result = self.channel_to_worker.try_send(event.clone());
+    async fn send(&self, event: BanEvent) {
+        let result = self.channel_to_worker.send(event.clone()).await;
 
         match result {
             Ok(_) => (()),
-            Err(err) => match err {
-                TrySendError::Full { .. } => error!("event dropped, buffer full"),
-                TrySendError::Closed { .. } => error!("event dropped, channel closed"),
-            },
+            Err(err) => error!("Failed to send ban event {:?}", err),
         };
     }
 
-    pub fn report_failed_checkout(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Ban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn report_failed_checkout(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Ban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
             reason: BanReason::FailedCheckout,
         };
-        self.send(event);
+        self.send(event).await
     }
 
-
-    pub fn report_failed_healthcheck(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Ban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn report_failed_healthcheck(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Ban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
             reason: BanReason::FailedHealthCheck,
         };
-        self.send(event);
+        self.send(event).await
     }
 
-    pub fn report_server_send_failed(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Ban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn report_server_send_failed(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Ban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
             reason: BanReason::MessageSendFailed,
         };
-        self.send(event);
+        self.send(event).await
     }
 
-    pub fn report_server_receive_failed(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Ban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn report_server_receive_failed(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Ban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
             reason: BanReason::MessageReceiveFailed,
         };
-        self.send(event);
+        self.send(event).await
     }
 
-    pub fn report_statement_timeout(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Ban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn report_statement_timeout(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Ban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
             reason: BanReason::StatementTimeout,
         };
-        self.send(event);
+        self.send(event).await
     }
 
     #[allow(dead_code)]
-    pub fn report_manual_ban(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Ban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn report_manual_ban(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Ban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
             reason: BanReason::ManualBan,
         };
-        self.send(event);
+        self.send(event).await
     }
 
-    pub fn unban(&self, pool_name: String, username: String, address: Address) {
-        let event = BanManagerEvent::Unban {
-            address: address,
-            pool_name: pool_name,
-            username: username,
+    pub async fn unban(&self, pool_id: &PoolIdentifier, address: &Address) {
+        let event = BanEvent::Unban {
+            pool_id: pool_id.clone(),
+            address: address.clone(),
         };
-        self.send(event);
+        self.send(event).await;
     }
 
-    pub fn banlist(&self, pool_name: String, username: String) -> HashMap<Address, BanEntry> {
-        let k = (pool_name, username);
-        match (*(*BANLIST.load())).get(&k) {
+    pub fn banlist(&self, pool_id: &PoolIdentifier) -> HashMap<Address, BanEntry> {
+        match (*(*BANLIST.load())).get(pool_id) {
             Some(banlist) => banlist.clone(),
             None => HashMap::default(),
         }
     }
 
     #[allow(dead_code)]
-    pub fn is_banned(&self, pool_name: String, username: String, address: Address) -> bool {
-        let k = (pool_name, username);
-        match (*(*BANLIST.load())).get(&k) {
-            Some(pool_banlist) => match pool_banlist.get(&address) {
+    pub fn is_banned(&self, pool_id: &PoolIdentifier, address: &Address) -> bool {
+        match (*(*BANLIST.load())).get(pool_id) {
+            Some(pool_banlist) => match pool_banlist.get(address) {
                 Some(ban_entry) => ban_entry.is_active(),
                 None => false,
             },
@@ -185,8 +171,8 @@ impl BanReporter {
 }
 
 pub struct BanWorker {
-    work_queue_tx: Sender<BanManagerEvent>,
-    work_queue_rx: Receiver<BanManagerEvent>,
+    work_queue_tx: Sender<BanEvent>,
+    work_queue_rx: Receiver<BanEvent>,
 }
 
 impl BanWorker {
@@ -198,19 +184,19 @@ impl BanWorker {
         }
     }
 
-    pub fn get_reporter(&self) -> BanReporter {
-        BanReporter::new(self.work_queue_tx.clone())
+    pub fn get_reporter(&self) -> BanManager {
+        BanManager::new(self.work_queue_tx.clone())
     }
 
     pub async fn start(&mut self) {
-        let mut internal_ban_list: GBanList = GBanList::default();
+        let mut internal_ban_list: BanList = BanList::default();
         let tx = self.work_queue_tx.clone();
 
         tokio::task::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
             loop {
                 interval.tick().await;
-                match tx.try_send(BanManagerEvent::CleanUpBanList) {
+                match tx.try_send(BanEvent::CleanUpBanList) {
                     Ok(_) => (),
                     Err(err) => match err {
                         TrySendError::Full(_) => (),
@@ -229,39 +215,34 @@ impl BanWorker {
             };
 
             match event {
-                BanManagerEvent::Ban {
+                BanEvent::Ban {
+                    pool_id,
                     address,
-                    pool_name,
-                    username,
                     reason,
                 } => {
-                    if self.ban(&mut internal_ban_list, address, pool_name, username, reason) {
+                    if self.ban(&mut internal_ban_list, &pool_id, &address, reason) {
                         // Ban list was changed, let's publish a new one
                         self.publish_banlist(&internal_ban_list);
                     }
                 }
-                BanManagerEvent::Unban {
-                    address,
-                    pool_name,
-                    username,
-                } => {
-                    if self.unban(&mut internal_ban_list, address, pool_name, username) {
+                BanEvent::Unban { pool_id, address } => {
+                    if self.unban(&mut internal_ban_list, &pool_id, &address) {
                         // Ban list was changed, let's publish a new one
                         self.publish_banlist(&internal_ban_list);
                     }
                 }
-                BanManagerEvent::CleanUpBanList => {
+                BanEvent::CleanUpBanList => {
                     self.cleanup_ban_list(&mut internal_ban_list);
                 }
             };
         }
     }
 
-    fn publish_banlist(&self, internal_ban_list: &GBanList) {
+    fn publish_banlist(&self, internal_ban_list: &BanList) {
         BANLIST.store(Arc::new(internal_ban_list.clone()));
     }
 
-    fn cleanup_ban_list(&self, internal_ban_list: &mut GBanList) {
+    fn cleanup_ban_list(&self, internal_ban_list: &mut BanList) {
         for (_, v) in internal_ban_list {
             v.retain(|_k, v| v.is_active());
         }
@@ -269,34 +250,30 @@ impl BanWorker {
 
     fn unban(
         &self,
-        internal_ban_list: &mut GBanList,
-        address: Address,
-        pool_name: String,
-        username: String,
+        internal_ban_list: &mut BanList,
+        pool_id: &PoolIdentifier,
+        address: &Address,
     ) -> bool {
-        let k = (pool_name, username);
-        match internal_ban_list.get_mut(&k) {
+        match internal_ban_list.get_mut(pool_id) {
             Some(banlist) => {
                 if banlist.remove(&address).is_none() {
-                    // Was Already not banned? Let's avoid publishing a new list
+                    // Was already not banned? Let's avoid publishing a new list
                     return false;
                 }
             }
-            None => return false, // Was Already not banned? Let's avoid publishing a new list
+            None => return false, // Was already not banned? Let's avoid publishing a new list
         }
         return true;
     }
 
     fn ban(
         &self,
-        internal_ban_list: &mut GBanList,
-        address: Address,
-        pool_name: String,
-        username: String,
+        internal_ban_list: &mut BanList,
+        pool_id: &PoolIdentifier,
+        address: &Address,
         reason: BanReason,
     ) -> bool {
         let ban_duration_from_conf = get_ban_time();
-        let k = (pool_name.clone(), username.clone());
         let ban_duration = match reason {
             BanReason::FailedHealthCheck
             | BanReason::MessageReceiveFailed
@@ -311,7 +288,9 @@ impl BanWorker {
         // Technically, ban time is when client made the call but this should be close enough
         let ban_time = Instant::now();
 
-        let pool_banlist = internal_ban_list.entry(k).or_insert(HashMap::default());
+        let pool_banlist = internal_ban_list
+            .entry(pool_id.clone())
+            .or_insert(HashMap::default());
 
         let ban_entry = pool_banlist.entry(address.clone()).or_insert(BanEntry {
             reason: reason,
@@ -331,13 +310,13 @@ impl BanWorker {
     }
 }
 
-pub fn start_ban_manager() {
+pub fn start_ban_worker() {
     let mut worker = BanWorker::new();
-    BAN_REPORTER.store(Arc::new(worker.get_reporter()));
+    BAN_MANAGER.store(Arc::new(worker.get_reporter()));
 
     tokio::task::spawn(async move { worker.start().await });
 }
 
-pub fn get_ban_handler() -> BanReporter {
-    return (*(*BAN_REPORTER.load())).clone();
+pub fn get_ban_manager() -> BanManager {
+    return (*(*BAN_MANAGER.load())).clone();
 }

@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::bans::{self, BanReporter, BanReason};
+use crate::bans::{self, BanManager, BanReason};
 use crate::config::{get_config, Address, PoolMode, Role, User};
 use crate::errors::Error;
 
@@ -64,7 +64,7 @@ pub struct PoolSettings {
     // Number of shards.
     pub shards: usize,
 
-    pub name: String,
+    pub pool_id: PoolIdentifier,
 
     // Connecting user.
     pub user: User,
@@ -87,8 +87,8 @@ impl Default for PoolSettings {
         PoolSettings {
             pool_mode: PoolMode::Transaction,
             shards: 1,
+            pool_id: PoolIdentifier::new("", ""),
             user: User::default(),
-            name: String::default(),
             default_role: None,
             query_parser_enabled: false,
             primary_reads_enabled: true,
@@ -107,9 +107,8 @@ pub struct ConnectionPool {
     /// failover and load balancing deterministically.
     addresses: Vec<Vec<Address>>,
 
-    /// List of banned addresses (see above)
-    /// that should not be queried.
-    ban_reporter: BanReporter,
+    /// Reference to the global ban manager
+    ban_manager: BanManager,
 
     /// The statistics aggregator runs in a separate task
     /// and receives stats from clients, servers, and the pool.
@@ -237,11 +236,11 @@ impl ConnectionPool {
                 let mut pool = ConnectionPool {
                     databases: shards,
                     addresses: addresses,
-                    ban_reporter: bans::get_ban_handler(),
+                    ban_manager: bans::get_ban_manager(),
                     stats: get_reporter(),
                     server_info: BytesMut::new(),
                     settings: PoolSettings {
-                        name: pool_name.clone(),
+                        pool_id: PoolIdentifier::new(pool_name, &user.username),
                         pool_mode: pool_config.pool_mode,
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
@@ -369,7 +368,8 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!("Banning instance {:?}, error: {:?}", address, err);
-                    self.ban(&address, process_id, BanReason::FailedCheckout);
+                    self.ban(&address, process_id, BanReason::FailedCheckout)
+                        .await;
                     self.stats.client_checkout_error(process_id, address.id);
                     continue;
                 }
@@ -424,7 +424,8 @@ impl ConnectionPool {
                         // Don't leave a bad connection in the pool.
                         server.mark_bad();
 
-                        self.ban(&address, process_id, BanReason::FailedHealthCheck);
+                        self.ban(&address, process_id, BanReason::FailedHealthCheck)
+                            .await;
                         continue;
                     }
                 },
@@ -438,7 +439,8 @@ impl ConnectionPool {
                     // Don't leave a bad connection in the pool.
                     server.mark_bad();
 
-                    self.ban(&address, process_id, BanReason::FailedHealthCheck);
+                    self.ban(&address, process_id, BanReason::FailedHealthCheck)
+                        .await;
                     continue;
                 }
             }
@@ -450,7 +452,7 @@ impl ConnectionPool {
     /// Ban an address (i.e. replica). It no longer will serve
     /// traffic for any new transactions. If this call bans the last
     /// replica in a shard, we unban all replicas
-    pub fn ban(&self, address: &Address, client_id: i32, reason: BanReason) {
+    pub async fn ban(&self, address: &Address, client_id: i32, reason: BanReason) {
         error!("Banning {:?}", address);
         self.stats.client_ban_error(client_id, address.id);
 
@@ -461,71 +463,67 @@ impl ConnectionPool {
 
         // We check if banning this address will result in all replica being banned
         // If so, we unban all replicas instead
-        let pool_banned_addresses = self.ban_reporter.banlist(
-            self.settings.name.clone(),
-            self.settings.user.username.clone(),
-        );
+        let pool_banned_addresses = self.ban_manager.banlist(&self.settings.pool_id);
 
         let unbanned_count = self.addresses[address.shard]
-                                        .iter()
-                                        .filter(|addr| addr.role == Role::Replica)
-                                        .filter(|addr|
+            .iter()
+            .filter(|addr| addr.role == Role::Replica)
+            .filter(|addr|
                                             // Return true if address is not banned
                                             match pool_banned_addresses.get(addr) {
                                                 Some(ban_entry) => ban_entry.has_expired(),
                                                 // We assume the address that is to be banned is already banned
                                                 None => address != *addr,
                                             })
-                                        .count();
+            .count();
         if unbanned_count == 0 {
             // All replicas are banned
             // Unban everything
             warn!("Unbanning all replicas.");
-            self.addresses[address.shard]
-                .iter()
-                .filter(|addr| addr.role == Role::Replica)
-                .for_each(|address| self.unban(address));
+            for address in &self.addresses[address.shard] {
+                if address.role == Role::Replica {
+                    self.unban(address).await
+                }
+            }
             return;
         }
 
         match reason {
-            BanReason::FailedHealthCheck => self.ban_reporter.report_failed_healthcheck(
-                self.settings.name.clone(),
-                self.settings.user.username.clone(),
-                address.clone(),
-            ),
-            BanReason::MessageSendFailed => self.ban_reporter.report_server_send_failed(
-                self.settings.name.clone(),
-                self.settings.user.username.clone(),
-                address.clone(),
-            ),
-            BanReason::MessageReceiveFailed => self.ban_reporter.report_server_receive_failed(
-                self.settings.name.clone(),
-                self.settings.user.username.clone(),
-                address.clone(),
-            ),
-            BanReason::StatementTimeout => self.ban_reporter.report_statement_timeout(
-                self.settings.name.clone(),
-                self.settings.user.username.clone(),
-                address.clone(),
-            ),
-            BanReason::FailedCheckout => self.ban_reporter.report_failed_checkout(
-                self.settings.name.clone(),
-                self.settings.user.username.clone(),
-                address.clone(),
-            ),
+            BanReason::FailedHealthCheck => {
+                self.ban_manager
+                    .report_failed_healthcheck(&self.settings.pool_id, &address)
+                    .await
+            }
+            BanReason::MessageSendFailed => {
+                self.ban_manager
+                    .report_server_send_failed(&self.settings.pool_id, &address)
+                    .await
+            }
+            BanReason::MessageReceiveFailed => {
+                self.ban_manager
+                    .report_server_receive_failed(&self.settings.pool_id, &address)
+                    .await
+            }
+            BanReason::StatementTimeout => {
+                self.ban_manager
+                    .report_statement_timeout(&self.settings.pool_id, &address)
+                    .await
+            }
+            BanReason::FailedCheckout => {
+                self.ban_manager
+                    .report_failed_checkout(&self.settings.pool_id, &address)
+                    .await
+            }
             BanReason::ManualBan => unreachable!(),
         }
     }
 
     /// Clear the replica to receive traffic again. ban/unban operations
     /// are not synchronous but are typically very fast
-    pub fn unban(&self, address: &Address) {
-        self.ban_reporter.unban(
-            self.settings.name.clone(),
-            self.settings.user.username.clone(),
-            address.clone(),
-        );
+    pub async fn unban(&self, address: &Address) {
+        self.ban_manager
+            .unban(&self.settings.pool_id, &address)
+            .await;
     }
 
     /// Check if a replica can serve traffic.
@@ -536,19 +534,7 @@ impl ConnectionPool {
             return false;
         }
 
-        let pool_banned_addresses = self.ban_reporter.banlist(
-            self.settings.name.clone(),
-            self.settings.user.username.clone(),
-        );
-        if pool_banned_addresses.len() == 0 {
-            // We should hit this branch most of the time
-            return false;
-        }
-
-        return match pool_banned_addresses.get(address) {
-            Some(ban_entry) => ban_entry.has_expired(),
-            None => false,
-        };
+        return self.ban_manager.is_banned(&self.settings.pool_id, address);
     }
 
     /// Get the number of configured shards.
