@@ -1038,8 +1038,7 @@ where
         match server.send(message).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                pool.ban(address, self.process_id, BanReason::MessageSendFailed)
-                    .await;
+                pool.ban(address, self.process_id, BanReason::MessageSendFailed);
                 Err(err)
             }
         }
@@ -1061,8 +1060,7 @@ where
                 Ok(result) => match result {
                     Ok(message) => Ok(message),
                     Err(err) => {
-                        pool.ban(address, self.process_id, BanReason::MessageReceiveFailed)
-                            .await;
+                        pool.ban(address, self.process_id, BanReason::MessageReceiveFailed);
                         error_response_terminal(
                             &mut self.write,
                             &format!("error receiving data from server: {:?}", err),
@@ -1077,8 +1075,7 @@ where
                         address, pool.settings.user.username
                     );
                     server.mark_bad();
-                    pool.ban(address, self.process_id, BanReason::StatementTimeout)
-                        .await;
+                    pool.ban(address, self.process_id, BanReason::StatementTimeout);
                     error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(Error::StatementTimeout)
                 }
@@ -1087,8 +1084,7 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    pool.ban(address, self.process_id, BanReason::MessageReceiveFailed)
-                        .await;
+                    pool.ban(address, self.process_id, BanReason::MessageReceiveFailed);
                     error_response_terminal(
                         &mut self.write,
                         &format!("error receiving data from server: {:?}", err),
