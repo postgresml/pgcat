@@ -93,7 +93,9 @@ fn ban(pool_id: &PoolIdentifier, address: &Address, reason: BanReason) {
 
     let ban_time = Instant::now();
     let mut global_banlist = (**BANLIST.load()).clone();
-    let pool_banlist = global_banlist.entry(pool_id.clone()).or_insert(HashMap::default());
+    let pool_banlist = global_banlist
+        .entry(pool_id.clone())
+        .or_insert(HashMap::default());
 
     let ban_entry = pool_banlist.entry(address.clone()).or_insert(BanEntry {
         reason: reason,
