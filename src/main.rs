@@ -53,6 +53,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 mod admin;
+mod bans;
 mod client;
 mod config;
 mod constants;

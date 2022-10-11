@@ -9,6 +9,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
+use crate::bans::BanReason;
 use crate::config::{get_config, Address, PoolMode};
 use crate::constants::*;
 use crate::errors::Error;
@@ -1037,7 +1038,7 @@ where
         match server.send(message).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                pool.ban(address, self.process_id);
+                pool.ban(address, self.process_id, BanReason::MessageSendFailed);
                 Err(err)
             }
         }
@@ -1059,7 +1060,7 @@ where
                 Ok(result) => match result {
                     Ok(message) => Ok(message),
                     Err(err) => {
-                        pool.ban(address, self.process_id);
+                        pool.ban(address, self.process_id, BanReason::MessageReceiveFailed);
                         error_response_terminal(
                             &mut self.write,
                             &format!("error receiving data from server: {:?}", err),
@@ -1074,7 +1075,7 @@ where
                         address, pool.settings.user.username
                     );
                     server.mark_bad();
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, self.process_id, BanReason::StatementTimeout);
                     error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(Error::StatementTimeout)
                 }
@@ -1083,7 +1084,7 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, self.process_id, BanReason::MessageReceiveFailed);
                     error_response_terminal(
                         &mut self.write,
                         &format!("error receiving data from server: {:?}", err),
