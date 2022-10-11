@@ -799,7 +799,7 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                let mut message = if message.len() == 0 {
+                let message = if message.len() == 0 {
                     trace!("Waiting for message inside transaction or in session mode");
 
                     match read_message(&mut self.read).await {
@@ -820,10 +820,9 @@ where
 
                 // The message will be forwarded to the server intact. We still would like to
                 // parse it below to figure out what to do with it.
-                let original = message.clone();
 
-                let code = message.get_u8() as char;
-                let _len = message.get_i32() as usize;
+                // Safe to unwrap because we know this message has a certain length and has the code
+                let code = *message.get(0).unwrap() as char;
 
                 trace!("Message: {}", code);
 
@@ -832,7 +831,7 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, original, server, &address, &pool)
+                        self.send_and_receive_loop(code, message, server, &address, &pool)
                             .await?;
 
                         if !server.in_transaction() {
@@ -858,25 +857,25 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Sync
@@ -884,7 +883,7 @@ where
                     'S' => {
                         debug!("Sending query to server");
 
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
 
                         // Clone after freeze does not allocate
                         let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
@@ -929,14 +928,14 @@ where
                     'd' => {
                         // Forward the data to the server,
                         // don't buffer it since it can be rather large.
-                        self.send_server_message(server, original, &address, &pool)
+                        self.send_server_message(server, message, &address, &pool)
                             .await?;
                     }
 
                     // CopyDone or CopyFail
                     // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        self.send_server_message(server, original, &address, &pool)
+                        self.send_server_message(server, message, &address, &pool)
                             .await?;
 
                         let response = self.receive_server_message(server, &address, &pool).await?;
