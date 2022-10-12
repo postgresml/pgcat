@@ -461,6 +461,7 @@ impl Server {
                                     // We don't detect set statements in transactions
                                     // No great way to differentiate between set and set local
                                     // As a result, we will miss cases when set statements are used in transactions
+                                    // This will reduce amount of discard statements sent
                                     if self.in_transaction {
                                         continue;
                                     }
