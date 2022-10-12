@@ -193,7 +193,7 @@ describe "Miscellaneous" do
     context "transaction mode with transactions" do
       let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "transaction") }
       it "Does not clear set statement state when declared in a transaction" do
-        10.time do
+        10.times do
           conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
           conn.async_exec("SET SERVER ROLE to 'primary'")
           conn.async_exec("BEGIN")
