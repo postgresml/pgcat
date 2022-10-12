@@ -450,11 +450,6 @@ impl Server {
 
                 // CommandComplete
                 'C' => {
-
-                    if self.in_transaction {
-                        continue;
-                    }
-
                     let mut command_tag = String::new();
                     match message.reader().read_to_string(&mut command_tag) {
                         Ok(_) => {
@@ -462,7 +457,17 @@ impl Server {
                             // which can leak between clients. This is a best effort to block bad clients
                             // from poisoning a transaction-mode pool by setting inappropriate session variables
                             match command_tag.as_str() {
-                                "SET\0" | "PREPARE\0" => {
+                                "SET\0" => {
+                                    // We don't detect set statements in transactions
+                                    // No great way to differentiate between set and set local
+                                    // As a result, we will miss cases when set statements are used in transactions
+                                    if self.in_transaction {
+                                        continue;
+                                    }
+                                    debug!("Server connection marked for clean up");
+                                    self.needs_cleanup = true;
+                                }
+                                "PREPARE\0" => {
                                     debug!("Server connection marked for clean up");
                                     self.needs_cleanup = true;
                                 }
