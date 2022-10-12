@@ -822,6 +822,7 @@ where
                 // parse it below to figure out what to do with it.
 
                 // Safe to unwrap because we know this message has a certain length and has the code
+                // This reads the first byte without advancing the internal pointer and mutating the bytes
                 let code = *message.get(0).unwrap() as char;
 
                 trace!("Message: {}", code);
@@ -885,7 +886,6 @@ where
 
                         self.buffer.put(&message[..]);
 
-                        // Clone after freeze does not allocate
                         let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
