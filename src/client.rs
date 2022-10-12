@@ -827,7 +827,7 @@ where
                 trace!("Message: {}", code);
 
                 match code {
-                    // ReadyForQuery
+                    // Query
                     'Q' => {
                         debug!("Sending query to server");
 
