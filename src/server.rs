@@ -606,7 +606,7 @@ impl Server {
             self.query("ROLLBACK").await?;
         }
 
-        // Client disconnected but it perfromed session-altering operations such as
+        // Client disconnected but it performed session-altering operations such as
         // SET statement_timeout to 1 or create a prepared statement. We clear that
         // to avoid leaking state between clients. For performance reasons we only
         // send `DISCARD ALL` if we think the session is altered instead of just sending

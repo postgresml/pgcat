@@ -601,7 +601,7 @@ where
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
 
-            let mut message = tokio::select! {
+            let message = tokio::select! {
                 _ = self.shutdown.recv() => {
                     if !self.admin {
                         error_response_terminal(
