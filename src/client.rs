@@ -792,6 +792,8 @@ where
             // Set application_name.
             server.set_name(&self.application_name).await?;
 
+            let mut initial_message = Some(message);
+
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
             // or until the client disconnects if we are in session mode.
@@ -799,23 +801,25 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                let message = if message.len() == 0 {
-                    trace!("Waiting for message inside transaction or in session mode");
+                let message = match initial_message {
+                    None => {
+                        trace!("Waiting for message inside transaction or in session mode");
 
-                    match read_message(&mut self.read).await {
-                        Ok(message) => message,
-                        Err(err) => {
-                            // Client disconnected inside a transaction.
-                            // Clean up the server and re-use it.
-                            server.checkin_cleanup().await?;
+                        match read_message(&mut self.read).await {
+                            Ok(message) => message,
+                            Err(err) => {
+                                // Client disconnected inside a transaction.
+                                // Clean up the server and re-use it.
+                                server.checkin_cleanup().await?;
 
-                            return Err(err);
+                                return Err(err);
+                            }
                         }
                     }
-                } else {
-                    let msg = message.clone();
-                    message.clear();
-                    msg
+                    Some(message) => {
+                        initial_message = None;
+                        message
+                    }
                 };
 
                 // The message will be forwarded to the server intact. We still would like to
