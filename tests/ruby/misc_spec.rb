@@ -202,6 +202,16 @@ describe "Miscellaneous" do
           conn.close
         end 
         expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
+
+        10.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("SET SERVER ROLE to 'primary'")
+          conn.async_exec("BEGIN")
+          conn.async_exec("SET LOCAL statement_timeout to 1000")
+          conn.async_exec("COMMIT")
+          conn.close
+        end 
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
       end
     end
   end
