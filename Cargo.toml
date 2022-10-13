@@ -34,3 +34,6 @@ rustls-pemfile = "1"
 hyper = { version = "0.14", features = ["full"] }
 phf = { version = "0.11.1", features = ["macros"] }
 exitcode = "1.1.2"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+jemallocator = "0.3.2"
