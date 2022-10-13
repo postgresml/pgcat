@@ -37,6 +37,13 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use log::{error, info, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
