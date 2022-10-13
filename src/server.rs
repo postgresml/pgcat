@@ -462,11 +462,10 @@ impl Server {
                                     // No great way to differentiate between set and set local
                                     // As a result, we will miss cases when set statements are used in transactions
                                     // This will reduce amount of discard statements sent
-                                    if self.in_transaction {
-                                        continue;
+                                    if !self.in_transaction {
+                                        debug!("Server connection marked for clean up");
+                                        self.needs_cleanup = true;
                                     }
-                                    debug!("Server connection marked for clean up");
-                                    self.needs_cleanup = true;
                                 }
                                 "PREPARE\0" => {
                                     debug!("Server connection marked for clean up");
