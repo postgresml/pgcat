@@ -827,7 +827,7 @@ where
 
                 // Safe to unwrap because we know this message has a certain length and has the code
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
-                let code = *message.get(0).unwrap() as char;
+                let code = *message.get(0).unwrap_or(&('$' as u8)) as char;
 
                 trace!("Message: {}", code);
 
