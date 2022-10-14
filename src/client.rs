@@ -353,7 +353,7 @@ where
     ) -> Result<Client<S, T>, Error> {
         let config = get_config();
         let stats = get_reporter();
-        let parameters = parse_startup(&bytes)?;
+        let parameters = parse_startup(bytes)?;
 
         // These two parameters are mandatory by the protocol.
         let pool_name = match parameters.get("database") {
