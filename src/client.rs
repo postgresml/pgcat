@@ -758,7 +758,7 @@ where
                         .await?;
 
                     error!("Could not get connection from pool: {{ pool_name: {:?}, username: {:?}, shard: {:?}, role: \"{:?}\", error: \"{:?}\" }}",
-                    self.pool_name.clone(), self.username.clone(), query_router.shard(), query_router.role(), err);
+                    self.pool_name, self.username, query_router.shard(), query_router.role(), err);
                     continue;
                 }
             };
@@ -834,7 +834,7 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, &message_buffer, server, &address, &pool)
+                        self.send_and_receive_loop(code, &message, server, &address, &pool)
                             .await?;
 
                         if !server.in_transaction() {
@@ -980,8 +980,6 @@ where
         guard.remove(&(self.process_id, self.secret_key));
     }
 
-    /// Message is optional, if specified it will be sent to the server
-    /// otherwise the internal self.buffer will be used as the message
     async fn send_and_receive_loop(
         &mut self,
         code: char,
