@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::mem;
 
 /// Postgres data type mappings
@@ -141,18 +142,20 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
 }
 
 /// Parse the params the server sends as a key/value format.
-pub fn parse_params(mut bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
+pub fn parse_params(bytes: &BytesMut) -> Result<HashMap<String, String>, Error> {
     let mut result = HashMap::new();
     let mut buf = Vec::new();
     let mut tmp = String::new();
 
+    let mut cursor = Cursor::new(bytes);
+
     while bytes.has_remaining() {
-        let mut c = bytes.get_u8();
+        let mut c = cursor.get_u8();
 
         // Null-terminated C-strings.
         while c != 0 {
             tmp.push(c as char);
-            c = bytes.get_u8();
+            c = cursor.get_u8();
         }
 
         if tmp.len() > 0 {
@@ -180,7 +183,7 @@ pub fn parse_params(mut bytes: BytesMut) -> Result<HashMap<String, String>, Erro
 
 /// Parse StartupMessage parameters.
 /// e.g. user, database, application_name, etc.
-pub fn parse_startup(bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
+pub fn parse_startup(bytes: &BytesMut) -> Result<HashMap<String, String>, Error> {
     let result = parse_params(bytes)?;
 
     // Minimum required parameters
