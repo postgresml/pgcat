@@ -457,7 +457,17 @@ impl Server {
                             // which can leak between clients. This is a best effort to block bad clients
                             // from poisoning a transaction-mode pool by setting inappropriate session variables
                             match command_tag.as_str() {
-                                "SET\0" | "PREPARE\0" => {
+                                "SET\0" => {
+                                    // We don't detect set statements in transactions
+                                    // No great way to differentiate between set and set local
+                                    // As a result, we will miss cases when set statements are used in transactions
+                                    // This will reduce amount of discard statements sent
+                                    if !self.in_transaction {
+                                        debug!("Server connection marked for clean up");
+                                        self.needs_cleanup = true;
+                                    }
+                                }
+                                "PREPARE\0" => {
                                     debug!("Server connection marked for clean up");
                                     self.needs_cleanup = true;
                                 }
@@ -595,7 +605,7 @@ impl Server {
             self.query("ROLLBACK").await?;
         }
 
-        // Client disconnected but it perfromed session-altering operations such as
+        // Client disconnected but it performed session-altering operations such as
         // SET statement_timeout to 1 or create a prepared statement. We clear that
         // to avoid leaking state between clients. For performance reasons we only
         // send `DISCARD ALL` if we think the session is altered instead of just sending
