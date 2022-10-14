@@ -37,10 +37,6 @@ pub struct Client<S, T> {
     /// better than a stock buffer.
     write: T,
 
-    /// Internal buffer, where we place messages until we have to flush
-    /// them to the backend.
-    buffer: BytesMut,
-
     /// Address
     addr: std::net::SocketAddr,
 
@@ -491,7 +487,6 @@ where
             read: BufReader::new(read),
             write: write,
             addr,
-            buffer: BytesMut::with_capacity(8196),
             cancel_mode: false,
             transaction_mode,
             process_id,
@@ -525,7 +520,6 @@ where
             read: BufReader::new(read),
             write: write,
             addr,
-            buffer: BytesMut::with_capacity(8196),
             cancel_mode: true,
             transaction_mode: false,
             process_id,
@@ -586,6 +580,10 @@ where
             self.application_name.clone(),
         );
 
+        // Internal buffer, where we place messages until we have to flush
+        // them to the backend.
+        let mut message_buffer = BytesMut::with_capacity(8196);
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -628,7 +626,7 @@ where
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
                 'P' | 'B' | 'D' | 'E' => {
-                    self.buffer.put(&message[..]);
+                    message_buffer.put(&message[..]);
                     continue;
                 }
                 'X' => {
@@ -754,7 +752,7 @@ where
                     // protocol buffer
                     if message[0] as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
-                        self.buffer.clear();
+                        message_buffer.clear();
                     }
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
@@ -836,7 +834,7 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, message, server, &address, &pool)
+                        self.send_and_receive_loop(code, &message_buffer, server, &address, &pool)
                             .await?;
 
                         if !server.in_transaction() {
@@ -862,25 +860,25 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        self.buffer.put(&message[..]);
+                        message_buffer.put(&message[..]);
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        self.buffer.put(&message[..]);
+                        message_buffer.put(&message[..]);
                     }
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        self.buffer.put(&message[..]);
+                        message_buffer.put(&message[..]);
                     }
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        self.buffer.put(&message[..]);
+                        message_buffer.put(&message[..]);
                     }
 
                     // Sync
@@ -888,9 +886,9 @@ where
                     'S' => {
                         debug!("Sending query to server");
 
-                        self.buffer.put(&message[..]);
+                        message_buffer.put(&message[..]);
 
-                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
+                        let first_message_code = (*message_buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' {
@@ -898,7 +896,7 @@ where
                             // P followed by 32 int followed by null-terminated statement name
                             // So message code should be in offset 0 of the buffer, first character
                             // in prepared statement name would be index 5
-                            let first_char_in_name = *self.buffer.get(5).unwrap_or(&0);
+                            let first_char_in_name = *message_buffer.get(5).unwrap_or(&0);
                             if first_char_in_name != 0 {
                                 // This is a named prepared statement
                                 // Server connection state will need to be cleared at checkin
@@ -906,16 +904,10 @@ where
                             }
                         }
 
-                        self.send_and_receive_loop(
-                            code,
-                            self.buffer.clone(),
-                            server,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.send_and_receive_loop(code, &message_buffer, server, &address, &pool)
+                            .await?;
 
-                        self.buffer.clear();
+                        message_buffer.clear();
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -932,19 +924,19 @@ where
                     'd' => {
                         // Forward the data to the server,
                         // don't buffer it since it can be rather large.
-                        self.send_server_message(server, message, &address, &pool)
+                        self.send_server_message(server, &message, &address, &pool)
                             .await?;
                     }
 
                     // CopyDone or CopyFail
                     // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        self.send_server_message(server, message, &address, &pool)
+                        self.send_server_message(server, &message, &address, &pool)
                             .await?;
 
                         let response = self.receive_server_message(server, &address, &pool).await?;
 
-                        match write_all_half(&mut self.write, response).await {
+                        match write_all_half(&mut self.write, &response).await {
                             Ok(_) => (),
                             Err(err) => {
                                 server.mark_bad();
@@ -988,10 +980,12 @@ where
         guard.remove(&(self.process_id, self.secret_key));
     }
 
+    /// Message is optional, if specified it will be sent to the server
+    /// otherwise the internal self.buffer will be used as the message
     async fn send_and_receive_loop(
         &mut self,
         code: char,
-        message: BytesMut,
+        message: &BytesMut,
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
@@ -1007,7 +1001,7 @@ where
         loop {
             let response = self.receive_server_message(server, &address, &pool).await?;
 
-            match write_all_half(&mut self.write, response).await {
+            match write_all_half(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
                     server.mark_bad();
@@ -1033,7 +1027,7 @@ where
     async fn send_server_message(
         &self,
         server: &mut Server,
-        message: BytesMut,
+        message: &BytesMut,
         address: &Address,
         pool: &ConnectionPool,
     ) -> Result<(), Error> {

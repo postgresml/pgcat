@@ -168,7 +168,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Show PgCat version.
@@ -186,7 +186,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Show utilization of connection pools for each shard and replicas.
@@ -247,7 +247,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Show shards and replicas.
@@ -314,7 +314,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Ignore any SET commands the client sends.
@@ -346,7 +346,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Shows current configuration.
@@ -392,7 +392,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Show shard and replicas statistics.
@@ -452,7 +452,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Show currently connected clients
@@ -502,7 +502,7 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 /// Show currently connected servers
@@ -556,5 +556,5 @@ where
     res.put_i32(5);
     res.put_u8(b'I');
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }

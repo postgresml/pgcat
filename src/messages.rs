@@ -254,7 +254,7 @@ where
     res.put_i32(len);
     res.put_slice(&set_complete[..]);
 
-    write_all_half(stream, res).await?;
+    write_all_half(stream, &res).await?;
     ready_for_query(stream).await
 }
 
@@ -304,7 +304,7 @@ where
     res.put_i32(error.len() as i32 + 4);
     res.put(error);
 
-    Ok(write_all_half(stream, res).await?)
+    Ok(write_all_half(stream, &res).await?)
 }
 
 pub async fn wrong_password<S>(stream: &mut S, user: &str) -> Result<(), Error>
@@ -366,7 +366,7 @@ where
     // CommandComplete
     res.put(command_complete("SELECT 1"));
 
-    write_all_half(stream, res).await?;
+    write_all_half(stream, &res).await?;
     ready_for_query(stream).await
 }
 
@@ -455,11 +455,11 @@ where
 }
 
 /// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
-pub async fn write_all_half<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
+pub async fn write_all_half<S>(stream: &mut S, buf: &BytesMut) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    match stream.write_all(&buf).await {
+    match stream.write_all(buf).await {
         Ok(_) => Ok(()),
         Err(_) => return Err(Error::SocketError),
     }

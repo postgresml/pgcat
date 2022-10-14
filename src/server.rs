@@ -32,9 +32,6 @@ pub struct Server {
     /// Unbuffered write socket (our client code buffers).
     write: OwnedWriteHalf,
 
-    /// Our server response buffer. We buffer data before we give it to the client.
-    buffer: BytesMut,
-
     /// Server information the server sent us over on startup.
     server_info: BytesMut,
 
@@ -316,7 +313,6 @@ impl Server {
                         address: address.clone(),
                         read: BufReader::new(read),
                         write: write,
-                        buffer: BytesMut::with_capacity(8196),
                         server_info: server_info,
                         server_id: server_id,
                         process_id: process_id,
@@ -375,7 +371,7 @@ impl Server {
     }
 
     /// Send messages to the server from the client.
-    pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
+    pub async fn send(&mut self, messages: &BytesMut) -> Result<(), Error> {
         self.stats.data_sent(messages.len(), self.server_id);
 
         match write_all_half(&mut self.write, messages).await {
@@ -396,6 +392,9 @@ impl Server {
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
+        // Our server response buffer. We buffer data before we give it to the client.
+        let mut message_buffer = BytesMut::with_capacity(8196);
+
         loop {
             let mut message = match read_message(&mut self.read).await {
                 Ok(message) => message,
@@ -407,7 +406,7 @@ impl Server {
             };
 
             // Buffer the message we'll forward to the client later.
-            self.buffer.put(&message[..]);
+            message_buffer.put(&message[..]);
 
             let code = message.get_u8() as char;
             let _len = message.get_i32();
@@ -487,7 +486,7 @@ impl Server {
                     self.data_available = true;
 
                     // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
-                    if self.buffer.len() >= 8196 {
+                    if message_buffer.len() >= 8196 {
                         break;
                     }
                 }
@@ -515,19 +514,15 @@ impl Server {
             };
         }
 
-        let bytes = self.buffer.clone();
-
         // Keep track of how much data we got from the server for stats.
-        self.stats.data_received(bytes.len(), self.server_id);
-
-        // Clear the buffer for next query.
-        self.buffer.clear();
+        self.stats
+            .data_received(message_buffer.len(), self.server_id);
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
 
         // Pass the data back to the client.
-        Ok(bytes)
+        Ok(message_buffer)
     }
 
     /// If the server is still inside a transaction.
@@ -580,7 +575,7 @@ impl Server {
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
         let query = simple_query(query);
 
-        self.send(query).await?;
+        self.send(&query).await?;
 
         loop {
             let _ = self.recv().await?;
