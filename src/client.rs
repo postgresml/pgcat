@@ -582,7 +582,9 @@ where
 
         // Internal buffer, where we place messages until we have to flush
         // them to the backend.
-        let mut message_buffer = BytesMut::with_capacity(8196);
+        let mut client_message_buffer = BytesMut::with_capacity(8196);
+
+        let mut server_message_buffer = BytesMut::with_capacity(8196);
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
@@ -626,7 +628,7 @@ where
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
                 'P' | 'B' | 'D' | 'E' => {
-                    message_buffer.put(&message[..]);
+                    client_message_buffer.put(&message[..]);
                     continue;
                 }
                 'X' => {
@@ -752,7 +754,7 @@ where
                     // protocol buffer
                     if message[0] as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
-                        message_buffer.clear();
+                        client_message_buffer.clear();
                     }
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
@@ -834,7 +836,7 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, &message, server, &address, &pool)
+                        self.send_and_receive_loop(code, &message, server, &address, &pool, &mut server_message_buffer)
                             .await?;
 
                         if !server.in_transaction() {
@@ -860,25 +862,25 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        message_buffer.put(&message[..]);
+                        client_message_buffer.put(&message[..]);
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        message_buffer.put(&message[..]);
+                        client_message_buffer.put(&message[..]);
                     }
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        message_buffer.put(&message[..]);
+                        client_message_buffer.put(&message[..]);
                     }
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        message_buffer.put(&message[..]);
+                        client_message_buffer.put(&message[..]);
                     }
 
                     // Sync
@@ -886,9 +888,9 @@ where
                     'S' => {
                         debug!("Sending query to server");
 
-                        message_buffer.put(&message[..]);
+                        client_message_buffer.put(&message[..]);
 
-                        let first_message_code = (*message_buffer.get(0).unwrap_or(&0)) as char;
+                        let first_message_code = (*client_message_buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' {
@@ -896,7 +898,7 @@ where
                             // P followed by 32 int followed by null-terminated statement name
                             // So message code should be in offset 0 of the buffer, first character
                             // in prepared statement name would be index 5
-                            let first_char_in_name = *message_buffer.get(5).unwrap_or(&0);
+                            let first_char_in_name = *client_message_buffer.get(5).unwrap_or(&0);
                             if first_char_in_name != 0 {
                                 // This is a named prepared statement
                                 // Server connection state will need to be cleared at checkin
@@ -904,10 +906,10 @@ where
                             }
                         }
 
-                        self.send_and_receive_loop(code, &message_buffer, server, &address, &pool)
+                        self.send_and_receive_loop(code, &client_message_buffer, server, &address, &pool, &mut server_message_buffer)
                             .await?;
 
-                        message_buffer.clear();
+                        client_message_buffer.clear();
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -934,15 +936,17 @@ where
                         self.send_server_message(server, &message, &address, &pool)
                             .await?;
 
-                        let response = self.receive_server_message(server, &address, &pool).await?;
+                        self.receive_server_message(server, &address, &pool, &mut server_message_buffer).await?;
 
-                        match write_all_half(&mut self.write, &response).await {
+                        match write_all_half(&mut self.write, &server_message_buffer).await {
                             Ok(_) => (),
                             Err(err) => {
                                 server.mark_bad();
                                 return Err(err);
                             }
                         };
+
+                        server_message_buffer.clear();
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -987,6 +991,7 @@ where
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
+        server_message_buffer: &mut BytesMut,
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
 
@@ -997,15 +1002,17 @@ where
         // Read all data the server has to offer, which can be multiple messages
         // buffered in 8196 bytes chunks.
         loop {
-            let response = self.receive_server_message(server, &address, &pool).await?;
+            self.receive_server_message(server, &address, &pool, server_message_buffer).await?;
 
-            match write_all_half(&mut self.write, &response).await {
+            match write_all_half(&mut self.write, &server_message_buffer).await {
                 Ok(_) => (),
                 Err(err) => {
                     server.mark_bad();
                     return Err(err);
                 }
             };
+
+            server_message_buffer.clear();
 
             if !server.is_data_available() {
                 break;
@@ -1043,16 +1050,17 @@ where
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
-    ) -> Result<BytesMut, Error> {
+        server_message_buffer: &mut BytesMut,
+    ) -> Result<(), Error> {
         if pool.settings.user.statement_timeout > 0 {
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(pool.settings.user.statement_timeout),
-                server.recv(),
+                server.recv(server_message_buffer),
             )
             .await
             {
                 Ok(result) => match result {
-                    Ok(message) => Ok(message),
+                    Ok(_) => Ok(()),
                     Err(err) => {
                         pool.ban(address, self.process_id);
                         error_response_terminal(
@@ -1075,8 +1083,8 @@ where
                 }
             }
         } else {
-            match server.recv().await {
-                Ok(message) => Ok(message),
+            match server.recv(server_message_buffer).await {
+                Ok(_) => Ok(()),
                 Err(err) => {
                     pool.ban(address, self.process_id);
                     error_response_terminal(

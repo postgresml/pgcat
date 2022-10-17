@@ -391,9 +391,7 @@ impl Server {
     /// Receive data from the server in response to a client request.
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
-    pub async fn recv(&mut self) -> Result<BytesMut, Error> {
-        // Our server response buffer. We buffer data before we give it to the client.
-        let mut message_buffer = BytesMut::with_capacity(8196);
+    pub async fn recv(&mut self, server_message_buffer: &mut BytesMut) -> Result<(), Error> {
 
         loop {
             let mut message = match read_message(&mut self.read).await {
@@ -406,7 +404,7 @@ impl Server {
             };
 
             // Buffer the message we'll forward to the client later.
-            message_buffer.put(&message[..]);
+            server_message_buffer.put(&message[..]);
 
             let code = message.get_u8() as char;
             let _len = message.get_i32();
@@ -486,7 +484,7 @@ impl Server {
                     self.data_available = true;
 
                     // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
-                    if message_buffer.len() >= 8196 {
+                    if server_message_buffer.len() >= 8196 {
                         break;
                     }
                 }
@@ -516,13 +514,12 @@ impl Server {
 
         // Keep track of how much data we got from the server for stats.
         self.stats
-            .data_received(message_buffer.len(), self.server_id);
+            .data_received(server_message_buffer.len(), self.server_id);
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
 
-        // Pass the data back to the client.
-        Ok(message_buffer)
+        Ok(())
     }
 
     /// If the server is still inside a transaction.
@@ -577,8 +574,10 @@ impl Server {
 
         self.send(&query).await?;
 
+        let mut server_message_buffer = BytesMut::with_capacity(8196);
+
         loop {
-            let _ = self.recv().await?;
+            let _ = self.recv(&mut server_message_buffer).await?;
 
             if !self.data_available {
                 break;
