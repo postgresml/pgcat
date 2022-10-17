@@ -392,7 +392,6 @@ impl Server {
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self, server_message_buffer: &mut BytesMut) -> Result<(), Error> {
-
         loop {
             let mut message = match read_message(&mut self.read).await {
                 Ok(message) => message,

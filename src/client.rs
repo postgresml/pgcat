@@ -836,8 +836,15 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, &message, server, &address, &pool, &mut server_message_buffer)
-                            .await?;
+                        self.send_and_receive_loop(
+                            code,
+                            &message,
+                            server,
+                            &address,
+                            &pool,
+                            &mut server_message_buffer,
+                        )
+                        .await?;
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
@@ -890,7 +897,8 @@ where
 
                         client_message_buffer.put(&message[..]);
 
-                        let first_message_code = (*client_message_buffer.get(0).unwrap_or(&0)) as char;
+                        let first_message_code =
+                            (*client_message_buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' {
@@ -906,8 +914,15 @@ where
                             }
                         }
 
-                        self.send_and_receive_loop(code, &client_message_buffer, server, &address, &pool, &mut server_message_buffer)
-                            .await?;
+                        self.send_and_receive_loop(
+                            code,
+                            &client_message_buffer,
+                            server,
+                            &address,
+                            &pool,
+                            &mut server_message_buffer,
+                        )
+                        .await?;
 
                         client_message_buffer.clear();
 
@@ -936,7 +951,13 @@ where
                         self.send_server_message(server, &message, &address, &pool)
                             .await?;
 
-                        self.receive_server_message(server, &address, &pool, &mut server_message_buffer).await?;
+                        self.receive_server_message(
+                            server,
+                            &address,
+                            &pool,
+                            &mut server_message_buffer,
+                        )
+                        .await?;
 
                         match write_all_half(&mut self.write, &server_message_buffer).await {
                             Ok(_) => (),
@@ -1002,7 +1023,8 @@ where
         // Read all data the server has to offer, which can be multiple messages
         // buffered in 8196 bytes chunks.
         loop {
-            self.receive_server_message(server, &address, &pool, server_message_buffer).await?;
+            self.receive_server_message(server, &address, &pool, server_message_buffer)
+                .await?;
 
             match write_all_half(&mut self.write, &server_message_buffer).await {
                 Ok(_) => (),
