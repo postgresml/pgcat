@@ -71,7 +71,7 @@ query_parser_enabled = true
 # If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
 # load balancing of read queries. Otherwise, the primary will only be used for write
 # queries. The primary can always be explicitly selected with our custom protocol.
-primary_reads_enabled = false
+primary_reads_enabled = true
 
 # So what if you wanted to implement a different hashing function,
 # or you've already built one and you want this pooler to use it?
