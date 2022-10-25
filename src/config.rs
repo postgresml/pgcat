@@ -267,6 +267,10 @@ pub struct Pool {
     pub connect_timeout: Option<u64>,
 
     pub sharding_function: ShardingFunction,
+
+    #[serde(default = "Pool::default_automatic_sharding_key")]
+    pub automatic_sharding_key: Option<String>,
+
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
 }
@@ -274,6 +278,10 @@ pub struct Pool {
 impl Pool {
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
+    }
+
+    pub fn default_automatic_sharding_key() -> Option<String> {
+        None
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -318,6 +326,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: None,
             connect_timeout: None,
         }
     }

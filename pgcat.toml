@@ -83,6 +83,9 @@ primary_reads_enabled = true
 #
 sharding_function = "pg_bigint_hash"
 
+# Automatically parse this from queries and route queries to the right shard!
+automatic_sharding_key = "id"
+
 # Credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
 username = "sharding_user"
