@@ -79,6 +79,9 @@ pub struct PoolSettings {
 
     // Sharding function.
     pub sharding_function: ShardingFunction,
+
+    // Sharding key
+    pub automatic_sharding_key: Option<String>,
 }
 
 impl Default for PoolSettings {
@@ -91,6 +94,7 @@ impl Default for PoolSettings {
             query_parser_enabled: false,
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: None,
         }
     }
 }
@@ -254,6 +258,7 @@ impl ConnectionPool {
                         query_parser_enabled: pool_config.query_parser_enabled.clone(),
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
+                        automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
                     },
                 };
 
