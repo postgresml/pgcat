@@ -335,8 +335,14 @@ impl QueryRouter {
                             // or discard shard selection. If they point to the same shard though,
                             // we can let them through as-is.
                             // This is basically building a database now :)
-                            self.active_shard = self.infer_shard(query);
-                            debug!("Automatically using shard: {:?}", self.active_shard);
+                            match self.infer_shard(query) {
+                                Some(shard) => {
+                                    self.active_shard = Some(shard);
+                                    debug!("Automatically using shard: {:?}", self.active_shard);
+                                }
+
+                                None => (),
+                            };
                         }
 
                         None => (),
