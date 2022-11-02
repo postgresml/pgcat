@@ -63,6 +63,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Average of total_sent bytes every 15 seconds",
         ty: "gauge",
     },
+    "avg_errors" => MetricHelpType {
+        help: "Average number of errors every 15 seconds",
+        ty: "gauge",
+    },
     "avg_xact_count" => MetricHelpType {
         help: "Average of total_xact_count every 15 seconds",
         ty: "gauge",
