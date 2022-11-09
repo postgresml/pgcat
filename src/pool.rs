@@ -635,7 +635,9 @@ impl ManageConnection for ServerPool {
 
 /// Get the connection pool
 pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
-    (*(*POOLS.load())).get(&PoolIdentifier::new(db, user)).cloned()
+    (*(*POOLS.load()))
+        .get(&PoolIdentifier::new(db, user))
+        .cloned()
 }
 
 /// Get a pointer to all configured pools.

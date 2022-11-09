@@ -181,7 +181,7 @@ impl ScramSha256 {
 
         match hmac.verify_slice(&verifier) {
             Ok(_) => Ok(()),
-            Err(_) =>  Err(Error::ServerError),
+            Err(_) => Err(Error::ServerError),
         }
     }
 

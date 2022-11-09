@@ -557,12 +557,9 @@ where
                     // Drop the mutex as soon as possible.
                     // We found the server the client is using for its query
                     // that it wants to cancel.
-                    Some((process_id, secret_key, address, port)) => (
-                        *process_id,
-                        *secret_key,
-                        address.clone(),
-                        *port,
-                    ),
+                    Some((process_id, secret_key, address, port)) => {
+                        (*process_id, *secret_key, address.clone(), *port)
+                    }
 
                     // The client doesn't know / got the wrong server,
                     // we're closing the connection for security reasons.
