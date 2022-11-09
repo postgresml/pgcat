@@ -30,12 +30,12 @@ impl Tls {
     pub fn new() -> Result<Self, Error> {
         let config = get_config();
 
-        let certs = match load_certs(&Path::new(&config.general.tls_certificate.unwrap())) {
+        let certs = match load_certs(Path::new(&config.general.tls_certificate.unwrap())) {
             Ok(certs) => certs,
             Err(_) => return Err(Error::TlsError),
         };
 
-        let mut keys = match load_keys(&Path::new(&config.general.tls_private_key.unwrap())) {
+        let mut keys = match load_keys(Path::new(&config.general.tls_private_key.unwrap())) {
             Ok(keys) => keys,
             Err(_) => return Err(Error::TlsError),
         };

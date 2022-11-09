@@ -133,7 +133,7 @@ impl Sharder {
     #[inline]
     fn combine(mut a: u64, b: u64) -> u64 {
         a ^= b
-            .wrapping_add(0x49a0f4dd15e5a8e3 as u64)
+            .wrapping_add(0x49a0f4dd15e5a8e3_u64)
             .wrapping_add(a << 54)
             .wrapping_add(a >> 7);
         a
@@ -141,7 +141,7 @@ impl Sharder {
 
     #[inline]
     fn pg_u32_hash(k: u32) -> u64 {
-        let mut a: u32 = 0x9e3779b9 as u32 + std::mem::size_of::<u32>() as u32 + 3923095 as u32;
+        let mut a: u32 = 0x9e3779b9_u32 + std::mem::size_of::<u32>() as u32 + 3923095_u32;
         let mut b = a;
         let c = a;
 

@@ -140,18 +140,18 @@ impl ConnectionPool {
             let changed = pools_hash.insert(pool_config.clone());
 
             // There is one pool per database/user pair.
-            for (_, user) in &pool_config.users {
+            for user in pool_config.users.values() {
                 // If the pool hasn't changed, get existing reference and insert it into the new_pools.
                 // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
                 if !changed {
-                    match get_pool(&pool_name, &user.username) {
+                    match get_pool(pool_name, &user.username) {
                         Some(pool) => {
                             info!(
                                 "[pool: {}][user: {}] has not changed",
                                 pool_name, user.username
                             );
                             new_pools.insert(
-                                PoolIdentifier::new(&pool_name, &user.username),
+                                PoolIdentifier::new(pool_name, &user.username),
                                 pool.clone(),
                             );
                             continue;
@@ -172,7 +172,6 @@ impl ConnectionPool {
                     .shards
                     .clone()
                     .into_keys()
-                    .map(|x| x.to_string())
                     .collect::<Vec<String>>();
 
                 // Sort by shard number to ensure consistency.
@@ -182,10 +181,9 @@ impl ConnectionPool {
                     let shard = &pool_config.shards[shard_idx];
                     let mut pools = Vec::new();
                     let mut servers = Vec::new();
-                    let mut address_index = 0;
                     let mut replica_number = 0;
 
-                    for server in shard.servers.iter() {
+                    for (address_index, server) in shard.servers.iter().enumerate() {
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
@@ -200,7 +198,6 @@ impl ConnectionPool {
                         };
 
                         address_id += 1;
-                        address_index += 1;
 
                         if server.role == Role::Replica {
                             replica_number += 1;
@@ -240,7 +237,7 @@ impl ConnectionPool {
 
                 let mut pool = ConnectionPool {
                     databases: shards,
-                    addresses: addresses,
+                    addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     stats: get_reporter(),
                     server_info: BytesMut::new(),
@@ -255,7 +252,7 @@ impl ConnectionPool {
                             "primary" => Some(Role::Primary),
                             _ => unreachable!(),
                         },
-                        query_parser_enabled: pool_config.query_parser_enabled.clone(),
+                        query_parser_enabled: pool_config.query_parser_enabled,
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
                         automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
@@ -273,7 +270,7 @@ impl ConnectionPool {
                 };
 
                 // There is one pool per database/user pair.
-                new_pools.insert(PoolIdentifier::new(&pool_name, &user.username), pool);
+                new_pools.insert(PoolIdentifier::new(pool_name, &user.username), pool);
             }
         }
 
@@ -304,7 +301,7 @@ impl ConnectionPool {
                 let server = &*proxy;
                 let server_info = server.server_info();
 
-                if server_infos.len() > 0 {
+                if !server_infos.is_empty() {
                     // Compare against the last server checked.
                     if server_info != server_infos[server_infos.len() - 1] {
                         warn!(
@@ -320,7 +317,7 @@ impl ConnectionPool {
 
         // TODO: compare server information to make sure
         // all shards are running identical configurations.
-        if server_infos.len() == 0 {
+        if server_infos.is_empty() {
             return Err(Error::AllServersDown);
         }
 
@@ -356,7 +353,7 @@ impl ConnectionPool {
                 None => break,
             };
 
-            if self.is_banned(&address, role) {
+            if self.is_banned(address, role) {
                 debug!("Address {:?} is banned", address);
                 continue;
             }
@@ -373,7 +370,7 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!("Banning instance {:?}, error: {:?}", address, err);
-                    self.ban(&address, process_id);
+                    self.ban(address, process_id);
                     self.stats.client_checkout_error(process_id, address.id);
                     continue;
                 }
@@ -428,7 +425,7 @@ impl ConnectionPool {
                         // Don't leave a bad connection in the pool.
                         server.mark_bad();
 
-                        self.ban(&address, process_id);
+                        self.ban(address, process_id);
                         continue;
                     }
                 },
@@ -442,7 +439,7 @@ impl ConnectionPool {
                     // Don't leave a bad connection in the pool.
                     server.mark_bad();
 
-                    self.ban(&address, process_id);
+                    self.ban(address, process_id);
                     continue;
                 }
             }
@@ -575,11 +572,11 @@ impl ServerPool {
         stats: Reporter,
     ) -> ServerPool {
         ServerPool {
-            address: address,
-            user: user,
+            address,
+            user,
             database: database.to_string(),
-            client_server_map: client_server_map,
-            stats: stats,
+            client_server_map,
+            stats,
         }
     }
 }
@@ -638,15 +635,14 @@ impl ManageConnection for ServerPool {
 
 /// Get the connection pool
 pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
-    match (*(*POOLS.load())).get(&PoolIdentifier::new(db, user)) {
-        Some(pool) => Some(pool.clone()),
-        None => None,
-    }
+    (*(*POOLS.load()))
+        .get(&PoolIdentifier::new(db, user))
+        .cloned()
 }
 
 /// Get a pointer to all configured pools.
 pub fn get_all_pools() -> HashMap<PoolIdentifier, ConnectionPool> {
-    return (*(*POOLS.load())).clone();
+    (*(*POOLS.load())).clone()
 }
 
 /// How many total servers we have in the config.

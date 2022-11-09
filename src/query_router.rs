@@ -86,10 +86,7 @@ impl QueryRouter {
             Err(_) => return false,
         };
 
-        match CUSTOM_SQL_REGEX_SET.set(set) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        CUSTOM_SQL_REGEX_SET.set(set).is_ok()
     }
 
     /// Create a new instance of the query router.
@@ -276,7 +273,6 @@ impl QueryRouter {
             // Parse (prepared statement)
             'P' => {
                 let mut start = 0;
-                let mut end;
 
                 // Skip the name of the prepared statement.
                 while buf[start] != 0 && start < buf.len() {
@@ -285,7 +281,7 @@ impl QueryRouter {
                 start += 1; // Skip terminating null
 
                 // Find the end of the prepared stmt (\0)
-                end = start;
+                let mut end = start;
                 while buf[end] != 0 && end < buf.len() {
                     end += 1;
                 }
@@ -294,7 +290,7 @@ impl QueryRouter {
 
                 debug!("Prepared statement: '{}'", query);
 
-                query.replace("$", "") // Remove placeholders turning them into "values"
+                query.replace('$', "") // Remove placeholders turning them into "values"
             }
 
             _ => return false,
@@ -312,7 +308,7 @@ impl QueryRouter {
 
         debug!("AST: {:?}", ast);
 
-        if ast.len() == 0 {
+        if ast.is_empty() {
             // That's weird, no idea, let's go to primary
             self.active_role = Some(Role::Primary);
             return false;
@@ -371,50 +367,46 @@ impl QueryRouter {
         let mut result = Vec::new();
         let mut found = false;
 
-        match expr {
-            // This parses `sharding_key = 5`. But it's technically
-            // legal to write `5 = sharding_key`. I don't judge the people
-            // who do that, but I think ORMs will still use the first variant,
-            // so we can leave the second as a TODO.
-            Expr::BinaryOp { left, op, right } => {
-                match &**left {
-                    Expr::BinaryOp { .. } => result.extend(self.selection_parser(&left)),
-                    Expr::Identifier(ident) => {
-                        found = ident.value
-                            == *self.pool_settings.automatic_sharding_key.as_ref().unwrap();
-                    }
-                    _ => (),
-                };
+        // This parses `sharding_key = 5`. But it's technically
+        // legal to write `5 = sharding_key`. I don't judge the people
+        // who do that, but I think ORMs will still use the first variant,
+        // so we can leave the second as a TODO.
+        if let Expr::BinaryOp { left, op, right } = expr {
+            match &**left {
+                Expr::BinaryOp { .. } => result.extend(self.selection_parser(left)),
+                Expr::Identifier(ident) => {
+                    found =
+                        ident.value == *self.pool_settings.automatic_sharding_key.as_ref().unwrap();
+                }
+                _ => (),
+            };
 
-                match op {
-                    BinaryOperator::Eq => (),
-                    BinaryOperator::Or => (),
-                    BinaryOperator::And => (),
-                    _ => {
-                        // TODO: support other operators than equality.
-                        debug!("Unsupported operation: {:?}", op);
-                        return Vec::new();
-                    }
-                };
+            match op {
+                BinaryOperator::Eq => (),
+                BinaryOperator::Or => (),
+                BinaryOperator::And => (),
+                _ => {
+                    // TODO: support other operators than equality.
+                    debug!("Unsupported operation: {:?}", op);
+                    return Vec::new();
+                }
+            };
 
-                match &**right {
-                    Expr::BinaryOp { .. } => result.extend(self.selection_parser(&right)),
-                    Expr::Value(Value::Number(value, ..)) => {
-                        if found {
-                            match value.parse::<i64>() {
-                                Ok(value) => result.push(value),
-                                Err(_) => {
-                                    debug!("Sharding key was not an integer: {}", value);
-                                }
-                            };
-                        }
+            match &**right {
+                Expr::BinaryOp { .. } => result.extend(self.selection_parser(right)),
+                Expr::Value(Value::Number(value, ..)) => {
+                    if found {
+                        match value.parse::<i64>() {
+                            Ok(value) => result.push(value),
+                            Err(_) => {
+                                debug!("Sharding key was not an integer: {}", value);
+                            }
+                        };
                     }
-                    _ => (),
-                };
-            }
-
-            _ => (),
-        };
+                }
+                _ => (),
+            };
+        }
 
         debug!("Sharding keys found: {:?}", result);
 
@@ -438,7 +430,7 @@ impl QueryRouter {
             SetExpr::Select(select) => {
                 match &select.selection {
                     Some(selection) => {
-                        let sharding_keys = self.selection_parser(&selection);
+                        let sharding_keys = self.selection_parser(selection);
 
                         // TODO: Add support for prepared statements here.
                         // This should just give us the position of the value in the `B` message.
@@ -484,10 +476,7 @@ impl QueryRouter {
 
     /// Get desired shard we should be talking to.
     pub fn shard(&self) -> usize {
-        match self.active_shard {
-            Some(shard) => shard,
-            None => 0,
-        }
+        self.active_shard.unwrap_or(0)
     }
 
     pub fn set_shard(&mut self, shard: usize) {
@@ -531,7 +520,7 @@ mod test {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
-        assert_eq!(qr.query_parser_enabled(), true);
+        assert!(qr.query_parser_enabled());
 
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -656,9 +645,9 @@ mod test {
         for (i, test) in tests.iter().enumerate() {
             if !list[matches[i]].is_match(test) {
                 println!("{} does not match {}", test, list[matches[i]]);
-                assert!(false);
+                panic!();
             }
-            assert_eq!(set.matches(test).into_iter().collect::<Vec<_>>().len(), 1);
+            assert_eq!(set.matches(test).into_iter().count(), 1);
         }
 
         let bad = [
@@ -667,7 +656,7 @@ mod test {
         ];
 
         for query in &bad {
-            assert_eq!(set.matches(query).into_iter().collect::<Vec<_>>().len(), 0);
+            assert_eq!(set.matches(query).into_iter().count(), 0);
         }
     }
 
@@ -760,11 +749,11 @@ mod test {
         assert_eq!(qr.role(), None);
 
         let query = simple_query("INSERT INTO test_table VALUES (1)");
-        assert_eq!(qr.infer(query), true);
+        assert!(qr.infer(query));
         assert_eq!(qr.role(), Some(Role::Primary));
 
         let query = simple_query("SELECT * FROM test_table");
-        assert_eq!(qr.infer(query), true);
+        assert!(qr.infer(query));
         assert_eq!(qr.role(), Some(Role::Replica));
 
         assert!(qr.query_parser_enabled());
@@ -798,8 +787,8 @@ mod test {
 
         assert_eq!(qr.active_role, None);
         assert_eq!(qr.active_shard, None);
-        assert_eq!(qr.query_parser_enabled(), true);
-        assert_eq!(qr.primary_reads_enabled(), false);
+        assert!(qr.query_parser_enabled());
+        assert!(!qr.primary_reads_enabled());
 
         let q1 = simple_query("SET SERVER ROLE TO 'primary'");
         assert!(qr.try_execute_command(q1) != None);
@@ -807,7 +796,7 @@ mod test {
 
         let q2 = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(q2) != None);
-        assert_eq!(qr.active_role.unwrap(), pool_settings.clone().default_role);
+        assert_eq!(qr.active_role.unwrap(), pool_settings.default_role);
 
         // Here we go :)
         let q3 = simple_query("SELECT * FROM test WHERE id = 5 AND values IN (1, 2, 3)");
