@@ -361,7 +361,9 @@ impl Shard {
             dup_check.insert(server);
 
             // Check that we define only zero or one primary.
-            if server.role == Role::Primary { primary_count += 1 }
+            if server.role == Role::Primary {
+                primary_count += 1
+            }
         }
 
         if primary_count > 1 {
@@ -605,18 +607,13 @@ impl Config {
                     Ok(_) => {
                         // Cert is okay, but what about the private key?
                         match self.general.tls_private_key.clone() {
-                            Some(tls_private_key) => {
-                                match load_keys(Path::new(&tls_private_key)) {
-                                    Ok(_) => (),
-                                    Err(err) => {
-                                        error!(
-                                            "tls_private_key is incorrectly configured: {:?}",
-                                            err
-                                        );
-                                        return Err(Error::BadConfig);
-                                    }
+                            Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    error!("tls_private_key is incorrectly configured: {:?}", err);
+                                    return Err(Error::BadConfig);
                                 }
-                            }
+                            },
 
                             None => {
                                 error!("tls_certificate is set, but the tls_private_key is not");
