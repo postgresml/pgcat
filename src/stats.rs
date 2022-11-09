@@ -245,7 +245,7 @@ impl Default for Reporter {
 impl Reporter {
     /// Create a new Reporter instance.
     pub fn new(tx: Sender<Event>) -> Reporter {
-        Reporter { tx: tx }
+        Reporter { tx }
     }
 
     /// Send statistics to the task keeping track of stats.
@@ -338,9 +338,9 @@ impl Reporter {
         let event = Event {
             name: EventName::ClientRegistered {
                 client_id,
-                pool_name: pool_name.clone(),
-                username: username.clone(),
-                application_name: app_name.clone(),
+                pool_name,
+                username,
+                application_name: app_name,
             },
             value: 1,
         };
@@ -582,7 +582,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter = address_stats
                                 .entry("total_query_count".to_string())
                                 .or_insert(0);
@@ -618,7 +618,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter = address_stats
                                 .entry("total_xact_count".to_string())
                                 .or_insert(0);
@@ -636,7 +636,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter =
                                 address_stats.entry("total_sent".to_string()).or_insert(0);
                             *counter += stat.value;
@@ -653,7 +653,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter = address_stats
                                 .entry("total_received".to_string())
                                 .or_insert(0);
@@ -683,7 +683,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter = address_stats
                                 .entry("total_wait_time".to_string())
                                 .or_insert(0);
@@ -694,7 +694,7 @@ impl Collector {
                                     server_info.pool_name.clone(),
                                     server_info.username.clone(),
                                 ))
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
 
                             // We record max wait in microseconds, we do the pgbouncer second/microsecond split on admin
                             let old_microseconds =
@@ -750,7 +750,7 @@ impl Collector {
                     // Update address aggregation stats
                     let address_stats = address_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
                     let counter = address_stats.entry("total_errors".to_string()).or_insert(0);
                     *counter += stat.value;
                 }
@@ -770,7 +770,7 @@ impl Collector {
                     // Update address aggregation stats
                     let address_stats = address_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
                     let counter = address_stats.entry("total_errors".to_string()).or_insert(0);
                     *counter += stat.value;
                 }
@@ -891,7 +891,7 @@ impl Collector {
                 } => {
                     let pool_stats = pool_stat_lookup
                         .entry((pool_name.clone(), username.clone()))
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
 
                     // These are re-calculated every iteration of the loop, so we don't want to add values
                     // from the last iteration.
@@ -964,17 +964,17 @@ impl Collector {
                     // Clear maxwait after reporting
                     pool_stat_lookup
                         .entry((pool_name.clone(), username.clone()))
-                        .or_insert(HashMap::default())
+                        .or_insert_with(HashMap::default)
                         .insert("maxwait_us".to_string(), 0);
                 }
 
                 EventName::UpdateAverages { address_id } => {
                     let stats = address_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
                     let old_stats = address_old_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
 
                     // Calculate averages
                     for stat in &[

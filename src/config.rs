@@ -9,7 +9,6 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use toml;
 
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
@@ -353,7 +352,7 @@ impl Shard {
         let mut dup_check = HashSet::new();
         let mut primary_count = 0;
 
-        if self.servers.len() == 0 {
+        if self.servers.is_empty() {
             error!("Shard {} has no servers configured", self.database);
             return Err(Error::BadConfig);
         }
@@ -362,10 +361,7 @@ impl Shard {
             dup_check.insert(server);
 
             // Check that we define only zero or one primary.
-            match server.role {
-                Role::Primary => primary_count += 1,
-                _ => (),
-            };
+            if server.role == Role::Primary { primary_count += 1 }
         }
 
         if primary_count > 1 {
@@ -605,12 +601,12 @@ impl Config {
         // Validate TLS!
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
-                match load_certs(&Path::new(&tls_certificate)) {
+                match load_certs(Path::new(&tls_certificate)) {
                     Ok(_) => {
                         // Cert is okay, but what about the private key?
                         match self.general.tls_private_key.clone() {
                             Some(tls_private_key) => {
-                                match load_keys(&Path::new(&tls_private_key)) {
+                                match load_keys(Path::new(&tls_private_key)) {
                                     Ok(_) => (),
                                     Err(err) => {
                                         error!(
@@ -638,7 +634,7 @@ impl Config {
             None => (),
         };
 
-        for (_, pool) in &mut self.pools {
+        for pool in self.pools.values_mut() {
             pool.validate()?;
         }
 

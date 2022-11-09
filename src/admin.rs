@@ -22,7 +22,7 @@ pub fn generate_server_info_for_admin() -> BytesMut {
     server_info.put(server_parameter_message("server_version", VERSION));
     server_info.put(server_parameter_message("DateStyle", "ISO, MDY"));
 
-    return server_info;
+    server_info
 }
 
 /// Handle admin client.
@@ -179,7 +179,7 @@ where
     let mut res = BytesMut::new();
 
     res.put(row_description(&vec![("version", DataType::Text)]));
-    res.put(data_row(&vec![format!("PgCat {}", VERSION).to_string()]));
+    res.put(data_row(&vec![format!("PgCat {}", VERSION)]));
     res.put(command_complete("SHOW"));
 
     res.put_u8(b'Z');

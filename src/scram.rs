@@ -57,7 +57,7 @@ impl ScramSha256 {
 
     /// Used for testing.
     pub fn from_nonce(password: &str, nonce: &str) -> ScramSha256 {
-        let message = BytesMut::from(&format!("{}n=,r={}", "n,,", nonce).as_bytes()[..]);
+        let message = BytesMut::from(format!("{}n=,r={}", "n,,", nonce).as_bytes());
 
         ScramSha256 {
             password: password.to_string(),
@@ -87,7 +87,7 @@ impl ScramSha256 {
         };
 
         let salted_password = Self::hi(
-            &normalize(&self.password.as_bytes()[..]),
+            &normalize(self.password.as_bytes()),
             &salt,
             server_message.iterations,
         );
@@ -181,7 +181,7 @@ impl ScramSha256 {
 
         match hmac.verify_slice(&verifier) {
             Ok(_) => Ok(()),
-            Err(_) => return Err(Error::ServerError),
+            Err(_) =>  Err(Error::ServerError),
         }
     }
 
@@ -220,7 +220,7 @@ impl Message {
     /// Parse the server SASL challenge.
     fn parse(message: &BytesMut) -> Result<Message, Error> {
         let parts = String::from_utf8_lossy(&message[..])
-            .split(",")
+            .split(',')
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
@@ -268,7 +268,7 @@ mod test {
     #[test]
     fn parse_server_first_message() {
         let message = BytesMut::from(
-            &"r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096".as_bytes()[..],
+            "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096".as_bytes(),
         );
         let message = Message::parse(&message).unwrap();
         assert_eq!(message.nonce, "fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j");
@@ -279,7 +279,7 @@ mod test {
     #[test]
     fn parse_server_last_message() {
         let f = FinalMessage::parse(&BytesMut::from(
-            &"v=U+ppxD5XUKtradnv8e2MkeupiA8FU87Sg8CXzXHDAzw".as_bytes()[..],
+            "v=U+ppxD5XUKtradnv8e2MkeupiA8FU87Sg8CXzXHDAzw".as_bytes(),
         ))
         .unwrap();
         assert_eq!(
@@ -309,12 +309,12 @@ mod test {
         assert_eq!(std::str::from_utf8(&message).unwrap(), client_first);
 
         let result = scram
-            .update(&BytesMut::from(&server_first.as_bytes()[..]))
+            .update(&BytesMut::from(server_first.as_bytes()))
             .unwrap();
         assert_eq!(std::str::from_utf8(&result).unwrap(), client_final);
 
         scram
-            .finish(&BytesMut::from(&server_final.as_bytes()[..]))
+            .finish(&BytesMut::from(server_final.as_bytes()))
             .unwrap();
     }
 }
