@@ -57,6 +57,10 @@ where
             trace!("RELOAD");
             reload(stream, client_server_map).await
         }
+        "RESUME" => {
+            trace!("RESUME");
+            resume(stream).await
+        }
         "SET" => {
             trace!("SET");
             ignore_set(stream).await
@@ -96,6 +100,10 @@ where
             }
             _ => error_response(stream, "Unsupported SHOW query against the admin database").await,
         },
+        "SUSPEND" => {
+            trace!("SUSPEND");
+            suspend(stream).await
+        }
         _ => error_response(stream, "Unsupported query against the admin database").await,
     }
 }
@@ -560,4 +568,24 @@ where
     res.put_u8(b'I');
 
     write_all_half(stream, res).await
+}
+
+async fn suspend<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    for (_, pool) in get_all_pools() {
+        pool.suspend();
+    }
+    custom_protocol_response_ok(stream, "SUSPEND").await
+}
+
+async fn resume<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    for (_, pool) in get_all_pools() {
+        pool.resume();
+    }
+    custom_protocol_response_ok(stream, "RESUME").await
 }

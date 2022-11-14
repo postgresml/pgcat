@@ -11,6 +11,7 @@ use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use crate::config::{get_config, Address, General, PoolMode, Role, User};
 use crate::errors::Error;
@@ -132,6 +133,11 @@ pub struct ConnectionPool {
 
     /// Pool configuration.
     pub settings: PoolSettings,
+
+    // Resume channels for suspended requests
+    suspended_requests: Arc<Mutex<Vec<UnboundedSender<bool>>>>,
+    //Is the pool suspended
+    suspended: Arc<Mutex<bool>>,
 }
 
 impl ConnectionPool {
@@ -267,6 +273,8 @@ impl ConnectionPool {
                         healthcheck_delay: config.general.healthcheck_delay,
                         healthcheck_timeout: config.general.healthcheck_timeout,
                     },
+                    suspended: Arc::new(Mutex::new(false)),
+                    suspended_requests: Arc::new(Mutex::new(Vec::new())),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -352,6 +360,8 @@ impl ConnectionPool {
 
         // Random load balancing
         candidates.shuffle(&mut thread_rng());
+
+        self.wait_unsuspended().await;
 
         while !candidates.is_empty() {
             // Get the next candidate
@@ -558,6 +568,38 @@ impl ConnectionPool {
 
     pub fn server_info(&self) -> BytesMut {
         self.server_info.clone()
+    }
+    pub fn suspend(&self) {
+        let suspended = Arc::clone(&self.suspended);
+        let mut state = suspended.lock();
+        *state = true;
+    }
+    pub fn resume(self) {
+        let suspended_mutex = self.suspended.clone();
+        let mut suspended_guard = suspended_mutex.lock();
+        *suspended_guard = false;
+        let request_mutex = self.suspended_requests;
+        let mut suspended_requests = request_mutex.lock();
+        for sender in suspended_requests.as_slice() {
+            let res = sender.send(true);
+            res.unwrap();
+        }
+        suspended_requests.clear();
+    }
+    async fn wait_unsuspended(&self) {
+        let (tx, mut rx) = unbounded_channel();
+        let future = {
+            let guard = self.suspended.lock();
+            if *guard {
+                self.suspended_requests.lock().push(tx);
+                Some(rx.recv())
+            } else {
+                None
+            }
+        };
+        if let Some(f) = future {
+            f.await;
+        }
     }
 }
 
