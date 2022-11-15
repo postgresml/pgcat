@@ -493,9 +493,6 @@ where
     buffer.put_i32(len);
     buffer.put_slice(&buf);
 
-    // let mut cursor = Cursor::new(buffer);
-    // cursor.advance(starting_point);
-
     Ok(starting_point)
 }
 
