@@ -172,7 +172,7 @@ impl Server {
                                         + sasl_response.len() as i32, // length of SASL response
                                 );
 
-                                res.put_slice(&format!("{}\0", SCRAM_SHA_256).as_bytes()[..]);
+                                res.put_slice(format!("{}\0", SCRAM_SHA_256).as_bytes());
                                 res.put_i32(sasl_response.len() as i32);
                                 res.put(sasl_response);
 
@@ -321,9 +321,9 @@ impl Server {
                         data_available: false,
                         bad: false,
                         needs_cleanup: false,
-                        client_server_map: client_server_map,
+                        client_server_map,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
-                        stats: stats,
+                        stats,
                         application_name: String::new(),
                         last_activity: SystemTime::now(),
                     };
@@ -367,7 +367,7 @@ impl Server {
         bytes.put_i32(process_id);
         bytes.put_i32(secret_key);
 
-        Ok(write_all(&mut stream, bytes).await?)
+        write_all(&mut stream, bytes).await
     }
 
     /// Send messages to the server from the client.
@@ -609,7 +609,7 @@ impl Server {
             self.needs_cleanup = false;
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// A shorthand for `SET application_name = $1`.
@@ -624,7 +624,7 @@ impl Server {
                 .query(&format!("SET application_name = '{}'", name))
                 .await?);
             self.needs_cleanup = needs_cleanup_before;
-            return result;
+            result
         } else {
             Ok(())
         }

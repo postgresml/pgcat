@@ -63,6 +63,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "Average of total_sent bytes every 15 seconds",
         ty: "gauge",
     },
+    "avg_errors" => MetricHelpType {
+        help: "Average number of errors every 15 seconds",
+        ty: "gauge",
+    },
     "avg_xact_count" => MetricHelpType {
         help: "Average of total_xact_count every 15 seconds",
         ty: "gauge",
@@ -199,7 +203,7 @@ async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hype
 pub async fn start_metric_server(http_addr: SocketAddr) {
     let http_service_factory =
         make_service_fn(|_conn| async { Ok::<_, hyper::Error>(service_fn(prometheus_stats)) });
-    let server = Server::bind(&http_addr.into()).serve(http_service_factory);
+    let server = Server::bind(&http_addr).serve(http_service_factory);
     info!(
         "Exposing prometheus metrics on http://{}/metrics.",
         http_addr

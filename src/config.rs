@@ -9,7 +9,6 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use toml;
 
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
@@ -267,6 +266,10 @@ pub struct Pool {
     pub connect_timeout: Option<u64>,
 
     pub sharding_function: ShardingFunction,
+
+    #[serde(default = "Pool::default_automatic_sharding_key")]
+    pub automatic_sharding_key: Option<String>,
+
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
 }
@@ -274,6 +277,10 @@ pub struct Pool {
 impl Pool {
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
+    }
+
+    pub fn default_automatic_sharding_key() -> Option<String> {
+        None
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -318,6 +325,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: None,
             connect_timeout: None,
         }
     }
@@ -344,7 +352,7 @@ impl Shard {
         let mut dup_check = HashSet::new();
         let mut primary_count = 0;
 
-        if self.servers.len() == 0 {
+        if self.servers.is_empty() {
             error!("Shard {} has no servers configured", self.database);
             return Err(Error::BadConfig);
         }
@@ -353,10 +361,9 @@ impl Shard {
             dup_check.insert(server);
 
             // Check that we define only zero or one primary.
-            match server.role {
-                Role::Primary => primary_count += 1,
-                _ => (),
-            };
+            if server.role == Role::Primary {
+                primary_count += 1
+            }
         }
 
         if primary_count > 1 {
@@ -596,22 +603,17 @@ impl Config {
         // Validate TLS!
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
-                match load_certs(&Path::new(&tls_certificate)) {
+                match load_certs(Path::new(&tls_certificate)) {
                     Ok(_) => {
                         // Cert is okay, but what about the private key?
                         match self.general.tls_private_key.clone() {
-                            Some(tls_private_key) => {
-                                match load_keys(&Path::new(&tls_private_key)) {
-                                    Ok(_) => (),
-                                    Err(err) => {
-                                        error!(
-                                            "tls_private_key is incorrectly configured: {:?}",
-                                            err
-                                        );
-                                        return Err(Error::BadConfig);
-                                    }
+                            Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    error!("tls_private_key is incorrectly configured: {:?}", err);
+                                    return Err(Error::BadConfig);
                                 }
-                            }
+                            },
 
                             None => {
                                 error!("tls_certificate is set, but the tls_private_key is not");
@@ -629,7 +631,7 @@ impl Config {
             None => (),
         };
 
-        for (_, pool) in &mut self.pools {
+        for pool in self.pools.values_mut() {
             pool.validate()?;
         }
 

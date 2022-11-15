@@ -374,7 +374,7 @@ where
 
         let admin = ["pgcat", "pgbouncer"]
             .iter()
-            .filter(|db| *db == &pool_name)
+            .filter(|db| *db == pool_name)
             .count()
             == 1;
 
@@ -386,7 +386,7 @@ where
             );
             error_response_terminal(
                 &mut write,
-                &format!("terminating connection due to administrator command"),
+                "terminating connection due to administrator command",
             )
             .await?;
             return Err(Error::ShuttingDown);
@@ -443,7 +443,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(&pool_name, &username) {
+            let pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -461,7 +461,7 @@ where
             };
 
             // Compare server and client hashes.
-            let password_hash = md5_hash_password(&username, &pool.settings.user.password, &salt);
+            let password_hash = md5_hash_password(username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
                 warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
@@ -484,9 +484,9 @@ where
 
         trace!("Startup OK");
 
-        return Ok(Client {
+        Ok(Client {
             read: BufReader::new(read),
-            write: write,
+            write,
             addr,
             cancel_mode: false,
             transaction_mode,
@@ -494,8 +494,8 @@ where
             secret_key,
             client_server_map,
             parameters: parameters.clone(),
-            stats: stats,
-            admin: admin,
+            stats,
+            admin,
             last_address_id: None,
             last_server_id: None,
             pool_name: pool_name.clone(),
@@ -503,7 +503,7 @@ where
             application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
-        });
+        })
     }
 
     /// Handle cancel request.
@@ -517,9 +517,9 @@ where
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
-        return Ok(Client {
+        Ok(Client {
             read: BufReader::new(read),
-            write: write,
+            write,
             addr,
             cancel_mode: true,
             transaction_mode: false,
@@ -536,7 +536,7 @@ where
             application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
-        });
+        })
     }
 
     /// Handle a connected and authenticated client.
@@ -552,12 +552,9 @@ where
                     // Drop the mutex as soon as possible.
                     // We found the server the client is using for its query
                     // that it wants to cancel.
-                    Some((process_id, secret_key, address, port)) => (
-                        process_id.clone(),
-                        secret_key.clone(),
-                        address.clone(),
-                        *port,
-                    ),
+                    Some((process_id, secret_key, address, port)) => {
+                        (*process_id, *secret_key, address.clone(), *port)
+                    }
 
                     // The client doesn't know / got the wrong server,
                     // we're closing the connection for security reasons.
@@ -568,7 +565,7 @@ where
             // Opens a new separate connection to the server, sends the backend_id
             // and secret_key and then closes it for security reasons. No other interactions
             // take place.
-            return Ok(Server::cancel(&address, port, process_id, secret_key).await?);
+            return Server::cancel(&address, port, process_id, secret_key).await;
         }
 
         // The query router determines where the query is going to go,
@@ -615,7 +612,7 @@ where
                     if !self.admin {
                         error_response_terminal(
                             &mut self.write,
-                            &format!("terminating connection due to administrator command")
+                            "terminating connection due to administrator command"
                         ).await?;
                         return Ok(())
                     }
@@ -692,7 +689,7 @@ where
                 // Normal query, not a custom command.
                 None => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer_role(client_message_buffer.clone());
+                        query_router.infer(client_message_buffer.clone());
                     }
                 }
 
@@ -888,23 +885,19 @@ where
 
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
-                    'P' => {
-                    }
+                    'P' => {}
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
-                    'B' => {
-                    }
+                    'B' => {}
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
-                    'D' => {
-                    }
+                    'D' => {}
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
-                    'E' => {
-                    }
+                    'E' => {}
 
                     // Sync
                     // Frontend (client) is asking for the query result now.

@@ -38,7 +38,7 @@ where
     auth_ok.put_i32(8);
     auth_ok.put_i32(0);
 
-    Ok(write_all(stream, auth_ok).await?)
+    write_all(stream, auth_ok).await
 }
 
 /// Generate md5 password challenge.
@@ -79,7 +79,7 @@ where
     key_data.put_i32(backend_id);
     key_data.put_i32(secret_key);
 
-    Ok(write_all(stream, key_data).await?)
+    write_all(stream, key_data).await
 }
 
 /// Construct a `Q`: Query message.
@@ -88,7 +88,7 @@ pub fn simple_query(query: &str) -> BytesMut {
     let query = format!("{}\0", query);
 
     res.put_i32(query.len() as i32 + 4);
-    res.put_slice(&query.as_bytes());
+    res.put_slice(query.as_bytes());
 
     res
 }
@@ -106,7 +106,7 @@ where
     bytes.put_i32(5);
     bytes.put_u8(b'I'); // Idle
 
-    Ok(write_all(stream, bytes).await?)
+    write_all(stream, bytes).await
 }
 
 /// Send the startup packet the server. We're pretending we're a Pg client.
@@ -118,12 +118,12 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
 
     // User
     bytes.put(&b"user\0"[..]);
-    bytes.put_slice(&user.as_bytes());
+    bytes.put_slice(user.as_bytes());
     bytes.put_u8(0);
 
     // Database
     bytes.put(&b"database\0"[..]);
-    bytes.put_slice(&database.as_bytes());
+    bytes.put_slice(database.as_bytes());
     bytes.put_u8(0);
     bytes.put_u8(0); // Null terminator
 
@@ -136,7 +136,7 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
 
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
-        Err(_) => return Err(Error::SocketError),
+        Err(_) => Err(Error::SocketError),
     }
 }
 
@@ -155,7 +155,7 @@ pub fn parse_params(mut bytes: BytesMut) -> Result<HashMap<String, String>, Erro
             c = bytes.get_u8();
         }
 
-        if tmp.len() > 0 {
+        if !tmp.is_empty() {
             buf.push(tmp.clone());
             tmp.clear();
         }
@@ -234,7 +234,7 @@ where
     message.put_i32(password.len() as i32 + 4);
     message.put_slice(&password[..]);
 
-    Ok(write_all(stream, message).await?)
+    write_all(stream, message).await
 }
 
 /// Implements a response to our custom `SET SHARDING KEY`
@@ -292,7 +292,7 @@ where
 
     // The short error message.
     error.put_u8(b'M');
-    error.put_slice(&format!("{}\0", message).as_bytes());
+    error.put_slice(format!("{}\0", message).as_bytes());
 
     // No more fields follow.
     error.put_u8(0);
@@ -304,7 +304,7 @@ where
     res.put_i32(error.len() as i32 + 4);
     res.put(error);
 
-    Ok(write_all_half(stream, &res).await?)
+    write_all_half(stream, &res).await
 }
 
 pub async fn wrong_password<S>(stream: &mut S, user: &str) -> Result<(), Error>
@@ -327,7 +327,7 @@ where
 
     // The short error message.
     error.put_u8(b'M');
-    error.put_slice(&format!("password authentication failed for user \"{}\"\0", user).as_bytes());
+    error.put_slice(format!("password authentication failed for user \"{}\"\0", user).as_bytes());
 
     // No more fields follow.
     error.put_u8(0);
@@ -379,7 +379,7 @@ pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
 
     for (name, data_type) in columns {
         // Column name
-        row_desc.put_slice(&format!("{}\0", name).as_bytes());
+        row_desc.put_slice(format!("{}\0", name).as_bytes());
 
         // Doesn't belong to any table
         row_desc.put_i32(0);
@@ -423,7 +423,7 @@ pub fn data_row(row: &Vec<String>) -> BytesMut {
     for column in row {
         let column = column.as_bytes();
         data_row.put_i32(column.len() as i32);
-        data_row.put_slice(&column);
+        data_row.put_slice(column);
     }
 
     res.put_u8(b'D');
@@ -450,7 +450,7 @@ where
 {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
-        Err(_) => return Err(Error::SocketError),
+        Err(_) => Err(Error::SocketError),
     }
 }
 
@@ -461,7 +461,7 @@ where
 {
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
-        Err(_) => return Err(Error::SocketError),
+        Err(_) => Err(Error::SocketError),
     }
 }
 
@@ -513,5 +513,5 @@ pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {
     server_info.put_slice(value.as_bytes());
     server_info.put_bytes(0, 1);
 
-    return server_info;
+    server_info
 }
