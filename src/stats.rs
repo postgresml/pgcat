@@ -256,7 +256,7 @@ impl Default for Reporter {
 impl Reporter {
     /// Create a new Reporter instance.
     pub fn new(tx: Sender<Event>) -> Reporter {
-        Reporter { tx: tx }
+        Reporter { tx }
     }
 
     /// Send statistics to the task keeping track of stats.
@@ -349,9 +349,9 @@ impl Reporter {
         let event = Event {
             name: EventName::ClientRegistered {
                 client_id,
-                pool_name: pool_name.clone(),
-                username: username.clone(),
-                application_name: app_name.clone(),
+                pool_name,
+                username,
+                application_name: app_name,
             },
             value: 1,
         };
@@ -539,11 +539,11 @@ impl Collector {
                 tokio::time::interval(tokio::time::Duration::from_millis(STAT_PERIOD / 15));
             loop {
                 interval.tick().await;
-                for ((pool_name, username), _pool) in get_all_pools() {
+                for (user_pool, _) in get_all_pools() {
                     let _ = tx.try_send(Event {
                         name: EventName::UpdateStats {
-                            pool_name,
-                            username,
+                            pool_name: user_pool.db,
+                            username: user_pool.user,
                         },
                         value: 0,
                     });
@@ -604,15 +604,15 @@ impl Collector {
 
                             add_server_tags(&mut tags, &server_info);
 
-                            let pool_stats = address_stat_lookup
+                            let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
-                            let counter = pool_stats
+                                .or_insert_with(HashMap::default);
+                            let counter = address_stats
                                 .entry("total_query_count".to_string())
                                 .or_insert(0);
                             *counter += stat.value;
 
-                            let duration = pool_stats
+                            let duration = address_stats
                                 .entry("total_query_time".to_string())
                                 .or_insert(0);
                             *duration += duration_ms as i64;
@@ -650,7 +650,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter = address_stats
                                 .entry("total_xact_count".to_string())
                                 .or_insert(0);
@@ -670,7 +670,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter =
                                 address_stats.entry("total_sent".to_string()).or_insert(0);
                             *counter += stat.value;
@@ -687,7 +687,7 @@ impl Collector {
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
+                                .or_insert_with(HashMap::default);
                             let counter = address_stats
                                 .entry("total_received".to_string())
                                 .or_insert(0);
@@ -715,26 +715,26 @@ impl Collector {
                         Some(server_info) => {
                             server_info.application_name = app_name;
 
-                            let pool_stats = address_stat_lookup
+                            let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
-                                .or_insert(HashMap::default());
-                            let counter =
-                                pool_stats.entry("total_wait_time".to_string()).or_insert(0);
+                                .or_insert_with(HashMap::default);
+                            let counter = address_stats
+                                .entry("total_wait_time".to_string())
+                                .or_insert(0);
                             *counter += stat.value;
 
-                            let counter = pool_stats.entry("maxwait_us".to_string()).or_insert(0);
-                            let mic_part = stat.value % 1_000_000;
+                            let pool_stats = pool_stat_lookup
+                                .entry((
+                                    server_info.pool_name.clone(),
+                                    server_info.username.clone(),
+                                ))
+                                .or_insert_with(HashMap::default);
 
-                            // Report max time here
-                            if mic_part > *counter {
-                                *counter = mic_part;
-                            }
-
-                            let counter = pool_stats.entry("maxwait".to_string()).or_insert(0);
-                            let seconds = *counter / 1_000_000;
-
-                            if seconds > *counter {
-                                *counter = seconds;
+                            // We record max wait in microseconds, we do the pgbouncer second/microsecond split on admin
+                            let old_microseconds =
+                                pool_stats.entry("maxwait_us".to_string()).or_insert(0);
+                            if stat.value > *old_microseconds {
+                                *old_microseconds = stat.value;
                             }
                         }
                         None => (),
@@ -774,14 +774,17 @@ impl Collector {
                     address_id,
                 } => {
                     match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.error_count += stat.value as u64,
+                        Some(client_info) => {
+                            client_info.state = ClientState::Idle;
+                            client_info.error_count += stat.value as u64;
+                        }
                         None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 
                     // Update address aggregation stats
                     let address_stats = address_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
                     let counter = address_stats.entry("total_errors".to_string()).or_insert(0);
                     *counter += stat.value;
                 }
@@ -791,14 +794,17 @@ impl Collector {
                     address_id,
                 } => {
                     match client_states.get_mut(&client_id) {
-                        Some(client_info) => client_info.error_count += stat.value as u64,
+                        Some(client_info) => {
+                            client_info.state = ClientState::Idle;
+                            client_info.error_count += stat.value as u64;
+                        }
                         None => warn!("Got event {:?} for unregistered client", stat.name),
                     }
 
                     // Update address aggregation stats
                     let address_stats = address_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
                     let counter = address_stats.entry("total_errors".to_string()).or_insert(0);
                     *counter += stat.value;
                 }
@@ -921,7 +927,7 @@ impl Collector {
                 } => {
                     let pool_stats = pool_stat_lookup
                         .entry((pool_name.clone(), username.clone()))
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
 
                     // These are re-calculated every iteration of the loop, so we don't want to add values
                     // from the last iteration.
@@ -933,8 +939,6 @@ impl Collector {
                         "sv_active",
                         "sv_tested",
                         "sv_login",
-                        "maxwait",
-                        "maxwait_us",
                     ] {
                         pool_stats.insert(stat.to_string(), 0);
                     }
@@ -992,15 +996,21 @@ impl Collector {
                     LATEST_CLIENT_STATS.store(Arc::new(client_states.clone()));
                     LATEST_SERVER_STATS.store(Arc::new(server_states.clone()));
                     LATEST_POOL_STATS.store(Arc::new(pool_stat_lookup.clone()));
+
+                    // Clear maxwait after reporting
+                    pool_stat_lookup
+                        .entry((pool_name.clone(), username.clone()))
+                        .or_insert_with(HashMap::default)
+                        .insert("maxwait_us".to_string(), 0);
                 }
 
                 EventName::UpdateAverages { address_id } => {
                     let stats = address_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
                     let old_stats = address_old_stat_lookup
                         .entry(address_id)
-                        .or_insert(HashMap::default());
+                        .or_insert_with(HashMap::default);
 
                     // Calculate averages
                     for stat in &[

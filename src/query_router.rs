@@ -5,12 +5,15 @@ use log::{debug, error};
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexSet};
 use sqlparser::ast::Statement::{Query, StartTransaction};
+use sqlparser::ast::{BinaryOperator, Expr, SetExpr, Value};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use crate::config::Role;
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
+
+use std::collections::BTreeSet;
 
 /// Regexes used to parse custom commands.
 const CUSTOM_SQL_REGEXES: [&str; 7] = [
@@ -50,10 +53,10 @@ pub struct QueryRouter {
     active_role: Option<Role>,
 
     /// Should we try to parse queries to route them to replicas or primary automatically
-    query_parser_enabled: bool,
+    query_parser_enabled: Option<bool>,
 
     /// Include the primary into the replica pool for reads.
-    primary_reads_enabled: bool,
+    primary_reads_enabled: Option<bool>,
 
     /// Pool configuration.
     pool_settings: PoolSettings,
@@ -83,10 +86,7 @@ impl QueryRouter {
             Err(_) => return false,
         };
 
-        match CUSTOM_SQL_REGEX_SET.set(set) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        CUSTOM_SQL_REGEX_SET.set(set).is_ok()
     }
 
     /// Create a new instance of the query router.
@@ -95,8 +95,8 @@ impl QueryRouter {
         QueryRouter {
             active_shard: None,
             active_role: None,
-            query_parser_enabled: false,
-            primary_reads_enabled: false,
+            query_parser_enabled: None,
+            primary_reads_enabled: None,
             pool_settings: PoolSettings::default(),
         }
     }
@@ -172,7 +172,7 @@ impl QueryRouter {
                 Some(Role::Primary) => Role::Primary.to_string(),
                 Some(Role::Replica) => Role::Replica.to_string(),
                 None => {
-                    if self.query_parser_enabled {
+                    if self.query_parser_enabled() {
                         String::from("auto")
                     } else {
                         String::from("any")
@@ -180,7 +180,7 @@ impl QueryRouter {
                 }
             },
 
-            Command::ShowPrimaryReads => match self.primary_reads_enabled {
+            Command::ShowPrimaryReads => match self.primary_reads_enabled() {
                 true => String::from("on"),
                 false => String::from("off"),
             },
@@ -207,28 +207,28 @@ impl QueryRouter {
             Command::SetServerRole => {
                 self.active_role = match value.to_ascii_lowercase().as_ref() {
                     "primary" => {
-                        self.query_parser_enabled = false;
+                        self.query_parser_enabled = Some(false);
                         Some(Role::Primary)
                     }
 
                     "replica" => {
-                        self.query_parser_enabled = false;
+                        self.query_parser_enabled = Some(false);
                         Some(Role::Replica)
                     }
 
                     "any" => {
-                        self.query_parser_enabled = false;
+                        self.query_parser_enabled = Some(false);
                         None
                     }
 
                     "auto" => {
-                        self.query_parser_enabled = true;
+                        self.query_parser_enabled = Some(true);
                         None
                     }
 
                     "default" => {
                         self.active_role = self.pool_settings.default_role;
-                        self.query_parser_enabled = self.query_parser_enabled;
+                        self.query_parser_enabled = None;
                         self.active_role
                     }
 
@@ -239,13 +239,13 @@ impl QueryRouter {
             Command::SetPrimaryReads => {
                 if value == "on" {
                     debug!("Setting primary reads to on");
-                    self.primary_reads_enabled = true;
+                    self.primary_reads_enabled = Some(true);
                 } else if value == "off" {
                     debug!("Setting primary reads to off");
-                    self.primary_reads_enabled = false;
+                    self.primary_reads_enabled = Some(false);
                 } else if value == "default" {
                     debug!("Setting primary reads to default");
-                    self.primary_reads_enabled = self.pool_settings.primary_reads_enabled;
+                    self.primary_reads_enabled = None;
                 }
             }
 
@@ -256,7 +256,7 @@ impl QueryRouter {
     }
 
     /// Try to infer which server to connect to based on the contents of the query.
-    pub fn infer_role(&mut self, mut buf: BytesMut) -> bool {
+    pub fn infer(&mut self, mut buf: BytesMut) -> bool {
         debug!("Inferring role");
 
         let code = buf.get_u8() as char;
@@ -273,7 +273,6 @@ impl QueryRouter {
             // Parse (prepared statement)
             'P' => {
                 let mut start = 0;
-                let mut end;
 
                 // Skip the name of the prepared statement.
                 while buf[start] != 0 && start < buf.len() {
@@ -282,7 +281,7 @@ impl QueryRouter {
                 start += 1; // Skip terminating null
 
                 // Find the end of the prepared stmt (\0)
-                end = start;
+                let mut end = start;
                 while buf[end] != 0 && end < buf.len() {
                     end += 1;
                 }
@@ -291,7 +290,7 @@ impl QueryRouter {
 
                 debug!("Prepared statement: '{}'", query);
 
-                query.replace("$", "") // Remove placeholders turning them into "values"
+                query.replace('$', "") // Remove placeholders turning them into "values"
             }
 
             _ => return false,
@@ -300,36 +299,174 @@ impl QueryRouter {
         let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => ast,
             Err(err) => {
-                debug!("{}", err.to_string());
+                // SELECT ... FOR UPDATE won't get parsed correctly.
+                error!("{}: {}", err, query);
+                self.active_role = Some(Role::Primary);
                 return false;
             }
         };
 
-        if ast.len() == 0 {
+        debug!("AST: {:?}", ast);
+
+        if ast.is_empty() {
+            // That's weird, no idea, let's go to primary
+            self.active_role = Some(Role::Primary);
             return false;
         }
 
-        match ast[0] {
-            // All transactions go to the primary, probably a write.
-            StartTransaction { .. } => {
-                self.active_role = Some(Role::Primary);
-            }
-
-            // Likely a read-only query
-            Query { .. } => {
-                self.active_role = match self.primary_reads_enabled {
-                    false => Some(Role::Replica), // If primary should not be receiving reads, use a replica.
-                    true => None,                 // Any server role is fine in this case.
+        for q in &ast {
+            match q {
+                // All transactions go to the primary, probably a write.
+                StartTransaction { .. } => {
+                    self.active_role = Some(Role::Primary);
+                    break;
                 }
-            }
 
-            // Likely a write
-            _ => {
-                self.active_role = Some(Role::Primary);
-            }
-        };
+                // Likely a read-only query
+                Query(query) => {
+                    match &self.pool_settings.automatic_sharding_key {
+                        Some(_) => {
+                            // TODO: if we have multiple queries in the same message,
+                            // we can either split them and execute them individually
+                            // or discard shard selection. If they point to the same shard though,
+                            // we can let them through as-is.
+                            // This is basically building a database now :)
+                            match self.infer_shard(query) {
+                                Some(shard) => {
+                                    self.active_shard = Some(shard);
+                                    debug!("Automatically using shard: {:?}", self.active_shard);
+                                }
+
+                                None => (),
+                            };
+                        }
+
+                        None => (),
+                    };
+
+                    self.active_role = match self.primary_reads_enabled() {
+                        false => Some(Role::Replica), // If primary should not be receiving reads, use a replica.
+                        true => None,                 // Any server role is fine in this case.
+                    }
+                }
+
+                // Likely a write
+                _ => {
+                    self.active_role = Some(Role::Primary);
+                    break;
+                }
+            };
+        }
 
         true
+    }
+
+    /// A `selection` is the `WHERE` clause. This parses
+    /// the clause and extracts the sharding key, if present.
+    fn selection_parser(&self, expr: &Expr) -> Vec<i64> {
+        let mut result = Vec::new();
+        let mut found = false;
+
+        // This parses `sharding_key = 5`. But it's technically
+        // legal to write `5 = sharding_key`. I don't judge the people
+        // who do that, but I think ORMs will still use the first variant,
+        // so we can leave the second as a TODO.
+        if let Expr::BinaryOp { left, op, right } = expr {
+            match &**left {
+                Expr::BinaryOp { .. } => result.extend(self.selection_parser(left)),
+                Expr::Identifier(ident) => {
+                    found =
+                        ident.value == *self.pool_settings.automatic_sharding_key.as_ref().unwrap();
+                }
+                _ => (),
+            };
+
+            match op {
+                BinaryOperator::Eq => (),
+                BinaryOperator::Or => (),
+                BinaryOperator::And => (),
+                _ => {
+                    // TODO: support other operators than equality.
+                    debug!("Unsupported operation: {:?}", op);
+                    return Vec::new();
+                }
+            };
+
+            match &**right {
+                Expr::BinaryOp { .. } => result.extend(self.selection_parser(right)),
+                Expr::Value(Value::Number(value, ..)) => {
+                    if found {
+                        match value.parse::<i64>() {
+                            Ok(value) => result.push(value),
+                            Err(_) => {
+                                debug!("Sharding key was not an integer: {}", value);
+                            }
+                        };
+                    }
+                }
+                _ => (),
+            };
+        }
+
+        debug!("Sharding keys found: {:?}", result);
+
+        result
+    }
+
+    /// Try to figure out which shard the query should go to.
+    fn infer_shard(&self, query: &sqlparser::ast::Query) -> Option<usize> {
+        let mut shards = BTreeSet::new();
+
+        match &*query.body {
+            SetExpr::Query(query) => {
+                match self.infer_shard(&*query) {
+                    Some(shard) => {
+                        shards.insert(shard);
+                    }
+                    None => (),
+                };
+            }
+
+            SetExpr::Select(select) => {
+                match &select.selection {
+                    Some(selection) => {
+                        let sharding_keys = self.selection_parser(selection);
+
+                        // TODO: Add support for prepared statements here.
+                        // This should just give us the position of the value in the `B` message.
+
+                        let sharder = Sharder::new(
+                            self.pool_settings.shards,
+                            self.pool_settings.sharding_function,
+                        );
+
+                        for value in sharding_keys {
+                            let shard = sharder.shard(value);
+                            shards.insert(shard);
+                        }
+                    }
+
+                    None => (),
+                };
+            }
+            _ => (),
+        };
+
+        match shards.len() {
+            // Didn't find a sharding key, you're on your own.
+            0 => {
+                debug!("No sharding keys found");
+                None
+            }
+
+            1 => Some(shards.into_iter().last().unwrap()),
+
+            // TODO: support querying multiple shards (some day...)
+            _ => {
+                debug!("More than one sharding key found");
+                None
+            }
+        }
     }
 
     /// Get the current desired server role we should be talking to.
@@ -339,10 +476,7 @@ impl QueryRouter {
 
     /// Get desired shard we should be talking to.
     pub fn shard(&self) -> usize {
-        match self.active_shard {
-            Some(shard) => shard,
-            None => 0,
-        }
+        self.active_shard.unwrap_or(0)
     }
 
     pub fn set_shard(&mut self, shard: usize) {
@@ -350,9 +484,18 @@ impl QueryRouter {
     }
 
     /// Should we attempt to parse queries?
-    #[allow(dead_code)]
     pub fn query_parser_enabled(&self) -> bool {
-        self.query_parser_enabled
+        match self.query_parser_enabled {
+            None => self.pool_settings.query_parser_enabled,
+            Some(value) => value,
+        }
+    }
+
+    pub fn primary_reads_enabled(&self) -> bool {
+        match self.primary_reads_enabled {
+            None => self.pool_settings.primary_reads_enabled,
+            Some(value) => value,
+        }
     }
 }
 
@@ -373,11 +516,11 @@ mod test {
     }
 
     #[test]
-    fn test_infer_role_replica() {
+    fn test_infer_replica() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         assert!(qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'")) != None);
-        assert_eq!(qr.query_parser_enabled(), true);
+        assert!(qr.query_parser_enabled());
 
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -391,13 +534,13 @@ mod test {
 
         for query in queries {
             // It's a recognized query
-            assert!(qr.infer_role(query));
+            assert!(qr.infer(query));
             assert_eq!(qr.role(), Some(Role::Replica));
         }
     }
 
     #[test]
-    fn test_infer_role_primary() {
+    fn test_infer_primary() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
 
@@ -410,24 +553,24 @@ mod test {
 
         for query in queries {
             // It's a recognized query
-            assert!(qr.infer_role(query));
+            assert!(qr.infer(query));
             assert_eq!(qr.role(), Some(Role::Primary));
         }
     }
 
     #[test]
-    fn test_infer_role_primary_reads_enabled() {
+    fn test_infer_primary_reads_enabled() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         let query = simple_query("SELECT * FROM items WHERE id = 5");
         assert!(qr.try_execute_command(simple_query("SET PRIMARY READS TO on")) != None);
 
-        assert!(qr.infer_role(query));
+        assert!(qr.infer(query));
         assert_eq!(qr.role(), None);
     }
 
     #[test]
-    fn test_infer_role_parse_prepared() {
+    fn test_infer_parse_prepared() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         qr.try_execute_command(simple_query("SET SERVER ROLE TO 'auto'"));
@@ -442,7 +585,7 @@ mod test {
         res.put(prepared_stmt);
         res.put_i16(0);
 
-        assert!(qr.infer_role(res));
+        assert!(qr.infer(res));
         assert_eq!(qr.role(), Some(Role::Replica));
     }
 
@@ -502,9 +645,9 @@ mod test {
         for (i, test) in tests.iter().enumerate() {
             if !list[matches[i]].is_match(test) {
                 println!("{} does not match {}", test, list[matches[i]]);
-                assert!(false);
+                panic!();
             }
-            assert_eq!(set.matches(test).into_iter().collect::<Vec<_>>().len(), 1);
+            assert_eq!(set.matches(test).into_iter().count(), 1);
         }
 
         let bad = [
@@ -513,7 +656,7 @@ mod test {
         ];
 
         for query in &bad {
-            assert_eq!(set.matches(query).into_iter().collect::<Vec<_>>().len(), 0);
+            assert_eq!(set.matches(query).into_iter().count(), 0);
         }
     }
 
@@ -606,17 +749,17 @@ mod test {
         assert_eq!(qr.role(), None);
 
         let query = simple_query("INSERT INTO test_table VALUES (1)");
-        assert_eq!(qr.infer_role(query), true);
+        assert!(qr.infer(query));
         assert_eq!(qr.role(), Some(Role::Primary));
 
         let query = simple_query("SELECT * FROM test_table");
-        assert_eq!(qr.infer_role(query), true);
+        assert!(qr.infer(query));
         assert_eq!(qr.role(), Some(Role::Replica));
 
         assert!(qr.query_parser_enabled());
         let query = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(query) != None);
-        assert!(qr.query_parser_enabled());
+        assert!(!qr.query_parser_enabled());
     }
 
     #[test]
@@ -625,26 +768,27 @@ mod test {
 
         let pool_settings = PoolSettings {
             pool_mode: PoolMode::Transaction,
-            shards: 0,
+            shards: 2,
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: Some(String::from("id")),
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
         assert_eq!(qr.active_shard, None);
-        assert_eq!(qr.query_parser_enabled, false);
-        assert_eq!(qr.primary_reads_enabled, false);
+        assert_eq!(qr.query_parser_enabled, None);
+        assert_eq!(qr.primary_reads_enabled, None);
 
         // Internal state must not be changed due to this, only defaults
         qr.update_pool_settings(pool_settings.clone());
 
         assert_eq!(qr.active_role, None);
         assert_eq!(qr.active_shard, None);
-        assert_eq!(qr.query_parser_enabled, false);
-        assert_eq!(qr.primary_reads_enabled, false);
+        assert!(qr.query_parser_enabled());
+        assert!(!qr.primary_reads_enabled());
 
         let q1 = simple_query("SET SERVER ROLE TO 'primary'");
         assert!(qr.try_execute_command(q1) != None);
@@ -652,6 +796,28 @@ mod test {
 
         let q2 = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(q2) != None);
-        assert_eq!(qr.active_role.unwrap(), pool_settings.clone().default_role);
+        assert_eq!(qr.active_role.unwrap(), pool_settings.default_role);
+
+        // Here we go :)
+        let q3 = simple_query("SELECT * FROM test WHERE id = 5 AND values IN (1, 2, 3)");
+        assert!(qr.infer(q3));
+        assert_eq!(qr.shard(), 1);
+    }
+
+    #[test]
+    fn test_parse_multiple_queries() {
+        QueryRouter::setup();
+
+        let mut qr = QueryRouter::new();
+        assert!(qr.infer(simple_query("BEGIN; SELECT 1; COMMIT;")));
+        assert_eq!(qr.role(), Role::Primary);
+
+        assert!(qr.infer(simple_query("SELECT 1; SELECT 2;")));
+        assert_eq!(qr.role(), Role::Replica);
+
+        assert!(qr.infer(simple_query(
+            "SELECT 123; INSERT INTO t VALUES (5); SELECT 1;"
+        )));
+        assert_eq!(qr.role(), Role::Primary);
     }
 }

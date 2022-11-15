@@ -146,6 +146,36 @@ describe "Admin" do
       end
     end
 
+    context "client fail to checkout connection from the pool" do
+      it "counts clients as idle" do
+        new_configs = processes.pgcat.current_config
+        new_configs["general"]["connect_timeout"] = 500
+        new_configs["general"]["ban_time"] = 1
+        new_configs["general"]["shutdown_timeout"] = 1
+        new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+        processes.pgcat.update_config(new_configs)
+        processes.pgcat.reload_config
+
+        threads = []
+        connections = Array.new(5) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT pg_sleep(1)") rescue PG::SystemError }
+        end
+
+        sleep(2)
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+          raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
+        end
+        expect(results["cl_idle"]).to eq("5")
+        expect(results["sv_idle"]).to eq("1")
+
+        threads.map(&:join)
+        connections.map(&:close)
+      end
+    end
+
     context "clients overwhelm server pools" do
       let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
 
@@ -174,6 +204,28 @@ describe "Admin" do
         end
         expect(results["cl_idle"]).to eq("4")
         expect(results["sv_idle"]).to eq("2")
+
+        threads.map(&:join)
+        connections.map(&:close)
+      end
+
+      it "show correct max_wait" do
+        threads = []
+        connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT pg_sleep(1.5)") }
+        end
+
+        sleep(2.5) # Allow time for stats to update
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+
+        expect(results["maxwait"]).to eq("1")
+        expect(results["maxwait_us"].to_i).to be_within(100_000).of(500_000)
+
+        sleep(4.5) # Allow time for stats to update
+        results = admin_conn.async_exec("SHOW POOLS")[0]
+        expect(results["maxwait"]).to eq("0")
 
         threads.map(&:join)
         connections.map(&:close)

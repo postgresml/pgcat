@@ -36,7 +36,7 @@ For quick local example, use the Docker Compose environment provided:
 docker-compose up
 
 # In a new terminal:
-psql -h 127.0.0.1 -p 6432 -c 'SELECT 1'
+PGPASSWORD=postgres psql -h 127.0.0.1 -p 6432 -U postgres -c 'SELECT 1'
 ```
 
 ### Config

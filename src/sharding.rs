@@ -1,3 +1,4 @@
+use serde_derive::{Deserialize, Serialize};
 /// Implements various sharding functions.
 use sha1::{Digest, Sha1};
 
@@ -5,10 +6,21 @@ use sha1::{Digest, Sha1};
 const PARTITION_HASH_SEED: u64 = 0x7A5B22367996DCFD;
 
 /// The sharding functions we support.
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize, Hash, std::cmp::Eq)]
 pub enum ShardingFunction {
+    #[serde(alias = "pg_bigint_hash", alias = "PgBigintHash")]
     PgBigintHash,
+    #[serde(alias = "sha1", alias = "Sha1")]
     Sha1,
+}
+
+impl ToString for ShardingFunction {
+    fn to_string(&self) -> String {
+        match *self {
+            ShardingFunction::PgBigintHash => "pg_bigint_hash".to_string(),
+            ShardingFunction::Sha1 => "sha1".to_string(),
+        }
+    }
 }
 
 /// The sharder.
@@ -121,7 +133,7 @@ impl Sharder {
     #[inline]
     fn combine(mut a: u64, b: u64) -> u64 {
         a ^= b
-            .wrapping_add(0x49a0f4dd15e5a8e3 as u64)
+            .wrapping_add(0x49a0f4dd15e5a8e3_u64)
             .wrapping_add(a << 54)
             .wrapping_add(a >> 7);
         a
@@ -129,7 +141,7 @@ impl Sharder {
 
     #[inline]
     fn pg_u32_hash(k: u32) -> u64 {
-        let mut a: u32 = 0x9e3779b9 as u32 + std::mem::size_of::<u32>() as u32 + 3923095 as u32;
+        let mut a: u32 = 0x9e3779b9_u32 + std::mem::size_of::<u32>() as u32 + 3923095_u32;
         let mut b = a;
         let c = a;
 

@@ -377,7 +377,7 @@ where
 
         let admin = ["pgcat", "pgbouncer"]
             .iter()
-            .filter(|db| *db == &pool_name)
+            .filter(|db| *db == pool_name)
             .count()
             == 1;
 
@@ -389,7 +389,7 @@ where
             );
             error_response_terminal(
                 &mut write,
-                &format!("terminating connection due to administrator command"),
+                "terminating connection due to administrator command",
             )
             .await?;
             return Err(Error::ShuttingDown);
@@ -446,7 +446,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(pool_name.clone(), username.clone()) {
+            let pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -464,7 +464,7 @@ where
             };
 
             // Compare server and client hashes.
-            let password_hash = md5_hash_password(&username, &pool.settings.user.password, &salt);
+            let password_hash = md5_hash_password(username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
                 warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
@@ -487,9 +487,9 @@ where
 
         trace!("Startup OK");
 
-        return Ok(Client {
+        Ok(Client {
             read: BufReader::new(read),
-            write: write,
+            write,
             addr,
             buffer: BytesMut::with_capacity(8196),
             cancel_mode: false,
@@ -498,8 +498,8 @@ where
             secret_key,
             client_server_map,
             parameters: parameters.clone(),
-            stats: stats,
-            admin: admin,
+            stats,
+            admin,
             last_address_id: None,
             last_server_id: None,
             pool_name: pool_name.clone(),
@@ -507,7 +507,7 @@ where
             application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
-        });
+        })
     }
 
     /// Handle cancel request.
@@ -521,9 +521,9 @@ where
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
-        return Ok(Client {
+        Ok(Client {
             read: BufReader::new(read),
-            write: write,
+            write,
             addr,
             buffer: BytesMut::with_capacity(8196),
             cancel_mode: true,
@@ -541,7 +541,7 @@ where
             application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
-        });
+        })
     }
 
     /// Handle a connected and authenticated client.
@@ -557,12 +557,9 @@ where
                     // Drop the mutex as soon as possible.
                     // We found the server the client is using for its query
                     // that it wants to cancel.
-                    Some((process_id, secret_key, address, port)) => (
-                        process_id.clone(),
-                        secret_key.clone(),
-                        address.clone(),
-                        *port,
-                    ),
+                    Some((process_id, secret_key, address, port)) => {
+                        (*process_id, *secret_key, address.clone(), *port)
+                    }
 
                     // The client doesn't know / got the wrong server,
                     // we're closing the connection for security reasons.
@@ -573,7 +570,7 @@ where
             // Opens a new separate connection to the server, sends the backend_id
             // and secret_key and then closes it for security reasons. No other interactions
             // take place.
-            return Ok(Server::cancel(&address, port, process_id, secret_key).await?);
+            return Server::cancel(&address, port, process_id, secret_key).await;
         }
 
         // The query router determines where the query is going to go,
@@ -601,12 +598,12 @@ where
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
 
-            let mut message = tokio::select! {
+            let message = tokio::select! {
                 _ = self.shutdown.recv() => {
                     if !self.admin {
                         error_response_terminal(
                             &mut self.write,
-                            &format!("terminating connection due to administrator command")
+                            "terminating connection due to administrator command"
                         ).await?;
                         return Ok(())
                     }
@@ -648,7 +645,7 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let pool = match get_pool(self.pool_name.clone(), self.username.clone()) {
+            let pool = match get_pool(&self.pool_name, &self.username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -672,7 +669,7 @@ where
                 // Normal query, not a custom command.
                 None => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer_role(message.clone());
+                        query_router.infer(message.clone());
                     }
                 }
 
@@ -792,6 +789,8 @@ where
             // Set application_name.
             server.set_name(&self.application_name).await?;
 
+            let mut initial_message = Some(message);
+
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
             // or until the client disconnects if we are in session mode.
@@ -799,40 +798,42 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                let mut message = if message.len() == 0 {
-                    trace!("Waiting for message inside transaction or in session mode");
+                let message = match initial_message {
+                    None => {
+                        trace!("Waiting for message inside transaction or in session mode");
 
-                    match read_message(&mut self.read).await {
-                        Ok(message) => message,
-                        Err(err) => {
-                            // Client disconnected inside a transaction.
-                            // Clean up the server and re-use it.
-                            server.checkin_cleanup().await?;
+                        match read_message(&mut self.read).await {
+                            Ok(message) => message,
+                            Err(err) => {
+                                // Client disconnected inside a transaction.
+                                // Clean up the server and re-use it.
+                                server.checkin_cleanup().await?;
 
-                            return Err(err);
+                                return Err(err);
+                            }
                         }
                     }
-                } else {
-                    let msg = message.clone();
-                    message.clear();
-                    msg
+                    Some(message) => {
+                        initial_message = None;
+                        message
+                    }
                 };
 
                 // The message will be forwarded to the server intact. We still would like to
                 // parse it below to figure out what to do with it.
-                let original = message.clone();
 
-                let code = message.get_u8() as char;
-                let _len = message.get_i32() as usize;
+                // Safe to unwrap because we know this message has a certain length and has the code
+                // This reads the first byte without advancing the internal pointer and mutating the bytes
+                let code = *message.get(0).unwrap() as char;
 
                 trace!("Message: {}", code);
 
                 match code {
-                    // ReadyForQuery
+                    // Query
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, original, server, &address, &pool)
+                        self.send_and_receive_loop(code, message, server, &address, &pool)
                             .await?;
 
                         if !server.in_transaction() {
@@ -858,25 +859,25 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Sync
@@ -884,9 +885,8 @@ where
                     'S' => {
                         debug!("Sending query to server");
 
-                        self.buffer.put(&original[..]);
+                        self.buffer.put(&message[..]);
 
-                        // Clone after freeze does not allocate
                         let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
@@ -929,14 +929,14 @@ where
                     'd' => {
                         // Forward the data to the server,
                         // don't buffer it since it can be rather large.
-                        self.send_server_message(server, original, &address, &pool)
+                        self.send_server_message(server, message, &address, &pool)
                             .await?;
                     }
 
                     // CopyDone or CopyFail
                     // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        self.send_server_message(server, original, &address, &pool)
+                        self.send_server_message(server, message, &address, &pool)
                             .await?;
 
                         let response = self.receive_server_message(server, &address, &pool).await?;
@@ -995,14 +995,14 @@ where
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
 
-        self.send_server_message(server, message, &address, &pool)
+        self.send_server_message(server, message, address, pool)
             .await?;
 
         let query_start = Instant::now();
         // Read all data the server has to offer, which can be multiple messages
         // buffered in 8196 bytes chunks.
         loop {
-            let response = self.receive_server_message(server, &address, &pool).await?;
+            let response = self.receive_server_message(server, address, pool).await?;
 
             match write_all_half(&mut self.write, response).await {
                 Ok(_) => (),

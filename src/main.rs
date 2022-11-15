@@ -37,6 +37,13 @@ extern crate tokio;
 extern crate tokio_rustls;
 extern crate toml;
 
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use log::{error, info, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
@@ -68,7 +75,6 @@ mod stats;
 mod tls;
 
 use crate::config::{get_config, reload_config, VERSION};
-use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
@@ -164,13 +170,10 @@ async fn main() {
             if config.general.autoreload {
                 info!("Automatically reloading config");
 
-                match reload_config(autoreload_client_server_map.clone()).await {
-                    Ok(changed) => {
-                        if changed {
-                            get_config().show()
-                        }
+                if let Ok(changed) = reload_config(autoreload_client_server_map.clone()).await {
+                    if changed {
+                        get_config().show()
                     }
-                    Err(_) => (),
                 };
             }
         }
@@ -195,10 +198,7 @@ async fn main() {
             _ = sighup_signal.recv() => {
                 info!("Reloading config");
 
-                match reload_config(client_server_map.clone()).await {
-                    Ok(_) => (),
-                    Err(_) => (),
-                };
+                _ = reload_config(client_server_map.clone()).await;
 
                 get_config().show();
             },
@@ -271,14 +271,6 @@ async fn main() {
                         }
 
                         Err(err) => {
-                            match err {
-                                // Don't count the clients we rejected.
-                                Error::ShuttingDown => (),
-                                _ => {
-                                    // drain_tx.send(-1).await.unwrap();
-                                }
-                            }
-
                             warn!("Client disconnected with error {:?}", err);
                         }
                     };
