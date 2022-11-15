@@ -466,10 +466,12 @@ where
 }
 
 /// Read a complete message from the socket.
-pub async fn read_message<S>(stream: &mut S) -> Result<BytesMut, Error>
+pub async fn read_message<S>(stream: &mut S, buffer: &mut BytesMut) -> Result<usize, Error>
 where
     S: tokio::io::AsyncRead + std::marker::Unpin,
 {
+    let starting_point = buffer.len();
+
     let code = match stream.read_u8().await {
         Ok(code) => code,
         Err(_) => return Err(Error::SocketError),
@@ -487,13 +489,14 @@ where
         Err(_) => return Err(Error::SocketError),
     };
 
-    let mut bytes = BytesMut::with_capacity(len as usize + 1);
+    buffer.put_u8(code);
+    buffer.put_i32(len);
+    buffer.put_slice(&buf);
 
-    bytes.put_u8(code);
-    bytes.put_i32(len);
-    bytes.put_slice(&buf);
+    // let mut cursor = Cursor::new(buffer);
+    // cursor.advance(starting_point);
 
-    Ok(bytes)
+    Ok(starting_point)
 }
 
 pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {

@@ -2,7 +2,7 @@
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
@@ -393,7 +393,7 @@ impl Server {
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self, server_message_buffer: &mut BytesMut) -> Result<(), Error> {
         loop {
-            let mut message = match read_message(&mut self.read).await {
+            let message_start = match read_message(&mut self.read, server_message_buffer).await {
                 Ok(message) => message,
                 Err(err) => {
                     error!("Terminating server because of: {:?}", err);
@@ -402,18 +402,18 @@ impl Server {
                 }
             };
 
-            // Buffer the message we'll forward to the client later.
-            server_message_buffer.put(&message[..]);
+            let mut message_cursor = Cursor::new(&server_message_buffer);
+            message_cursor.advance(message_start);
 
-            let code = message.get_u8() as char;
-            let _len = message.get_i32();
+            let code = message_cursor.get_u8() as char;
+            let _len = message_cursor.get_i32();
 
             trace!("Message: {}", code);
 
             match code {
                 // ReadyForQuery
                 'Z' => {
-                    let transaction_state = message.get_u8() as char;
+                    let transaction_state = message_cursor.get_u8() as char;
 
                     match transaction_state {
                         // In transaction.
@@ -447,7 +447,7 @@ impl Server {
                 // CommandComplete
                 'C' => {
                     let mut command_tag = String::new();
-                    match message.reader().read_to_string(&mut command_tag) {
+                    match message_cursor.reader().read_to_string(&mut command_tag) {
                         Ok(_) => {
                             // Non-exhaustive list of commands that are likely to change session variables/resources
                             // which can leak between clients. This is a best effort to block bad clients
