@@ -33,7 +33,7 @@ pub struct Server {
     write: OwnedWriteHalf,
 
     /// Our server response buffer. We buffer data before we give it to the client.
-    pub buffer: BytesMut,
+    pub message_buffer: BytesMut,
 
     /// Server information the server sent us over on startup.
     server_info: BytesMut,
@@ -316,7 +316,7 @@ impl Server {
                         address: address.clone(),
                         read: BufReader::new(read),
                         write: write,
-                        buffer: BytesMut::with_capacity(8196),
+                        message_buffer: BytesMut::with_capacity(8196),
                         server_info: server_info,
                         server_id: server_id,
                         process_id: process_id,
@@ -398,7 +398,7 @@ impl Server {
     pub async fn recv(&mut self) -> Result<(), Error> {
         loop {
             let message_start =
-                match read_message_into_buffer(&mut self.read, &mut self.buffer).await {
+                match read_message_into_buffer(&mut self.read, &mut self.message_buffer).await {
                     Ok(message) => message,
                     Err(err) => {
                         error!("Terminating server because of: {:?}", err);
@@ -407,7 +407,7 @@ impl Server {
                     }
                 };
 
-            let mut message_cursor = Cursor::new(&self.buffer);
+            let mut message_cursor = Cursor::new(&self.message_buffer);
             message_cursor.advance(message_start);
 
             let code = message_cursor.get_u8() as char;
@@ -488,7 +488,7 @@ impl Server {
                     self.data_available = true;
 
                     // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
-                    if self.buffer.len() >= 8196 {
+                    if self.message_buffer.len() >= 8196 {
                         break;
                     }
                 }
@@ -517,7 +517,7 @@ impl Server {
         }
 
         // Keep track of how much data we got from the server for stats.
-        self.stats.data_received(self.buffer.len(), self.server_id);
+        self.stats.data_received(self.message_buffer.len(), self.server_id);
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
@@ -585,7 +585,7 @@ impl Server {
             }
         }
 
-        self.buffer.clear();
+        self.message_buffer.clear();
 
         Ok(())
     }
