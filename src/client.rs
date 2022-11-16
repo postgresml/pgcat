@@ -684,11 +684,11 @@ where
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(self.client_message_buffer.clone()) {
+            match query_router.try_execute_command(&self.client_message_buffer) {
                 // Normal query, not a custom command.
                 None => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer(self.client_message_buffer.clone());
+                        query_router.infer(&self.client_message_buffer);
                     }
                 }
 

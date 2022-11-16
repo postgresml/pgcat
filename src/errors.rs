@@ -13,4 +13,5 @@ pub enum Error {
     TlsError,
     StatementTimeout,
     ShuttingDown,
+    ParseBytesError(String),
 }

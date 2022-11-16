@@ -1,3 +1,8 @@
+use std::io::{BufRead, Cursor};
+
+use bytes::BytesMut;
+use errors::Error;
+
 pub mod config;
 pub mod constants;
 pub mod errors;
@@ -29,4 +34,20 @@ pub fn format_duration(duration: &chrono::Duration) -> String {
         "{}d {}:{}:{}.{}",
         days, hours, minutes, seconds, milliseconds
     )
+}
+
+pub trait BytesMutReader {
+    fn read_string(&mut self) -> Result<String, Error>;
+}
+
+impl BytesMutReader for Cursor<&BytesMut> {
+    fn read_string(&mut self) -> Result<String, Error> {
+        let mut buf = vec![];
+        match self.read_until(b'\0', &mut buf) {
+            Ok(_) => {}
+            Err(err) => return Err(Error::ParseBytesError(err.to_string())),
+        };
+
+        Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string())
+    }
 }
