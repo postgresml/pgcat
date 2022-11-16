@@ -639,7 +639,6 @@ where
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
                 'P' | 'B' | 'D' | 'E' => {
-                    // client_message_buffer.put(&message[..]);
                     clear_client_message_buffer = false;
                     continue;
                 }
