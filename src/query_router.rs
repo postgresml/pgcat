@@ -279,7 +279,8 @@ impl QueryRouter {
 
             // Parse (prepared statement)
             'P' => {
-                let mut start = 0;
+                // Start after the code and len
+                let mut start = std::mem::size_of::<u8>() + std::mem::size_of::<i32>();
 
                 // Skip the name of the prepared statement.
                 while buf[start] != 0 && start < buf.len() {
