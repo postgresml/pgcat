@@ -517,8 +517,7 @@ impl Server {
         }
 
         // Keep track of how much data we got from the server for stats.
-        self.stats
-            .data_received(self.buffer.len(), self.server_id);
+        self.stats.data_received(self.buffer.len(), self.server_id);
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
