@@ -495,7 +495,8 @@ where
         match stream
             .read(
                 &mut buffer[starting_point + mem::size_of::<u8>() + mem::size_of::<i32>()
-                    ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize - 4],
+                    ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize
+                        - 4],
             )
             .await
         {
