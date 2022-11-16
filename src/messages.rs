@@ -493,7 +493,7 @@ where
     // Reading onto buffer will stall when [start..end] is 0
     if len - 4 != 0 {
         match stream
-            .read(
+            .read_exact(
                 &mut buffer[starting_point + mem::size_of::<u8>() + mem::size_of::<i32>()
                     ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize
                         - 4],
