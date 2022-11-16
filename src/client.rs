@@ -491,8 +491,8 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
-            client_message_buffer: BytesMut::with_capacity(8196),
             addr,
+            client_message_buffer: BytesMut::with_capacity(8196),
             cancel_mode: false,
             transaction_mode,
             process_id,
@@ -953,7 +953,7 @@ where
                             }
                         };
 
-                        server.clear_server_message_buffer();
+                        server.server_message_buffer.clear();
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -1017,7 +1017,7 @@ where
                 }
             };
 
-            server.clear_server_message_buffer();
+            server.server_message_buffer.clear();
 
             if !server.is_data_available() {
                 break;

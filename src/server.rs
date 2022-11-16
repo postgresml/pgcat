@@ -586,7 +586,7 @@ impl Server {
             }
         }
 
-        self.clear_server_message_buffer();
+        self.server_message_buffer.clear();
 
         Ok(())
     }
@@ -655,10 +655,6 @@ impl Server {
     // Marks a connection as needing DISCARD ALL at checkin
     pub fn mark_dirty(&mut self) {
         self.needs_cleanup = true;
-    }
-
-    pub fn clear_server_message_buffer(&mut self) {
-        self.server_message_buffer.clear();
     }
 }
 
