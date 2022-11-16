@@ -483,23 +483,26 @@ where
     let len = match stream.read_i32().await {
         Ok(len) => len,
         Err(_) => return Err(Error::SocketError),
-    } as usize;
+    };
 
     buffer.put_u8(code);
     buffer.put_i32(len.try_into().unwrap());
 
-    buffer.resize(buffer.len() + len - 4, b'0');
+    buffer.resize(buffer.len() + len as usize - 4, b'0');
 
-    match stream
-        .read(
-            &mut buffer[starting_point + mem::size_of::<u8>() + mem::size_of::<i32>()
-                ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len - 4],
-        )
-        .await
-    {
-        Ok(_) => (),
-        Err(_) => return Err(Error::SocketError),
-    };
+    // Reading onto buffer will stall when [start..end] is 0
+    if len - 4 != 0 {
+        match stream
+            .read(
+                &mut buffer[starting_point + mem::size_of::<u8>() + mem::size_of::<i32>()
+                    ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize - 4],
+            )
+            .await
+        {
+            Ok(_) => (),
+            Err(_) => return Err(Error::SocketError),
+        };
+    }
 
     Ok(starting_point)
 }
