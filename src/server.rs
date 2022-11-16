@@ -32,6 +32,9 @@ pub struct Server {
     /// Unbuffered write socket (our client code buffers).
     write: OwnedWriteHalf,
 
+    /// Our server response buffer. We buffer data before we give it to the client.
+    pub server_message_buffer: BytesMut,
+
     /// Server information the server sent us over on startup.
     server_info: BytesMut,
 
@@ -65,8 +68,6 @@ pub struct Server {
 
     // Last time that a successful server send or response happened
     last_activity: SystemTime,
-    
-    pub server_message_buffer: BytesMut
 }
 
 impl Server {
@@ -396,14 +397,15 @@ impl Server {
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<(), Error> {
         loop {
-            let message_start = match read_message(&mut self.read, &mut self.server_message_buffer).await {
-                Ok(message) => message,
-                Err(err) => {
-                    error!("Terminating server because of: {:?}", err);
-                    self.bad = true;
-                    return Err(err);
-                }
-            };
+            let message_start =
+                match read_message(&mut self.read, &mut self.server_message_buffer).await {
+                    Ok(message) => message,
+                    Err(err) => {
+                        error!("Terminating server because of: {:?}", err);
+                        self.bad = true;
+                        return Err(err);
+                    }
+                };
 
             let mut message_cursor = Cursor::new(&self.server_message_buffer);
             message_cursor.advance(message_start);

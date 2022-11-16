@@ -38,6 +38,10 @@ pub struct Client<S, T> {
     /// better than a stock buffer.
     write: T,
 
+    /// Internal buffer, where we place messages until we have to flush
+    /// them to the backend.
+    client_message_buffer: BytesMut,
+
     /// Address
     addr: std::net::SocketAddr,
 
@@ -487,6 +491,7 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
+            client_message_buffer: BytesMut::with_capacity(8196),
             addr,
             cancel_mode: false,
             transaction_mode,
@@ -520,6 +525,7 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
+            client_message_buffer: BytesMut::with_capacity(8196),
             addr,
             cancel_mode: true,
             transaction_mode: false,
@@ -578,10 +584,6 @@ where
             self.application_name.clone(),
         );
 
-        // Internal buffer, where we place messages until we have to flush
-        // them to the backend.
-        let mut client_message_buffer = BytesMut::with_capacity(8196);
-
         let mut clear_client_message_buffer = false;
 
         // Our custom protocol loop.
@@ -594,7 +596,7 @@ where
             );
 
             if clear_client_message_buffer {
-                client_message_buffer.clear();
+                self.client_message_buffer.clear();
             }
 
             clear_client_message_buffer = true;
@@ -617,13 +619,13 @@ where
 
                     // Admin clients ignore shutdown.
                     else {
-                        read_message(&mut self.read, &mut client_message_buffer).await?
+                        read_message(&mut self.read, &mut self.client_message_buffer).await?
                     }
                 },
-                message_result = read_message(&mut self.read, &mut client_message_buffer) => message_result?
+                message_result = read_message(&mut self.read, &mut self.client_message_buffer) => message_result?
             };
 
-            let mut message_cursor = Cursor::new(&client_message_buffer);
+            let mut message_cursor = Cursor::new(&self.client_message_buffer);
             message_cursor.advance(message_start);
 
             let message_code = message_cursor.get_u8();
@@ -653,7 +655,7 @@ where
                 debug!("Handling admin command");
                 handle_admin(
                     &mut self.write,
-                    client_message_buffer.clone(),
+                    self.client_message_buffer.clone(),
                     self.client_server_map.clone(),
                 )
                 .await?;
@@ -683,11 +685,11 @@ where
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(client_message_buffer.clone()) {
+            match query_router.try_execute_command(self.client_message_buffer.clone()) {
                 // Normal query, not a custom command.
                 None => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer(client_message_buffer.clone());
+                        query_router.infer(self.client_message_buffer.clone());
                     }
                 }
 
@@ -769,7 +771,7 @@ where
                     // protocol buffer
                     if message_code as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
-                        client_message_buffer.clear();
+                        self.client_message_buffer.clear();
                     }
                     error_response(&mut self.write, "could not get connection from the pool")
                         .await?;
@@ -820,7 +822,7 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
-                        match read_message(&mut self.read, &mut client_message_buffer).await {
+                        match read_message(&mut self.read, &mut self.client_message_buffer).await {
                             Ok(message) => message,
                             Err(err) => {
                                 // Client disconnected inside a transaction.
@@ -837,7 +839,7 @@ where
                     }
                 };
 
-                let mut message_cursor = Cursor::new(&client_message_buffer);
+                let mut message_cursor = Cursor::new(&self.client_message_buffer);
                 message_cursor.advance(message_start);
 
                 // The message will be forwarded to the server intact. We still would like to
@@ -851,14 +853,8 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(
-                            code,
-                            &mut client_message_buffer,
-                            server,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.send_and_receive_loop(code, server, &address, &pool)
+                            .await?;
 
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
@@ -902,7 +898,7 @@ where
                         debug!("Sending query to server");
 
                         let first_message_code =
-                            (*client_message_buffer.get(0).unwrap_or(&0)) as char;
+                            (*self.client_message_buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' {
@@ -910,7 +906,8 @@ where
                             // P followed by 32 int followed by null-terminated statement name
                             // So message code should be in offset 0 of the buffer, first character
                             // in prepared statement name would be index 5
-                            let first_char_in_name = *client_message_buffer.get(5).unwrap_or(&0);
+                            let first_char_in_name =
+                                *self.client_message_buffer.get(5).unwrap_or(&0);
                             if first_char_in_name != 0 {
                                 // This is a named prepared statement
                                 // Server connection state will need to be cleared at checkin
@@ -918,14 +915,8 @@ where
                             }
                         }
 
-                        self.send_and_receive_loop(
-                            code,
-                            &mut client_message_buffer,
-                            server,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.send_and_receive_loop(code, server, &address, &pool)
+                            .await?;
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -942,32 +933,17 @@ where
                     'd' => {
                         // Forward the data to the server,
                         // don't buffer it since it can be rather large.
-                        self.send_client_message_to_server(
-                            server,
-                            &mut client_message_buffer,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.send_client_message_to_server(server, &address, &pool)
+                            .await?;
                     }
 
                     // CopyDone or CopyFail
                     // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        self.send_client_message_to_server(
-                            server,
-                            &mut client_message_buffer,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.send_client_message_to_server(server, &address, &pool)
+                            .await?;
 
-                        self.receive_server_message(
-                            server,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.receive_server_message(server, &address, &pool).await?;
 
                         match write_all_half(&mut self.write, &server.server_message_buffer).await {
                             Ok(_) => (),
@@ -1018,22 +994,20 @@ where
     async fn send_and_receive_loop(
         &mut self,
         code: char,
-        message: &mut BytesMut,
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
 
-        self.send_client_message_to_server(server, message, &address, &pool)
+        self.send_client_message_to_server(server, &address, &pool)
             .await?;
 
         let query_start = Instant::now();
         // Read all data the server has to offer, which can be multiple messages
         // buffered in 8196 bytes chunks.
         loop {
-            self.receive_server_message(server, &address, &pool)
-                .await?;
+            self.receive_server_message(server, &address, &pool).await?;
 
             match write_all_half(&mut self.write, &server.server_message_buffer).await {
                 Ok(_) => (),
@@ -1061,20 +1035,19 @@ where
     }
 
     async fn send_client_message_to_server(
-        &self,
+        &mut self,
         server: &mut Server,
-        message: &mut BytesMut,
         address: &Address,
         pool: &ConnectionPool,
     ) -> Result<(), Error> {
-        match server.send(message).await {
+        match server.send(&self.client_message_buffer).await {
             Ok(_) => {
-                message.clear();
+                self.client_message_buffer.clear();
                 Ok(())
             }
             Err(err) => {
                 pool.ban(address, self.process_id);
-                message.clear();
+                self.client_message_buffer.clear();
                 Err(err)
             }
         }
