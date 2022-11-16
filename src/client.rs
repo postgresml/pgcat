@@ -619,10 +619,10 @@ where
 
                     // Admin clients ignore shutdown.
                     else {
-                        read_message(&mut self.read, &mut self.buffer).await?
+                        read_message_into_buffer(&mut self.read, &mut self.buffer).await?
                     }
                 },
-                message_result = read_message(&mut self.read, &mut self.buffer) => message_result?
+                message_result = read_message_into_buffer(&mut self.read, &mut self.buffer) => message_result?
             };
 
             let mut message_cursor = Cursor::new(&self.buffer);
@@ -821,7 +821,7 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
-                        match read_message(&mut self.read, &mut self.buffer).await {
+                        match read_message_into_buffer(&mut self.read, &mut self.buffer).await {
                             Ok(message) => message,
                             Err(err) => {
                                 // Client disconnected inside a transaction.

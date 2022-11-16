@@ -398,7 +398,7 @@ impl Server {
     pub async fn recv(&mut self) -> Result<(), Error> {
         loop {
             let message_start =
-                match read_message(&mut self.read, &mut self.buffer).await {
+                match read_message_into_buffer(&mut self.read, &mut self.buffer).await {
                     Ok(message) => message,
                     Err(err) => {
                         error!("Terminating server because of: {:?}", err);

@@ -466,7 +466,7 @@ where
 }
 
 /// Read a complete message from the socket.
-pub async fn read_message<S>(stream: &mut S, buffer: &mut BytesMut) -> Result<usize, Error>
+pub async fn read_message_into_buffer<S>(stream: &mut S, buffer: &mut BytesMut) -> Result<usize, Error>
 where
     S: tokio::io::AsyncRead + std::marker::Unpin,
 {
