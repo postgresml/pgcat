@@ -486,7 +486,7 @@ where
     };
 
     buffer.put_u8(code);
-    buffer.put_i32(len.try_into().unwrap());
+    buffer.put_i32(len);
 
     buffer.resize(buffer.len() + len as usize - 4, b'0');
 
