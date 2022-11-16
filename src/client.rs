@@ -582,8 +582,6 @@ where
         // them to the backend.
         let mut client_message_buffer = BytesMut::with_capacity(8196);
 
-        let mut server_message_buffer = BytesMut::with_capacity(8196);
-
         let mut clear_client_message_buffer = false;
 
         // Our custom protocol loop.
@@ -859,7 +857,6 @@ where
                             server,
                             &address,
                             &pool,
-                            &mut server_message_buffer,
                         )
                         .await?;
 
@@ -927,7 +924,6 @@ where
                             server,
                             &address,
                             &pool,
-                            &mut server_message_buffer,
                         )
                         .await?;
 
@@ -970,11 +966,10 @@ where
                             server,
                             &address,
                             &pool,
-                            &mut server_message_buffer,
                         )
                         .await?;
 
-                        match write_all_half(&mut self.write, &server_message_buffer).await {
+                        match write_all_half(&mut self.write, &server.server_message_buffer).await {
                             Ok(_) => (),
                             Err(err) => {
                                 server.mark_bad();
@@ -982,7 +977,7 @@ where
                             }
                         };
 
-                        server_message_buffer.clear();
+                        server.clear_server_message_buffer();
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -1027,7 +1022,6 @@ where
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
-        server_message_buffer: &mut BytesMut,
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
 
@@ -1038,10 +1032,10 @@ where
         // Read all data the server has to offer, which can be multiple messages
         // buffered in 8196 bytes chunks.
         loop {
-            self.receive_server_message(server, &address, &pool, server_message_buffer)
+            self.receive_server_message(server, &address, &pool)
                 .await?;
 
-            match write_all_half(&mut self.write, &server_message_buffer).await {
+            match write_all_half(&mut self.write, &server.server_message_buffer).await {
                 Ok(_) => (),
                 Err(err) => {
                     server.mark_bad();
@@ -1049,7 +1043,7 @@ where
                 }
             };
 
-            server_message_buffer.clear();
+            server.clear_server_message_buffer();
 
             if !server.is_data_available() {
                 break;
@@ -1091,12 +1085,11 @@ where
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
-        server_message_buffer: &mut BytesMut,
     ) -> Result<(), Error> {
         if pool.settings.user.statement_timeout > 0 {
             match tokio::time::timeout(
                 tokio::time::Duration::from_millis(pool.settings.user.statement_timeout),
-                server.recv(server_message_buffer),
+                server.recv(),
             )
             .await
             {
@@ -1124,7 +1117,7 @@ where
                 }
             }
         } else {
-            match server.recv(server_message_buffer).await {
+            match server.recv().await {
                 Ok(_) => Ok(()),
                 Err(err) => {
                     pool.ban(address, self.process_id);

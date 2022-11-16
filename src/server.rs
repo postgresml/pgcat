@@ -65,6 +65,8 @@ pub struct Server {
 
     // Last time that a successful server send or response happened
     last_activity: SystemTime,
+    
+    pub server_message_buffer: BytesMut
 }
 
 impl Server {
@@ -313,6 +315,7 @@ impl Server {
                         address: address.clone(),
                         read: BufReader::new(read),
                         write: write,
+                        server_message_buffer: BytesMut::with_capacity(8196),
                         server_info: server_info,
                         server_id: server_id,
                         process_id: process_id,
@@ -391,9 +394,9 @@ impl Server {
     /// Receive data from the server in response to a client request.
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
-    pub async fn recv(&mut self, server_message_buffer: &mut BytesMut) -> Result<(), Error> {
+    pub async fn recv(&mut self) -> Result<(), Error> {
         loop {
-            let message_start = match read_message(&mut self.read, server_message_buffer).await {
+            let message_start = match read_message(&mut self.read, &mut self.server_message_buffer).await {
                 Ok(message) => message,
                 Err(err) => {
                     error!("Terminating server because of: {:?}", err);
@@ -402,7 +405,7 @@ impl Server {
                 }
             };
 
-            let mut message_cursor = Cursor::new(&server_message_buffer);
+            let mut message_cursor = Cursor::new(&self.server_message_buffer);
             message_cursor.advance(message_start);
 
             let code = message_cursor.get_u8() as char;
@@ -483,7 +486,7 @@ impl Server {
                     self.data_available = true;
 
                     // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
-                    if server_message_buffer.len() >= 8196 {
+                    if self.server_message_buffer.len() >= 8196 {
                         break;
                     }
                 }
@@ -513,7 +516,7 @@ impl Server {
 
         // Keep track of how much data we got from the server for stats.
         self.stats
-            .data_received(server_message_buffer.len(), self.server_id);
+            .data_received(self.server_message_buffer.len(), self.server_id);
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
@@ -573,15 +576,15 @@ impl Server {
 
         self.send(&query).await?;
 
-        let mut server_message_buffer = BytesMut::with_capacity(8196);
-
         loop {
-            let _ = self.recv(&mut server_message_buffer).await?;
+            let _ = self.recv().await?;
 
             if !self.data_available {
                 break;
             }
         }
+
+        self.clear_server_message_buffer();
 
         Ok(())
     }
@@ -650,6 +653,10 @@ impl Server {
     // Marks a connection as needing DISCARD ALL at checkin
     pub fn mark_dirty(&mut self) {
         self.needs_cleanup = true;
+    }
+
+    pub fn clear_server_message_buffer(&mut self) {
+        self.server_message_buffer.clear();
     }
 }
 
