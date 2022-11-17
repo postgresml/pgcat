@@ -278,7 +278,15 @@ async fn main() {
                         }
 
                         Err(err) => {
-                            warn!("Client disconnected with error {:?}", err);
+                            // We don't want to log bad client startup since this is often hit when health checks hit pgcat
+                            match err {
+                                errors::Error::ClientBadStartup => {
+                                    debug!("Client disconnected with error {:?}", err);
+                                },
+                                _ => {
+                                    warn!("Client disconnected with error {:?}", err);
+                                },
+                            }
                         }
                     };
                 });
