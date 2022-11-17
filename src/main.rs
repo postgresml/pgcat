@@ -283,7 +283,11 @@ async fn main() {
                         }
 
                         Err(err) => {
-                            warn!("Client disconnected with error {:?}", err);
+                            match err {
+                                errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
+                                _ => warn!("Client disconnected with error {:?}", err),
+                            }
+
                         }
                     };
                 });
