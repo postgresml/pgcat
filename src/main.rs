@@ -44,7 +44,7 @@ use jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
 use tokio::net::TcpListener;
@@ -271,7 +271,11 @@ async fn main() {
                         }
 
                         Err(err) => {
-                            warn!("Client disconnected with error {:?}", err);
+                            match err {
+                                errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
+                                _ => warn!("Client disconnected with error {:?}", err),
+                            }
+
                         }
                     };
                 });
