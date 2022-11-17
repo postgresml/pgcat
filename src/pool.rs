@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, PoolMode, Role, User};
+use crate::config::{get_config, Address, PoolMode, Role, User, get_healthcheck_configs};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -343,8 +343,7 @@ impl ConnectionPool {
         // Random load balancing
         candidates.shuffle(&mut thread_rng());
 
-        let healthcheck_timeout = get_config().general.healthcheck_timeout;
-        let healthcheck_delay = get_config().general.healthcheck_delay as u128;
+        let (healthcheck_delay, healthcheck_timeout) = get_healthcheck_configs();
 
         while !candidates.is_empty() {
             // Get the next candidate
@@ -381,7 +380,7 @@ impl ConnectionPool {
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
             let require_healthcheck =
-                server.last_activity().elapsed().unwrap().as_millis() > healthcheck_delay;
+                server.last_activity().elapsed().unwrap().as_millis() > healthcheck_delay as u128;
 
             // Do not issue a health check unless it's been a little while
             // since we last checked the server is ok.

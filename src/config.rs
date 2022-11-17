@@ -646,6 +646,12 @@ pub fn get_config() -> Config {
     (*(*CONFIG.load())).clone()
 }
 
+pub fn get_healthcheck_configs() -> (u64, u64) {
+    let guard = CONFIG.load();
+
+    (guard.general.healthcheck_delay, guard.general.healthcheck_timeout)
+}
+
 /// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();
