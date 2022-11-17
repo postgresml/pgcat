@@ -259,7 +259,7 @@ async fn main() {
                         drain_tx,
                         admin_only,
                         tls_certificate.clone(),
-                        config.general.log_connections,
+                        config.general.log_client_connections,
                     )
                     .await
                     {
@@ -267,7 +267,7 @@ async fn main() {
 
                             let duration = chrono::offset::Utc::now().naive_utc() - start;
 
-                            if config.general.log_disconnections {
+                            if config.general.log_client_disconnections {
                                 info!(
                                     "Client {:?} disconnected, session duration: {}",
                                     addr,

@@ -32,6 +32,12 @@ shutdown_timeout = 60000
 # For how long to ban a server if it fails a health check (seconds).
 ban_time = 60 # seconds
 
+# If we should log client connections
+log_client_connections = false
+
+# If we should log client disconnections
+log_client_disconnections = false
+
 # Reload config automatically if it changes.
 autoreload = false
 

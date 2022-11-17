@@ -99,7 +99,7 @@ pub async fn client_entrypoint(
     drain: Sender<i32>,
     admin_only: bool,
     tls_certificate: Option<String>,
-    log_connections: bool,
+    log_client_connections: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -118,7 +118,7 @@ pub async fn client_entrypoint(
                 // Negotiate TLS.
                 match startup_tls(stream, client_server_map, shutdown, admin_only).await {
                     Ok(mut client) => {
-                        if log_connections {
+                        if log_client_connections {
                             info!("Client {:?} connected (TLS)", addr);
                         } else {
                             debug!("Client {:?} connected (TLS)", addr);
@@ -166,7 +166,7 @@ pub async fn client_entrypoint(
                         .await
                         {
                             Ok(mut client) => {
-                                if log_connections {
+                                if log_client_connections {
                                     info!("Client {:?} connected (plain)", addr);
                                 } else {
                                     debug!("Client {:?} connected (plain)", addr);
@@ -211,7 +211,7 @@ pub async fn client_entrypoint(
             .await
             {
                 Ok(mut client) => {
-                    if log_connections {
+                    if log_client_connections {
                         info!("Client {:?} connected (plain)", addr);
                     } else {
                         debug!("Client {:?} connected (plain)", addr);
