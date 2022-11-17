@@ -86,7 +86,10 @@ impl Server {
                 Ok(stream) => stream,
                 Err(err) => {
                     error!("Could not connect to server: {}", err);
-                    return Err(Error::SocketError);
+                    return Err(Error::SocketError(format!(
+                        "Could not connect to server: {}",
+                        err
+                    )));
                 }
             };
 
@@ -106,12 +109,12 @@ impl Server {
         loop {
             let code = match stream.read_u8().await {
                 Ok(code) => code as char,
-                Err(_) => return Err(Error::SocketError),
+                Err(_) => return Err(Error::SocketError(format!("Error reading message code on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
             };
 
             let len = match stream.read_i32().await {
                 Ok(len) => len,
-                Err(_) => return Err(Error::SocketError),
+                Err(_) => return Err(Error::SocketError(format!("Error reading message len on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
             };
 
             trace!("Message: {}", code);
@@ -122,7 +125,7 @@ impl Server {
                     // Determine which kind of authentication is required, if any.
                     let auth_code = match stream.read_i32().await {
                         Ok(auth_code) => auth_code,
-                        Err(_) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError(format!("Error reading auth code on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                     };
 
                     trace!("Auth: {}", auth_code);
@@ -135,7 +138,7 @@ impl Server {
 
                             match stream.read_exact(&mut salt).await {
                                 Ok(_) => (),
-                                Err(_) => return Err(Error::SocketError),
+                                Err(_) => return Err(Error::SocketError(format!("Error reading salt on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
                             md5_password(&mut stream, &user.username, &user.password, &salt[..])
@@ -151,7 +154,7 @@ impl Server {
 
                             match stream.read_exact(&mut sasl_auth).await {
                                 Ok(_) => (),
-                                Err(_) => return Err(Error::SocketError),
+                                Err(_) => return Err(Error::SocketError(format!("Error reading sasl message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
                             let sasl_type = String::from_utf8_lossy(&sasl_auth[..sasl_len - 2]);
@@ -193,7 +196,7 @@ impl Server {
 
                             match stream.read_exact(&mut sasl_data).await {
                                 Ok(_) => (),
-                                Err(_) => return Err(Error::SocketError),
+                                Err(_) => return Err(Error::SocketError(format!("Error reading sasl cont message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
                             let msg = BytesMut::from(&sasl_data[..]);
@@ -214,7 +217,7 @@ impl Server {
                             let mut sasl_final = vec![0u8; len as usize - 8];
                             match stream.read_exact(&mut sasl_final).await {
                                 Ok(_) => (),
-                                Err(_) => return Err(Error::SocketError),
+                                Err(_) => return Err(Error::SocketError(format!("Error reading sasl final message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
                             match scram.finish(&BytesMut::from(&sasl_final[..])) {
@@ -240,7 +243,7 @@ impl Server {
                 'E' => {
                     let error_code = match stream.read_u8().await {
                         Ok(error_code) => error_code,
-                        Err(_) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError(format!("Error reading error code message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                     };
 
                     trace!("Error: {}", error_code);
@@ -256,7 +259,7 @@ impl Server {
 
                             match stream.read_exact(&mut error).await {
                                 Ok(_) => (),
-                                Err(_) => return Err(Error::SocketError),
+                                Err(_) => return Err(Error::SocketError(format!("Error reading error message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
                             // TODO: the error message contains multiple fields; we can decode them and
@@ -275,7 +278,7 @@ impl Server {
 
                     match stream.read_exact(&mut param).await {
                         Ok(_) => (),
-                        Err(_) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError(format!("Error reading parameter status message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                     };
 
                     // Save the parameter so we can pass it to the client later.
@@ -292,12 +295,12 @@ impl Server {
                     // See: <https://www.postgresql.org/docs/12/protocol-message-formats.html>.
                     process_id = match stream.read_i32().await {
                         Ok(id) => id,
-                        Err(_) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError(format!("Error reading process id message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                     };
 
                     secret_key = match stream.read_i32().await {
                         Ok(id) => id,
-                        Err(_) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError(format!("Error reading secret key message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                     };
                 }
 
@@ -307,7 +310,7 @@ impl Server {
 
                     match stream.read_exact(&mut idle).await {
                         Ok(_) => (),
-                        Err(_) => return Err(Error::SocketError),
+                        Err(_) => return Err(Error::SocketError(format!("Error reading transaction status message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                     };
 
                     let (read, write) = stream.into_split();
@@ -341,7 +344,10 @@ impl Server {
                 // Means we implemented the protocol wrong or we're not talking to a Postgres server.
                 _ => {
                     error!("Unknown code: {}", code);
-                    return Err(Error::ProtocolSyncError);
+                    return Err(Error::ProtocolSyncError(format!(
+                        "Unknown server code: {}",
+                        code
+                    )));
                 }
             };
         }
@@ -359,7 +365,7 @@ impl Server {
             Ok(stream) => stream,
             Err(err) => {
                 error!("Could not connect to server: {}", err);
-                return Err(Error::SocketError);
+                return Err(Error::SocketError(format!("Error reading cancel message")));
             }
         };
 
@@ -439,7 +445,10 @@ impl Server {
                         // Something totally unexpected, this is not a Postgres server we know.
                         _ => {
                             self.bad = true;
-                            return Err(Error::ProtocolSyncError);
+                            return Err(Error::ProtocolSyncError(format!(
+                                "Unknown transaction state: {}",
+                                transaction_state
+                            )));
                         }
                     };
 

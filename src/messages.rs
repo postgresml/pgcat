@@ -136,7 +136,11 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
 
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
-        Err(_) => Err(Error::SocketError),
+        Err(_) => {
+            return Err(Error::SocketError(format!(
+                "Error writing startup to server socket"
+            )))
+        }
     }
 }
 
@@ -450,7 +454,7 @@ where
 {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
-        Err(_) => Err(Error::SocketError),
+        Err(_) => return Err(Error::SocketError(format!("Error writing to socket"))),
     }
 }
 
@@ -461,7 +465,7 @@ where
 {
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
-        Err(_) => Err(Error::SocketError),
+        Err(_) => return Err(Error::SocketError(format!("Error writing to socket"))),
     }
 }
 
@@ -477,12 +481,21 @@ where
 
     let code = match stream.read_u8().await {
         Ok(code) => code,
-        Err(_) => return Err(Error::SocketError),
+        Err(_) => {
+            return Err(Error::SocketError(format!(
+                "Error reading message code from socket"
+            )))
+        }
     };
 
     let len = match stream.read_i32().await {
         Ok(len) => len,
-        Err(_) => return Err(Error::SocketError),
+        Err(_) => {
+            return Err(Error::SocketError(format!(
+                "Error reading message len from socket, code: {:?}",
+                code
+            )))
+        }
     };
 
     buffer.put_u8(code);
@@ -498,7 +511,12 @@ where
         .await
     {
         Ok(_) => (),
-        Err(_) => return Err(Error::SocketError),
+        Err(_) => {
+            return Err(Error::SocketError(format!(
+                "Error reading message from socket, code: {:?}",
+                code
+            )))
+        }
     };
 
     Ok(starting_point)

@@ -3,13 +3,13 @@
 /// Various errors.
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    SocketError,
+    SocketError(String),
     ClientBadStartup,
-    ProtocolSyncError,
+    ProtocolSyncError(String),
     ServerError,
     BadConfig,
     AllServersDown,
-    ClientError,
+    ClientError(String),
     TlsError,
     StatementTimeout,
     ShuttingDown,

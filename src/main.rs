@@ -44,7 +44,7 @@ use jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
 use tokio::net::TcpListener;
@@ -247,6 +247,8 @@ async fn main() {
                 let drain_tx = drain_tx.clone();
                 let client_server_map = client_server_map.clone();
 
+                let tls_certificate = config.general.tls_certificate.clone();
+
                 tokio::task::spawn(async move {
                     let start = chrono::offset::Utc::now().naive_utc();
 
@@ -256,6 +258,8 @@ async fn main() {
                         shutdown_rx,
                         drain_tx,
                         admin_only,
+                        tls_certificate.clone(),
+                        config.general.log_client_connections,
                     )
                     .await
                     {
@@ -263,15 +267,27 @@ async fn main() {
 
                             let duration = chrono::offset::Utc::now().naive_utc() - start;
 
-                            info!(
-                                "Client {:?} disconnected, session duration: {}",
-                                addr,
-                                format_duration(&duration)
-                            );
+                            if config.general.log_client_disconnections {
+                                info!(
+                                    "Client {:?} disconnected, session duration: {}",
+                                    addr,
+                                    format_duration(&duration)
+                                );
+                            } else {
+                                debug!(
+                                    "Client {:?} disconnected, session duration: {}",
+                                    addr,
+                                    format_duration(&duration)
+                                );
+                            }
                         }
 
                         Err(err) => {
-                            warn!("Client disconnected with error {:?}", err);
+                            match err {
+                                errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
+                                _ => warn!("Client disconnected with error {:?}", err),
+                            }
+
                         }
                     };
                 });
