@@ -388,7 +388,11 @@ where
         // This parameter is mandatory by the protocol.
         let username = match parameters.get("user") {
             Some(user) => user,
-            None => return Err(Error::ClientError("Missing user parameter on client startup".to_string())),
+            None => {
+                return Err(Error::ClientError(
+                    "Missing user parameter on client startup".to_string(),
+                ))
+            }
         };
 
         let pool_name = match parameters.get("database") {
