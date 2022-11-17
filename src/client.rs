@@ -371,15 +371,15 @@ where
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
 
-        // These two parameters are mandatory by the protocol.
-        let pool_name = match parameters.get("database") {
-            Some(db) => db,
-            None => return Err(Error::ClientError),
-        };
-
+        // This parameter is mandatory by the protocol.
         let username = match parameters.get("user") {
             Some(user) => user,
             None => return Err(Error::ClientError),
+        };
+
+        let pool_name = match parameters.get("database") {
+            Some(db) => db,
+            None => username,
         };
 
         let application_name = match parameters.get("application_name") {
