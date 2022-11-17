@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, PoolMode, Role, User, get_healthcheck_configs};
+use crate::config::{get_config, get_healthcheck_configs, Address, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;

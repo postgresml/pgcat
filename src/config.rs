@@ -170,6 +170,12 @@ pub struct General {
     pub ban_time: i64,
 
     #[serde(default)] // False
+    pub log_connections: bool,
+
+    #[serde(default)] // False
+    pub log_disconnections: bool,
+
+    #[serde(default)] // False
     pub autoreload: bool,
 
     pub tls_certificate: Option<String>,
@@ -517,6 +523,8 @@ impl Config {
             self.general.healthcheck_timeout
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
+        info!("Log connections: {}", self.general.log_connections);
+        info!("Log disconnections: {}", self.general.log_disconnections);
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
         info!("Healthcheck delay: {}ms", self.general.healthcheck_delay);
         match self.general.tls_certificate.clone() {
@@ -649,7 +657,10 @@ pub fn get_config() -> Config {
 pub fn get_healthcheck_configs() -> (u64, u64) {
     let guard = CONFIG.load();
 
-    (guard.general.healthcheck_delay, guard.general.healthcheck_timeout)
+    (
+        guard.general.healthcheck_delay,
+        guard.general.healthcheck_timeout,
+    )
 }
 
 /// Parse the configuration file located at the path.

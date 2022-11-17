@@ -118,7 +118,11 @@ pub async fn client_entrypoint(
                 // Negotiate TLS.
                 match startup_tls(stream, client_server_map, shutdown, admin_only).await {
                     Ok(mut client) => {
-                        info!("Client {:?} connected (TLS)", addr);
+                        if config.general.log_connections {
+                            info!("Client {:?} connected (TLS)", addr);
+                        } else {
+                            debug!("Client {:?} connected (TLS)", addr);
+                        }
 
                         if !client.is_admin() {
                             let _ = drain.send(1).await;
@@ -162,7 +166,11 @@ pub async fn client_entrypoint(
                         .await
                         {
                             Ok(mut client) => {
-                                info!("Client {:?} connected (plain)", addr);
+                                if config.general.log_connections {
+                                    info!("Client {:?} connected (plain)", addr);
+                                } else {
+                                    debug!("Client {:?} connected (plain)", addr);
+                                }
 
                                 if !client.is_admin() {
                                     let _ = drain.send(1).await;
@@ -203,7 +211,11 @@ pub async fn client_entrypoint(
             .await
             {
                 Ok(mut client) => {
-                    info!("Client {:?} connected (plain)", addr);
+                    if config.general.log_connections {
+                        info!("Client {:?} connected (plain)", addr);
+                    } else {
+                        debug!("Client {:?} connected (plain)", addr);
+                    }
 
                     if !client.is_admin() {
                         let _ = drain.send(1).await;
