@@ -170,6 +170,12 @@ pub struct General {
     pub ban_time: i64,
 
     #[serde(default)] // False
+    pub log_connections: bool,
+
+    #[serde(default)] // False
+    pub log_disconnections: bool,
+
+    #[serde(default)] // False
     pub autoreload: bool,
 
     pub tls_certificate: Option<String>,
@@ -220,6 +226,8 @@ impl Default for General {
             healthcheck_timeout: Self::default_healthcheck_timeout(),
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
+            log_connections: false,
+            log_disconnections: false,
             autoreload: false,
             tls_certificate: None,
             tls_private_key: None,
@@ -517,6 +525,8 @@ impl Config {
             self.general.healthcheck_timeout
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
+        info!("Log connections: {}", self.general.log_connections);
+        info!("Log disconnections: {}", self.general.log_disconnections);
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
         info!("Healthcheck delay: {}ms", self.general.healthcheck_delay);
         match self.general.tls_certificate.clone() {

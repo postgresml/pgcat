@@ -98,6 +98,8 @@ pub async fn client_entrypoint(
     shutdown: Receiver<()>,
     drain: Sender<i32>,
     admin_only: bool,
+    tls_certificate: Option<String>,
+    log_connections: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -105,10 +107,8 @@ pub async fn client_entrypoint(
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
-            let config = get_config();
-
             // TLS settings are configured, will setup TLS now.
-            if config.general.tls_certificate != None {
+            if tls_certificate != None {
                 debug!("Accepting TLS request");
 
                 let mut yes = BytesMut::new();
@@ -118,7 +118,11 @@ pub async fn client_entrypoint(
                 // Negotiate TLS.
                 match startup_tls(stream, client_server_map, shutdown, admin_only).await {
                     Ok(mut client) => {
-                        info!("Client {:?} connected (TLS)", addr);
+                        if log_connections {
+                            info!("Client {:?} connected (TLS)", addr);
+                        } else {
+                            debug!("Client {:?} connected (TLS)", addr);
+                        }
 
                         if !client.is_admin() {
                             let _ = drain.send(1).await;
@@ -162,7 +166,11 @@ pub async fn client_entrypoint(
                         .await
                         {
                             Ok(mut client) => {
-                                info!("Client {:?} connected (plain)", addr);
+                                if log_connections {
+                                    info!("Client {:?} connected (plain)", addr);
+                                } else {
+                                    debug!("Client {:?} connected (plain)", addr);
+                                }
 
                                 if !client.is_admin() {
                                     let _ = drain.send(1).await;
@@ -188,6 +196,8 @@ pub async fn client_entrypoint(
 
         // Client wants to use plain connection without encryption.
         Ok((ClientConnectionType::Startup, bytes)) => {
+            let config = get_config();
+
             let (read, write) = split(stream);
 
             // Continue with regular startup.
@@ -203,7 +213,11 @@ pub async fn client_entrypoint(
             .await
             {
                 Ok(mut client) => {
-                    info!("Client {:?} connected (plain)", addr);
+                    if config.general.log_connections {
+                        info!("Client {:?} connected (plain)", addr);
+                    } else {
+                        debug!("Client {:?} connected (plain)", addr);
+                    }
 
                     if !client.is_admin() {
                         let _ = drain.send(1).await;
