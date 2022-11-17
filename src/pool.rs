@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, PoolMode, Role, User, General};
+use crate::config::{get_config, Address, General, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -387,8 +387,8 @@ impl ConnectionPool {
             let server = &mut *conn;
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
-            let require_healthcheck =
-                server.last_activity().elapsed().unwrap().as_millis() > self.settings.healthcheck_delay as u128;
+            let require_healthcheck = server.last_activity().elapsed().unwrap().as_millis()
+                > self.settings.healthcheck_delay as u128;
 
             // Do not issue a health check unless it's been a little while
             // since we last checked the server is ok.
