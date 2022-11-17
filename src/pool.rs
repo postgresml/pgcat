@@ -84,10 +84,10 @@ pub struct PoolSettings {
     pub automatic_sharding_key: Option<String>,
 
     // Health check timeout
-    healthcheck_timeout: u64,
+    pub healthcheck_timeout: u64,
 
     // Health check delay
-    healthcheck_delay: u64,
+    pub healthcheck_delay: u64,
 }
 
 impl Default for PoolSettings {
