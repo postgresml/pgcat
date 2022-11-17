@@ -367,7 +367,6 @@ where
         shutdown: Receiver<()>,
         admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
-        let config = get_config();
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
 
@@ -440,6 +439,7 @@ where
 
         // Authenticate admin user.
         let (transaction_mode, server_info) = if admin {
+            let config = get_config();
             // Compare server and client hashes.
             let password_hash = md5_hash_password(
                 &config.general.admin_username,
