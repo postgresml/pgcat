@@ -525,9 +525,9 @@ impl Config {
             self.general.healthcheck_timeout
         );
         info!("Connection timeout: {}ms", self.general.connect_timeout);
-        info!("Log connections: {}", self.general.log_client_connections);
+        info!("Log client connections: {}", self.general.log_client_connections);
         info!(
-            "Log disconnections: {}",
+            "Log client disconnections: {}",
             self.general.log_client_disconnections
         );
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
