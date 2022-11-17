@@ -196,8 +196,6 @@ pub async fn client_entrypoint(
 
         // Client wants to use plain connection without encryption.
         Ok((ClientConnectionType::Startup, bytes)) => {
-            let config = get_config();
-
             let (read, write) = split(stream);
 
             // Continue with regular startup.
@@ -213,7 +211,7 @@ pub async fn client_entrypoint(
             .await
             {
                 Ok(mut client) => {
-                    if config.general.log_connections {
+                    if log_connections {
                         info!("Client {:?} connected (plain)", addr);
                     } else {
                         debug!("Client {:?} connected (plain)", addr);
