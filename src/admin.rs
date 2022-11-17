@@ -37,9 +37,11 @@ where
     let code = query.get_u8() as char;
 
     if code != 'Q' {
-        return Err(Error::ProtocolSyncError);
+        return Err(Error::ProtocolSyncError(format!(
+            "Invalid code, expected 'Q' but got '{}'",
+            code
+        )));
     }
-
     let len = query.get_i32() as usize;
     let query = String::from_utf8_lossy(&query[..len - 5])
         .to_string()

@@ -189,13 +189,20 @@ pub async fn client_entrypoint(
                     }
 
                     // Client probably disconnected rejecting our plain text connection.
-                    _ => Err(Error::ProtocolSyncError),
+                    Ok((ClientConnectionType::Tls, _))
+                    | Ok((ClientConnectionType::CancelQuery, _)) => Err(Error::ProtocolSyncError(
+                        format!("Bad postgres client (plain)"),
+                    )),
+
+                    Err(err) => Err(err),
                 }
             }
         }
 
         // Client wants to use plain connection without encryption.
         Ok((ClientConnectionType::Startup, bytes)) => {
+            let config = get_config();
+
             let (read, write) = split(stream);
 
             // Continue with regular startup.
@@ -297,7 +304,10 @@ where
 
         // Something else, probably something is wrong and it's not our fault,
         // e.g. badly implemented Postgres client.
-        _ => Err(Error::ProtocolSyncError),
+        _ => Err(Error::ProtocolSyncError(format!(
+            "Unexpected startup code: {}",
+            code
+        ))),
     }
 }
 
@@ -343,7 +353,11 @@ pub async fn startup_tls(
         }
 
         // Bad Postgres client.
-        _ => Err(Error::ProtocolSyncError),
+        Ok((ClientConnectionType::Tls, _)) | Ok((ClientConnectionType::CancelQuery, _)) => Err(
+            Error::ProtocolSyncError(format!("Bad postgres client (tls)")),
+        ),
+
+        Err(err) => Err(err),
     }
 }
 
@@ -374,7 +388,7 @@ where
         // This parameter is mandatory by the protocol.
         let username = match parameters.get("user") {
             Some(user) => user,
-            None => return Err(Error::ClientError),
+            None => return Err(Error::ClientError("Missing user parameter on client startup".to_string())),
         };
 
         let pool_name = match parameters.get("database") {
@@ -417,25 +431,27 @@ where
 
         let code = match read.read_u8().await {
             Ok(p) => p,
-            Err(_) => return Err(Error::SocketError),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
         };
 
         // PasswordMessage
         if code as char != 'p' {
-            debug!("Expected p, got {}", code as char);
-            return Err(Error::ProtocolSyncError);
+            return Err(Error::ProtocolSyncError(format!(
+                "Expected p, got {}",
+                code as char
+            )));
         }
 
         let len = match read.read_i32().await {
             Ok(len) => len,
-            Err(_) => return Err(Error::SocketError),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
         };
 
         let mut password_response = vec![0u8; (len - 4) as usize];
 
         match read.read_exact(&mut password_response).await {
             Ok(_) => (),
-            Err(_) => return Err(Error::SocketError),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
         };
 
         // Authenticate admin user.
@@ -451,7 +467,7 @@ where
                 warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError);
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
             }
 
             (false, generate_server_info_for_admin())
@@ -470,8 +486,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
-                    return Err(Error::ClientError);
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
                 }
             };
 
@@ -482,7 +497,7 @@ where
                 warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError);
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
@@ -669,8 +684,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name);
-                    return Err(Error::ClientError);
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
                 }
             };
             query_router.update_pool_settings(pool.settings.clone());

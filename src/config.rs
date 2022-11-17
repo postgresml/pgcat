@@ -226,6 +226,8 @@ impl Default for General {
             healthcheck_timeout: Self::default_healthcheck_timeout(),
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
+            log_connections: false,
+            log_disconnections: false,
             autoreload: false,
             tls_certificate: None,
             tls_private_key: None,
