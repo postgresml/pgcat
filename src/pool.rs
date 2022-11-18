@@ -11,6 +11,7 @@ use rand::thread_rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use std::time::SystemTime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use crate::config::{get_config, Address, General, PoolMode, Role, User};
@@ -109,7 +110,7 @@ impl Default for PoolSettings {
 }
 
 /// The globally accessible connection pool.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ConnectionPool {
     /// The pools handled internally by bb8.
     databases: Vec<Vec<Pool<ServerPool>>>,
@@ -138,6 +139,8 @@ pub struct ConnectionPool {
     suspended_requests: Arc<Mutex<Vec<UnboundedSender<bool>>>>,
     //Is the pool suspended
     suspended: Arc<Mutex<bool>>,
+
+    last_resume_time: Arc<Mutex<SystemTime>>,
 }
 
 impl ConnectionPool {
@@ -275,6 +278,7 @@ impl ConnectionPool {
                     },
                     suspended: Arc::new(Mutex::new(false)),
                     suspended_requests: Arc::new(Mutex::new(Vec::new())),
+                    last_resume_time: Arc::new(Mutex::new(SystemTime::now())),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -395,11 +399,12 @@ impl ConnectionPool {
 
             // // Check if this server is alive with a health check.
             let mut server = &mut *conn;
+            let last_resume_time = self.last_resume_time.clone().lock().clone();
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
             let require_healthcheck = server.last_activity().elapsed().unwrap().as_millis()
-                > self.settings.healthcheck_delay as u128;
-
+                > self.settings.healthcheck_delay as u128
+                || last_resume_time > server.last_activity();
             // Do not issue a health check unless it's been a little while
             // since we last checked the server is ok.
             // Health checks are pretty expensive.
@@ -413,7 +418,6 @@ impl ConnectionPool {
             debug!("Running health check on server {:?}", address);
 
             self.stats.server_tested(server.server_id());
-
 
             let mut health_check_result = tokio::time::timeout(
                 tokio::time::Duration::from_millis(self.settings.healthcheck_timeout),
@@ -624,6 +628,8 @@ impl ConnectionPool {
             res.unwrap();
         }
         suspended_requests.clear();
+        let resume_time_mutex = self.last_resume_time.clone();
+        *resume_time_mutex.lock() = SystemTime::now();
     }
     async fn wait_unsuspended(&self) {
         let (tx, mut rx) = unbounded_channel();
