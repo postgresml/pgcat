@@ -501,12 +501,13 @@ where
     buffer.put_u8(code);
     buffer.put_i32(len);
 
-    buffer.resize(buffer.len() + len as usize - 4, b'0');
+    buffer.resize(buffer.len() + len as usize - mem::size_of::<i32>(), b'0');
 
     match stream
         .read_exact(
             &mut buffer[starting_point + mem::size_of::<u8>() + mem::size_of::<i32>()
-                ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize - 4],
+                ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize
+                    - mem::size_of::<i32>()],
         )
         .await
     {
