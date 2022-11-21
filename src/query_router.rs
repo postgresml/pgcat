@@ -279,22 +279,11 @@ impl QueryRouter {
 
             // Parse (prepared statement)
             'P' => {
-                // Start after the code and len
-                let mut start = std::mem::size_of::<u8>() + std::mem::size_of::<i32>();
+                // Reads statement name
+                message_cursor.read_string().unwrap();
 
-                // Skip the name of the prepared statement.
-                while buf[start] != 0 && start < buf.len() {
-                    start += 1;
-                }
-                start += 1; // Skip terminating null
-
-                // Find the end of the prepared stmt (\0)
-                let mut end = start;
-                while buf[end] != 0 && end < buf.len() {
-                    end += 1;
-                }
-
-                let query = String::from_utf8_lossy(&buf[start..end]).to_string();
+                // Reads query string
+                let query = message_cursor.read_string().unwrap();
 
                 debug!("Prepared statement: '{}'", query);
 
