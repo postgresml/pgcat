@@ -7,11 +7,10 @@ use tokio::time::Instant;
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::get_all_pools;
+use crate::pool::{get_all_pools, ClientServerMap};
 use crate::stats::{
     get_address_stats, get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState,
 };
-use crate::ClientServerMap;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();

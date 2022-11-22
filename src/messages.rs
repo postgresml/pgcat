@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use std::collections::HashMap;
+use std::io::{BufRead, Cursor};
 use std::mem;
 
 /// Postgres data type mappings
@@ -538,4 +539,21 @@ pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {
     server_info.put_bytes(0, 1);
 
     server_info
+}
+
+pub trait BytesMutReader {
+    fn read_string(&mut self) -> Result<String, Error>;
+}
+
+impl BytesMutReader for Cursor<&BytesMut> {
+    /// Should only be used when reading strings from the message protocol.
+    ///
+    /// Can be used to read multiple strings from the same message which are separated by the null byte
+    fn read_string(&mut self) -> Result<String, Error> {
+        let mut buf = vec![];
+        match self.read_until(b'\0', &mut buf) {
+            Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string()),
+            Err(err) => return Err(Error::ParseBytesError(err.to_string())),
+        }
+    }
 }

@@ -10,13 +10,12 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use crate::config::Role;
+use crate::messages::BytesMutReader;
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
 use std::collections::BTreeSet;
 use std::io::Cursor;
-
-use pgcat::BytesMutReader;
 
 /// Regexes used to parse custom commands.
 const CUSTOM_SQL_REGEXES: [&str; 7] = [

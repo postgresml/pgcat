@@ -36,7 +36,7 @@ pub struct Client<S, T> {
 
     /// We buffer the writes ourselves because we know the protocol
     /// better than a stock buffer.
-    write: T,
+    pub write: T,
 
     /// Internal buffer, where we place messages until we have to flush
     /// them to the backend.
@@ -433,7 +433,7 @@ where
 
         let code = match read.read_u8().await {
             Ok(p) => p,
-            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
         };
 
         // PasswordMessage
@@ -446,14 +446,14 @@ where
 
         let len = match read.read_i32().await {
             Ok(len) => len,
-            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
         };
 
         let mut password_response = vec![0u8; (len - 4) as usize];
 
         match read.read_exact(&mut password_response).await {
             Ok(_) => (),
-            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
         };
 
         // Authenticate admin user.
@@ -467,10 +467,10 @@ where
             );
 
             if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
             }
 
             (false, generate_server_info_for_admin())
@@ -489,7 +489,7 @@ where
                     )
                     .await?;
 
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
                 }
             };
 
@@ -497,10 +497,10 @@ where
             let password_hash = md5_hash_password(username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
@@ -705,7 +705,7 @@ where
                     )
                     .await?;
 
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.username, self.pool_name, self.application_name)));
                 }
             };
             query_router.update_pool_settings(pool.settings.clone());
@@ -973,15 +973,7 @@ where
 
                         self.receive_server_message(server, &address, &pool).await?;
 
-                        match write_all_half(&mut self.write, &server.message_buffer).await {
-                            Ok(_) => (),
-                            Err(err) => {
-                                server.mark_bad();
-                                return Err(err);
-                            }
-                        };
-
-                        server.message_buffer.clear();
+                        server.send_buffered_messages_to_client(self).await?;
 
                         if !server.in_transaction() {
                             self.stats.transaction(self.process_id, server.server_id());
@@ -1037,15 +1029,7 @@ where
         loop {
             self.receive_server_message(server, &address, &pool).await?;
 
-            match write_all_half(&mut self.write, &server.message_buffer).await {
-                Ok(_) => (),
-                Err(err) => {
-                    server.mark_bad();
-                    return Err(err);
-                }
-            };
-
-            server.message_buffer.clear();
+            server.send_buffered_messages_to_client(self).await?;
 
             if !server.is_data_available() {
                 break;
@@ -1131,6 +1115,18 @@ where
                 }
             }
         }
+    }
+
+    pub fn get_username(&self) -> &String {
+        &self.username
+    }
+
+    pub fn get_pool_name(&self) -> &String {
+        &self.pool_name
+    }
+
+    pub fn get_application_name(&self) -> &String {
+        &self.application_name
     }
 }
 

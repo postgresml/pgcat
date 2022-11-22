@@ -10,6 +10,7 @@ use tokio::net::{
     TcpStream,
 };
 
+use crate::client::Client;
 use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
@@ -33,7 +34,7 @@ pub struct Server {
     write: OwnedWriteHalf,
 
     /// Our server response buffer. We buffer data before we give it to the client.
-    pub message_buffer: BytesMut,
+    message_buffer: BytesMut,
 
     /// Server information the server sent us over on startup.
     server_info: BytesMut,
@@ -531,6 +532,33 @@ impl Server {
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
+
+        Ok(())
+    }
+
+    /// This function takes a client and sends the buffered server messages to the client.
+    /// This will also clear the the server message buffer
+    pub async fn send_buffered_messages_to_client<S, T>(
+        &mut self,
+        client: &mut Client<S, T>,
+    ) -> Result<(), Error>
+    where
+        S: tokio::io::AsyncRead + std::marker::Unpin,
+        T: tokio::io::AsyncWrite + std::marker::Unpin,
+    {
+        if self.message_buffer.is_empty() {
+            return Err(Error::ClientError(format!("Attempting to send empty buffered server message to client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", client.get_username(), client.get_pool_name(), client.get_application_name())));
+        }
+
+        match write_all_half(&mut client.write, &self.message_buffer).await {
+            Ok(_) => {}
+            Err(_) => {
+                self.mark_bad(); // We have some weird state with the server and buffer here
+                return Err(Error::SocketError(format!("Error sending server message to client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", client.get_username(), client.get_pool_name(), client.get_application_name())));
+            }
+        };
+
+        self.message_buffer.clear();
 
         Ok(())
     }
