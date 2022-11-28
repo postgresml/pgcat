@@ -635,6 +635,12 @@ impl Server {
         // Pgbouncer behavior is to close the server connection but that can cause
         // server connection thrashing if clients repeatedly do this.
         // Instead, we ROLLBACK that transaction before putting the connection back in the pool
+
+        if !self.message_buffer.is_empty() {
+            warn!("Server message buffer was not cleated before cleanup");
+            self.message_buffer.clear();
+        }
+
         if self.in_transaction() {
             warn!("Server returned while still in transaction, rolling back transaction");
             self.query("ROLLBACK").await?;
