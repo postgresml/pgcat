@@ -175,6 +175,9 @@ pub struct General {
     #[serde(default = "General::default_ban_time")]
     pub ban_time: i64,
 
+    #[serde(default = "General::default_worker_threads")]
+    pub worker_threads: usize,
+
     #[serde(default)] // False
     pub autoreload: bool,
 
@@ -212,6 +215,10 @@ impl General {
     pub fn default_ban_time() -> i64 {
         60
     }
+
+    pub fn default_worker_threads() -> usize {
+        4
+    }
 }
 
 impl Default for General {
@@ -226,6 +233,7 @@ impl Default for General {
             healthcheck_timeout: Self::default_healthcheck_timeout(),
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
+            worker_threads: Self::default_worker_threads(),
             log_client_connections: false,
             log_client_disconnections: false,
             autoreload: false,
