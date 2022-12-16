@@ -20,6 +20,9 @@ prometheus_exporter_port = 9930
 # How long to wait before aborting a server connection (ms).
 connect_timeout = 5000
 
+# How long an idle connection with a server is left open (ms).
+idle_timeout = 30000
+
 # How much time to give the health check query to return with a result (ms).
 healthcheck_timeout = 1000
 
@@ -91,6 +94,9 @@ sharding_function = "pg_bigint_hash"
 
 # Automatically parse this from queries and route queries to the right shard!
 automatic_sharding_key = "id"
+
+# Idle timeout can be overwritten in the pool
+idle_timeout = 40000
 
 # Credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
