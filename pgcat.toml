@@ -44,6 +44,9 @@ log_client_disconnections = false
 # Reload config automatically if it changes.
 autoreload = false
 
+# Number of worker threads the Runtime will use (4 by default).
+worker_threads = 5
+
 # TLS
 # tls_certificate = "server.cert"
 # tls_private_key = "server.key"
