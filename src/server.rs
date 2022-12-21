@@ -510,9 +510,9 @@ impl Server {
                     break;
                 }
 
-                // CopyData: we are not buffering this one because there will be many more
-                // and we don't know how big this packet could be, best not to take a risk.
+                // CopyData
                 'd' => {
+                    // Don't flush yet, buffer until we reach limit
                     if self.buffer.len() >= 8196 {
                         break;
                     }
