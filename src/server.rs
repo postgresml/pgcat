@@ -635,16 +635,17 @@ impl Server {
     /// Perform any necessary cleanup before putting the server
     /// connection back in the pool
     pub async fn checkin_cleanup(&mut self) -> Result<(), Error> {
-        // Client disconnected with an open transaction on the server connection.
-        // Pgbouncer behavior is to close the server connection but that can cause
-        // server connection thrashing if clients repeatedly do this.
-        // Instead, we ROLLBACK that transaction before putting the connection back in the pool
 
+        // Incase the message buffer wasn't flushed properly
         if !self.message_buffer.is_empty() {
             warn!("Server message buffer was not cleated before cleanup");
             self.message_buffer.clear();
         }
 
+        // Client disconnected with an open transaction on the server connection.
+        // Pgbouncer behavior is to close the server connection but that can cause
+        // server connection thrashing if clients repeatedly do this.
+        // Instead, we ROLLBACK that transaction before putting the connection back in the pool
         if self.in_transaction() {
             warn!("Server returned while still in transaction, rolling back transaction");
             self.query("ROLLBACK").await?;
