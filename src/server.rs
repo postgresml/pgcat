@@ -515,7 +515,7 @@ impl Server {
                 // CopyData
                 'd' => {
                     // Don't flush yet, buffer until we reach limit
-                    if self.buffer.len() >= 8196 {
+                    if self.message_buffer.len() >= 8196 {
                         break;
                     }
                 }
