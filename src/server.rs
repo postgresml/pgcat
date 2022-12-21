@@ -635,7 +635,6 @@ impl Server {
     /// Perform any necessary cleanup before putting the server
     /// connection back in the pool
     pub async fn checkin_cleanup(&mut self) -> Result<(), Error> {
-
         // Incase the message buffer wasn't flushed properly
         if !self.message_buffer.is_empty() {
             warn!("Server message buffer was not cleated before cleanup");
