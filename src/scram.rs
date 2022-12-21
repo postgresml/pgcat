@@ -78,12 +78,12 @@ impl ScramSha256 {
         let server_message = Message::parse(message)?;
 
         if !server_message.nonce.starts_with(&self.nonce) {
-            return Err(Error::ProtocolSyncError);
+            return Err(Error::ProtocolSyncError(format!("SCRAM")));
         }
 
         let salt = match base64::decode(&server_message.salt) {
             Ok(salt) => salt,
-            Err(_) => return Err(Error::ProtocolSyncError),
+            Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
         };
 
         let salted_password = Self::hi(
@@ -163,7 +163,7 @@ impl ScramSha256 {
 
         let verifier = match base64::decode(&final_message.value) {
             Ok(verifier) => verifier,
-            Err(_) => return Err(Error::ProtocolSyncError),
+            Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
         };
 
         let mut hmac = match Hmac::<Sha256>::new_from_slice(&self.salted_password) {
@@ -225,14 +225,14 @@ impl Message {
             .collect::<Vec<String>>();
 
         if parts.len() != 3 {
-            return Err(Error::ProtocolSyncError);
+            return Err(Error::ProtocolSyncError(format!("SCRAM")));
         }
 
         let nonce = str::replace(&parts[0], "r=", "");
         let salt = str::replace(&parts[1], "s=", "");
         let iterations = match str::replace(&parts[2], "i=", "").parse::<u32>() {
             Ok(iterations) => iterations,
-            Err(_) => return Err(Error::ProtocolSyncError),
+            Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
         };
 
         Ok(Message {
@@ -252,7 +252,7 @@ impl FinalMessage {
     /// Parse the server final validation message.
     pub fn parse(message: &BytesMut) -> Result<FinalMessage, Error> {
         if !message.starts_with(b"v=") || message.len() < 4 {
-            return Err(Error::ProtocolSyncError);
+            return Err(Error::ProtocolSyncError(format!("SCRAM")));
         }
 
         Ok(FinalMessage {

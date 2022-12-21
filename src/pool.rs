@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, PoolMode, Role, User};
+use crate::config::{get_config, Address, General, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -82,6 +82,12 @@ pub struct PoolSettings {
 
     // Sharding key
     pub automatic_sharding_key: Option<String>,
+
+    // Health check timeout
+    pub healthcheck_timeout: u64,
+
+    // Health check delay
+    pub healthcheck_delay: u64,
 }
 
 impl Default for PoolSettings {
@@ -95,6 +101,8 @@ impl Default for PoolSettings {
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
+            healthcheck_delay: General::default_healthcheck_delay(),
+            healthcheck_timeout: General::default_healthcheck_timeout(),
         }
     }
 }
@@ -216,9 +224,15 @@ impl ConnectionPool {
                             None => config.general.connect_timeout,
                         };
 
+                        let idle_timeout = match pool_config.idle_timeout {
+                            Some(idle_timeout) => idle_timeout,
+                            None => config.general.idle_timeout,
+                        };
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
                             .connection_timeout(std::time::Duration::from_millis(connect_timeout))
+                            .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                             .test_on_check_out(false)
                             .build(manager)
                             .await
@@ -256,6 +270,8 @@ impl ConnectionPool {
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
                         automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
+                        healthcheck_delay: config.general.healthcheck_delay,
+                        healthcheck_timeout: config.general.healthcheck_timeout,
                     },
                 };
 
@@ -343,9 +359,6 @@ impl ConnectionPool {
         // Random load balancing
         candidates.shuffle(&mut thread_rng());
 
-        let healthcheck_timeout = get_config().general.healthcheck_timeout;
-        let healthcheck_delay = get_config().general.healthcheck_delay as u128;
-
         while !candidates.is_empty() {
             // Get the next candidate
             let address = match candidates.pop() {
@@ -380,8 +393,8 @@ impl ConnectionPool {
             let server = &mut *conn;
 
             // Will return error if timestamp is greater than current system time, which it should never be set to
-            let require_healthcheck =
-                server.last_activity().elapsed().unwrap().as_millis() > healthcheck_delay;
+            let require_healthcheck = server.last_activity().elapsed().unwrap().as_millis()
+                > self.settings.healthcheck_delay as u128;
 
             // Do not issue a health check unless it's been a little while
             // since we last checked the server is ok.
@@ -398,7 +411,7 @@ impl ConnectionPool {
             self.stats.server_tested(server.server_id());
 
             match tokio::time::timeout(
-                tokio::time::Duration::from_millis(healthcheck_timeout),
+                tokio::time::Duration::from_millis(self.settings.healthcheck_timeout),
                 server.query(";"), // Cheap query as it skips the query planner
             )
             .await

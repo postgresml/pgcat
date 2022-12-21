@@ -172,6 +172,15 @@ pub struct General {
     #[serde(default = "General::default_connect_timeout")]
     pub connect_timeout: u64,
 
+    #[serde(default = "General::default_idle_timeout")]
+    pub idle_timeout: u64,
+
+    #[serde(default)] // False
+    pub log_client_connections: bool,
+
+    #[serde(default)] // False
+    pub log_client_disconnections: bool,
+
     #[serde(default = "General::default_shutdown_timeout")]
     pub shutdown_timeout: u64,
 
@@ -183,6 +192,9 @@ pub struct General {
 
     #[serde(default = "General::default_ban_time")]
     pub ban_time: i64,
+
+    #[serde(default = "General::default_worker_threads")]
+    pub worker_threads: usize,
 
     #[serde(default)] // False
     pub autoreload: bool,
@@ -206,6 +218,10 @@ impl General {
         1000
     }
 
+    pub fn default_idle_timeout() -> u64 {
+        60000 // 10 minutes
+    }
+
     pub fn default_shutdown_timeout() -> u64 {
         60000
     }
@@ -221,6 +237,10 @@ impl General {
     pub fn default_ban_time() -> i64 {
         60
     }
+
+    pub fn default_worker_threads() -> usize {
+        4
+    }
 }
 
 impl Default for General {
@@ -232,10 +252,14 @@ impl Default for General {
             prometheus_exporter_port: 9930,
             statsd: None,
             connect_timeout: General::default_connect_timeout(),
+            idle_timeout: General::default_idle_timeout(),
             shutdown_timeout: Self::default_shutdown_timeout(),
             healthcheck_timeout: Self::default_healthcheck_timeout(),
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
+            worker_threads: Self::default_worker_threads(),
+            log_client_connections: false,
+            log_client_disconnections: false,
             autoreload: false,
             tls_certificate: None,
             tls_private_key: None,
@@ -280,6 +304,8 @@ pub struct Pool {
     pub primary_reads_enabled: bool,
 
     pub connect_timeout: Option<u64>,
+
+    pub idle_timeout: Option<u64>,
 
     pub sharding_function: ShardingFunction,
 
@@ -343,6 +369,7 @@ impl Default for Pool {
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
             connect_timeout: None,
+            idle_timeout: None,
         }
     }
 }
@@ -505,6 +532,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 config.general.connect_timeout.to_string(),
             ),
             (
+                "idle_timeout".to_string(),
+                config.general.idle_timeout.to_string(),
+            ),
+            (
                 "healthcheck_timeout".to_string(),
                 config.general.healthcheck_timeout.to_string(),
             ),
@@ -538,6 +569,15 @@ impl Config {
             info!("Statsd: Not Enabled");
         };
         info!("Connection timeout: {}ms", self.general.connect_timeout);
+        info!("Idle timeout: {}ms", self.general.idle_timeout);
+        info!(
+            "Log client connections: {}",
+            self.general.log_client_connections
+        );
+        info!(
+            "Log client disconnections: {}",
+            self.general.log_client_disconnections
+        );
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
         info!("Healthcheck delay: {}ms", self.general.healthcheck_delay);
         match self.general.tls_certificate.clone() {
@@ -583,6 +623,11 @@ impl Config {
                 "[pool: {}] Connection timeout: {}ms",
                 pool_name, connect_timeout
             );
+            let idle_timeout = match pool_config.idle_timeout {
+                Some(idle_timeout) => idle_timeout,
+                None => self.general.idle_timeout,
+            };
+            info!("[pool: {}] Idle timeout: {}ms", pool_name, idle_timeout);
             info!(
                 "[pool: {}] Sharding function: {}",
                 pool_name,
@@ -737,8 +782,10 @@ mod test {
         assert_eq!(get_config().path, "pgcat.toml".to_string());
 
         assert_eq!(get_config().general.ban_time, 60);
+        assert_eq!(get_config().general.idle_timeout, 30000);
         assert_eq!(get_config().pools.len(), 2);
         assert_eq!(get_config().pools["sharded_db"].shards.len(), 3);
+        assert_eq!(get_config().pools["sharded_db"].idle_timeout, Some(40000));
         assert_eq!(get_config().pools["simple_db"].shards.len(), 1);
         assert_eq!(get_config().pools["sharded_db"].users.len(), 2);
         assert_eq!(get_config().pools["simple_db"].users.len(), 1);

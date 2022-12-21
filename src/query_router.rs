@@ -775,6 +775,8 @@ mod test {
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: Some(String::from("id")),
+            healthcheck_delay: PoolSettings::default().healthcheck_delay,
+            healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);

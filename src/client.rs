@@ -98,6 +98,8 @@ pub async fn client_entrypoint(
     shutdown: Receiver<()>,
     drain: Sender<i32>,
     admin_only: bool,
+    tls_certificate: Option<String>,
+    log_client_connections: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -105,10 +107,8 @@ pub async fn client_entrypoint(
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
-            let config = get_config();
-
             // TLS settings are configured, will setup TLS now.
-            if config.general.tls_certificate != None {
+            if tls_certificate != None {
                 debug!("Accepting TLS request");
 
                 let mut yes = BytesMut::new();
@@ -118,7 +118,11 @@ pub async fn client_entrypoint(
                 // Negotiate TLS.
                 match startup_tls(stream, client_server_map, shutdown, admin_only).await {
                     Ok(mut client) => {
-                        info!("Client {:?} connected (TLS)", addr);
+                        if log_client_connections {
+                            info!("Client {:?} connected (TLS)", addr);
+                        } else {
+                            debug!("Client {:?} connected (TLS)", addr);
+                        }
 
                         if !client.is_admin() {
                             let _ = drain.send(1).await;
@@ -162,7 +166,11 @@ pub async fn client_entrypoint(
                         .await
                         {
                             Ok(mut client) => {
-                                info!("Client {:?} connected (plain)", addr);
+                                if log_client_connections {
+                                    info!("Client {:?} connected (plain)", addr);
+                                } else {
+                                    debug!("Client {:?} connected (plain)", addr);
+                                }
 
                                 if !client.is_admin() {
                                     let _ = drain.send(1).await;
@@ -181,7 +189,12 @@ pub async fn client_entrypoint(
                     }
 
                     // Client probably disconnected rejecting our plain text connection.
-                    _ => Err(Error::ProtocolSyncError),
+                    Ok((ClientConnectionType::Tls, _))
+                    | Ok((ClientConnectionType::CancelQuery, _)) => Err(Error::ProtocolSyncError(
+                        format!("Bad postgres client (plain)"),
+                    )),
+
+                    Err(err) => Err(err),
                 }
             }
         }
@@ -203,7 +216,11 @@ pub async fn client_entrypoint(
             .await
             {
                 Ok(mut client) => {
-                    info!("Client {:?} connected (plain)", addr);
+                    if log_client_connections {
+                        info!("Client {:?} connected (plain)", addr);
+                    } else {
+                        debug!("Client {:?} connected (plain)", addr);
+                    }
 
                     if !client.is_admin() {
                         let _ = drain.send(1).await;
@@ -285,7 +302,10 @@ where
 
         // Something else, probably something is wrong and it's not our fault,
         // e.g. badly implemented Postgres client.
-        _ => Err(Error::ProtocolSyncError),
+        _ => Err(Error::ProtocolSyncError(format!(
+            "Unexpected startup code: {}",
+            code
+        ))),
     }
 }
 
@@ -331,7 +351,11 @@ pub async fn startup_tls(
         }
 
         // Bad Postgres client.
-        _ => Err(Error::ProtocolSyncError),
+        Ok((ClientConnectionType::Tls, _)) | Ok((ClientConnectionType::CancelQuery, _)) => Err(
+            Error::ProtocolSyncError(format!("Bad postgres client (tls)")),
+        ),
+
+        Err(err) => Err(err),
     }
 }
 
@@ -355,19 +379,22 @@ where
         shutdown: Receiver<()>,
         admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
-        let config = get_config();
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
 
-        // These two parameters are mandatory by the protocol.
-        let pool_name = match parameters.get("database") {
-            Some(db) => db,
-            None => return Err(Error::ClientError),
-        };
-
+        // This parameter is mandatory by the protocol.
         let username = match parameters.get("user") {
             Some(user) => user,
-            None => return Err(Error::ClientError),
+            None => {
+                return Err(Error::ClientError(
+                    "Missing user parameter on client startup".to_string(),
+                ))
+            }
+        };
+
+        let pool_name = match parameters.get("database") {
+            Some(db) => db,
+            None => username,
         };
 
         let application_name = match parameters.get("application_name") {
@@ -405,29 +432,32 @@ where
 
         let code = match read.read_u8().await {
             Ok(p) => p,
-            Err(_) => return Err(Error::SocketError),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
         };
 
         // PasswordMessage
         if code as char != 'p' {
-            debug!("Expected p, got {}", code as char);
-            return Err(Error::ProtocolSyncError);
+            return Err(Error::ProtocolSyncError(format!(
+                "Expected p, got {}",
+                code as char
+            )));
         }
 
         let len = match read.read_i32().await {
             Ok(len) => len,
-            Err(_) => return Err(Error::SocketError),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
         };
 
         let mut password_response = vec![0u8; (len - 4) as usize];
 
         match read.read_exact(&mut password_response).await {
             Ok(_) => (),
-            Err(_) => return Err(Error::SocketError),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
         };
 
         // Authenticate admin user.
         let (transaction_mode, server_info) = if admin {
+            let config = get_config();
             // Compare server and client hashes.
             let password_hash = md5_hash_password(
                 &config.general.admin_username,
@@ -439,7 +469,7 @@ where
                 warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError);
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
             }
 
             (false, generate_server_info_for_admin())
@@ -458,8 +488,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
-                    return Err(Error::ClientError);
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
                 }
             };
 
@@ -470,7 +499,7 @@ where
                 warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError);
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
@@ -657,8 +686,7 @@ where
                     )
                     .await?;
 
-                    warn!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name);
-                    return Err(Error::ClientError);
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
                 }
             };
             query_router.update_pool_settings(pool.settings.clone());
