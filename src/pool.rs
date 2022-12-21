@@ -224,9 +224,15 @@ impl ConnectionPool {
                             None => config.general.connect_timeout,
                         };
 
+                        let idle_timeout = match pool_config.idle_timeout {
+                            Some(idle_timeout) => idle_timeout,
+                            None => config.general.idle_timeout,
+                        };
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
                             .connection_timeout(std::time::Duration::from_millis(connect_timeout))
+                            .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                             .test_on_check_out(false)
                             .build(manager)
                             .await
