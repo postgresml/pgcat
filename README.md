@@ -1,5 +1,3 @@
-![PgCat](./pgcat3.png)
-
 ##### PgCat: PostgreSQL at petabyte scale
 
 [![CircleCI](https://circleci.com/gh/levkk/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/levkk/pgcat/tree/main)
