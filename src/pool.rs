@@ -128,7 +128,7 @@ pub struct ConnectionPool {
     /// The server information (K messages) have to be passed to the
     /// clients on startup. We pre-connect to all shards and replicas
     /// on pool creation and save the K messages here.
-    server_info: BytesMut,
+    server_info: Arc<ArcSwap<Option<BytesMut>>>,
 
     /// Pool configuration.
     pub settings: PoolSettings,
@@ -254,7 +254,7 @@ impl ConnectionPool {
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     stats: get_reporter(),
-                    server_info: BytesMut::new(),
+                    server_info: Arc::new(ArcSwap::new(Arc::new(None))),
                     settings: PoolSettings {
                         pool_mode: pool_config.pool_mode,
                         // shards: pool_config.shards.clone(),
@@ -302,7 +302,20 @@ impl ConnectionPool {
     /// This also warms up the pool for clients that connect when
     /// the pooler starts up.
     async fn validate(&mut self) -> Result<(), Error> {
-        let mut server_infos = Vec::new();
+        // Reset the server_info cache.
+        self.server_info.store(Arc::new(None));
+
+        if let Err(err) = self.server_info().await {
+            error!("Unable to obtain server_info while validating: {:?}", err);
+        }
+
+        Ok(())
+    }
+
+    /// Requests a server info payload from each shard in the pool, returning the
+    /// first valid received. TODO: We are assuming all servers are identical which
+    /// is not true.
+    async fn fetch_server_info(&self) -> Result<BytesMut, Error> {
         for shard in 0..self.shards() {
             for server in 0..self.servers(shard) {
                 let connection = match self.databases[shard][server].get().await {
@@ -317,31 +330,16 @@ impl ConnectionPool {
                 let server = &*proxy;
                 let server_info = server.server_info();
 
-                if !server_infos.is_empty() {
-                    // Compare against the last server checked.
-                    if server_info != server_infos[server_infos.len() - 1] {
-                        warn!(
-                            "{:?} has different server configuration than the last server",
-                            proxy.address()
-                        );
-                    }
+                // If the server info params are empty, try a different server.
+                if server_info.is_empty() {
+                    continue;
                 }
 
-                server_infos.push(server_info);
+                return Ok(server_info);
             }
         }
 
-        // TODO: compare server information to make sure
-        // all shards are running identical configurations.
-        if server_infos.is_empty() {
-            return Err(Error::AllServersDown);
-        }
-
-        // We're assuming all servers are identical.
-        // TODO: not true.
-        self.server_info = server_infos[0].clone();
-
-        Ok(())
+        Err(Error::AllServersDown)
     }
 
     /// Get a connection from the pool.
@@ -562,8 +560,16 @@ impl ConnectionPool {
         &self.addresses[shard][server]
     }
 
-    pub fn server_info(&self) -> BytesMut {
-        self.server_info.clone()
+    pub async fn server_info(&self) -> Result<BytesMut, Error> {
+        if let Some(ref server_info) = self.server_info.load().as_ref() {
+            return Ok(server_info.clone());
+        }
+
+        // Fetch the current server params and cache it for later use.
+        let server_info = self.fetch_server_info().await?;
+        self.server_info.store(Arc::new(Some(server_info.clone())));
+
+        Ok(server_info)
     }
 }
 

@@ -504,7 +504,7 @@ where
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
 
-            (transaction_mode, pool.server_info())
+            (transaction_mode, pool.server_info().await?)
         };
 
         debug!("Password authentication successful");
