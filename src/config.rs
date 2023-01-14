@@ -264,7 +264,6 @@ pub enum PoolMode {
     #[serde(alias = "session", alias = "Session")]
     Session,
 }
-
 impl ToString for PoolMode {
     fn to_string(&self) -> String {
         match *self {
@@ -274,10 +273,30 @@ impl ToString for PoolMode {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub enum LoadBalancingMode {
+    #[serde(alias = "random", alias = "Random")]
+    Random,
+
+    #[serde(alias = "loq", alias = "LOQ", alias = "least_outstanding_queries")]
+    LeastOutstandingQueries,
+}
+impl ToString for LoadBalancingMode {
+    fn to_string(&self) -> String {
+        match *self {
+            LoadBalancingMode::Random => "random".to_string(),
+            LoadBalancingMode::LeastOutstandingQueries => "least_outstanding_queries".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Pool {
     #[serde(default = "Pool::default_pool_mode")]
     pub pool_mode: PoolMode,
+
+    #[serde(default = "Pool::default_load_balancing_mode")]
+    pub load_balancing_mode: LoadBalancingMode,
 
     pub default_role: String,
 
@@ -303,6 +322,10 @@ pub struct Pool {
 impl Pool {
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
+    }
+
+    pub fn default_load_balancing_mode() -> LoadBalancingMode {
+        LoadBalancingMode::Random
     }
 
     pub fn default_automatic_sharding_key() -> Option<String> {
@@ -345,6 +368,7 @@ impl Default for Pool {
     fn default() -> Pool {
         Pool {
             pool_mode: Self::default_pool_mode(),
+            load_balancing_mode: Self::default_load_balancing_mode(),
             shards: BTreeMap::from([(String::from("1"), Shard::default())]),
             users: BTreeMap::default(),
             default_role: String::from("any"),
