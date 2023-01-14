@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, General, PoolMode, Role, User, LoadBalancingMode};
+use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -366,9 +366,10 @@ impl ConnectionPool {
         // queries
         candidates.shuffle(&mut thread_rng());
         if self.settings.load_balancing_mode == LoadBalancingMode::LeastOutstandingQueries {
-            candidates.sort_by(
-                |a, b| {
-                self.busy_connection_count(b).partial_cmp(&self.busy_connection_count(a)).unwrap()
+            candidates.sort_by(|a, b| {
+                self.busy_connection_count(b)
+                    .partial_cmp(&self.busy_connection_count(a))
+                    .unwrap()
             });
         }
 
@@ -588,11 +589,10 @@ impl ConnectionPool {
             // Unlikely but avoids an overflow panic if this ever happens
             return 0;
         }
-        let busy =  provisioned - idle;
+        let busy = provisioned - idle;
         debug!("{:?} has {:?} busy connections", address, busy);
         return busy;
     }
-
 }
 
 /// Wrapper for the bb8 connection pool.
