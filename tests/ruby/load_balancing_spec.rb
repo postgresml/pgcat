@@ -89,7 +89,7 @@ describe "Least Outstanding Queries Load Balancing" do
 
   context "under heterogeneous load" do
     it "balances query volume between all instances based on how busy they are" do
-      slow_query_count = 1
+      slow_query_count = 2
       threads = Array.new(slow_query_count) do
         Thread.new do
           conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
