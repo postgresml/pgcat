@@ -503,7 +503,8 @@ where
     match stream
         .read_exact(
             &mut bytes[mem::size_of::<u8>() + mem::size_of::<i32>()
-                ..mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize - mem::size_of::<i32>()],
+                ..mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize
+                    - mem::size_of::<i32>()],
         )
         .await
     {
