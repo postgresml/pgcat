@@ -496,6 +496,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                         pool.pool_mode.to_string(),
                     ),
                     (
+                        format!("pools.{}.load_balancing_mode", pool_name),
+                        pool.load_balancing_mode.to_string(),
+                    ),
+                    (
                         format!("pools.{}.primary_reads_enabled", pool_name),
                         pool.primary_reads_enabled.to_string(),
                     ),
@@ -617,6 +621,10 @@ impl Config {
             info!(
                 "[pool: {}] Pool mode: {:?}",
                 pool_name, pool_config.pool_mode
+            );
+            info!(
+                "[pool: {}] Load Balancing mode: {:?}",
+                pool_name, pool_config.load_balancing_mode
             );
             let connect_timeout = match pool_config.connect_timeout {
                 Some(connect_timeout) => connect_timeout,
