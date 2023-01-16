@@ -285,7 +285,9 @@ impl ToString for LoadBalancingMode {
     fn to_string(&self) -> String {
         match *self {
             LoadBalancingMode::Random => "random".to_string(),
-            LoadBalancingMode::LeastOutstandingConnections => "least_outstanding_connections".to_string(),
+            LoadBalancingMode::LeastOutstandingConnections => {
+                "least_outstanding_connections".to_string()
+            }
         }
     }
 }
