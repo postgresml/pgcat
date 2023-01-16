@@ -458,7 +458,7 @@ where
     }
 }
 
-// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
+/// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
 pub async fn write_all_half<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
