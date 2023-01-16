@@ -458,7 +458,7 @@ where
     }
 }
 
-/// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
+// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
 pub async fn write_all_half<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
@@ -493,9 +493,20 @@ where
         }
     };
 
-    let mut buf = vec![0u8; len as usize - 4];
+    let mut bytes = BytesMut::with_capacity(len as usize + 1);
 
-    match stream.read_exact(&mut buf).await {
+    bytes.put_u8(code);
+    bytes.put_i32(len);
+
+    bytes.resize(bytes.len() + len as usize - mem::size_of::<i32>(), b'0');
+
+    match stream
+        .read_exact(
+            &mut bytes[mem::size_of::<u8>() + mem::size_of::<i32>()
+                ..mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize - mem::size_of::<i32>()],
+        )
+        .await
+    {
         Ok(_) => (),
         Err(_) => {
             return Err(Error::SocketError(format!(
@@ -504,12 +515,6 @@ where
             )))
         }
     };
-
-    let mut bytes = BytesMut::with_capacity(len as usize + 1);
-
-    bytes.put_u8(code);
-    bytes.put_i32(len);
-    bytes.put_slice(&buf);
 
     Ok(bytes)
 }
