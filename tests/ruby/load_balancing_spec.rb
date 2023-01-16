@@ -60,7 +60,7 @@ describe "Random Load Balancing" do
 end
 
 describe "Least Outstanding Queries Load Balancing" do
-  let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 1, "transaction", "loq") }
+  let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 1, "transaction", "loc") }
   after do
     processes.all_databases.map(&:reset)
     processes.pgcat.shutdown

@@ -62,7 +62,7 @@ pub struct PoolSettings {
     /// Transaction or Session.
     pub pool_mode: PoolMode,
 
-    /// Random or LeastOutstandingQueries.
+    /// Random or LeastOutstandingConnections.
     pub load_balancing_mode: LoadBalancingMode,
 
     // Number of shards.
@@ -365,7 +365,7 @@ impl ConnectionPool {
         // in cases where all candidates have more or less the same number of outstanding
         // queries
         candidates.shuffle(&mut thread_rng());
-        if self.settings.load_balancing_mode == LoadBalancingMode::LeastOutstandingQueries {
+        if self.settings.load_balancing_mode == LoadBalancingMode::LeastOutstandingConnections {
             candidates.sort_by(|a, b| {
                 self.busy_connection_count(b)
                     .partial_cmp(&self.busy_connection_count(a))

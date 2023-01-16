@@ -278,14 +278,14 @@ pub enum LoadBalancingMode {
     #[serde(alias = "random", alias = "Random")]
     Random,
 
-    #[serde(alias = "loq", alias = "LOQ", alias = "least_outstanding_queries")]
-    LeastOutstandingQueries,
+    #[serde(alias = "loc", alias = "LOC", alias = "least_outstanding_connections")]
+    LeastOutstandingConnections,
 }
 impl ToString for LoadBalancingMode {
     fn to_string(&self) -> String {
         match *self {
             LoadBalancingMode::Random => "random".to_string(),
-            LoadBalancingMode::LeastOutstandingQueries => "least_outstanding_queries".to_string(),
+            LoadBalancingMode::LeastOutstandingConnections => "least_outstanding_connections".to_string(),
         }
     }
 }
