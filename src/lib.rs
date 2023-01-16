@@ -1,8 +1,11 @@
+pub mod admin;
+pub mod client;
 pub mod config;
 pub mod constants;
 pub mod errors;
 pub mod messages;
 pub mod pool;
+pub mod query_router;
 pub mod scram;
 pub mod server;
 pub mod sharding;

@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 
 use crate::errors::Error;
 use std::collections::HashMap;
+use std::io::{BufRead, Cursor};
 use std::mem;
 
 /// Postgres data type mappings
@@ -258,7 +259,7 @@ where
     res.put_i32(len);
     res.put_slice(&set_complete[..]);
 
-    write_all_half(stream, res).await?;
+    write_all_half(stream, &res).await?;
     ready_for_query(stream).await
 }
 
@@ -308,7 +309,7 @@ where
     res.put_i32(error.len() as i32 + 4);
     res.put(error);
 
-    write_all_half(stream, res).await
+    write_all_half(stream, &res).await
 }
 
 pub async fn wrong_password<S>(stream: &mut S, user: &str) -> Result<(), Error>
@@ -370,7 +371,7 @@ where
     // CommandComplete
     res.put(command_complete("SELECT 1"));
 
-    write_all_half(stream, res).await?;
+    write_all_half(stream, &res).await?;
     ready_for_query(stream).await
 }
 
@@ -459,21 +460,26 @@ where
 }
 
 /// Write all the data in the buffer to the TcpStream, write owned half (see mpsc).
-pub async fn write_all_half<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
+pub async fn write_all_half<S>(stream: &mut S, buf: &BytesMut) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    match stream.write_all(&buf).await {
+    match stream.write_all(buf).await {
         Ok(_) => Ok(()),
         Err(_) => return Err(Error::SocketError(format!("Error writing to socket"))),
     }
 }
 
 /// Read a complete message from the socket.
-pub async fn read_message<S>(stream: &mut S) -> Result<BytesMut, Error>
+pub async fn read_message_into_buffer<S>(
+    stream: &mut S,
+    buffer: &mut BytesMut,
+) -> Result<usize, Error>
 where
     S: tokio::io::AsyncRead + std::marker::Unpin,
 {
+    let starting_point = buffer.len();
+
     let code = match stream.read_u8().await {
         Ok(code) => code,
         Err(_) => {
@@ -493,9 +499,19 @@ where
         }
     };
 
-    let mut buf = vec![0u8; len as usize - 4];
+    buffer.put_u8(code);
+    buffer.put_i32(len);
 
-    match stream.read_exact(&mut buf).await {
+    buffer.resize(buffer.len() + len as usize - mem::size_of::<i32>(), b'0');
+
+    match stream
+        .read_exact(
+            &mut buffer[starting_point + mem::size_of::<u8>() + mem::size_of::<i32>()
+                ..starting_point + mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize
+                    - mem::size_of::<i32>()],
+        )
+        .await
+    {
         Ok(_) => (),
         Err(_) => {
             return Err(Error::SocketError(format!(
@@ -505,13 +521,7 @@ where
         }
     };
 
-    let mut bytes = BytesMut::with_capacity(len as usize + 1);
-
-    bytes.put_u8(code);
-    bytes.put_i32(len);
-    bytes.put_slice(&buf);
-
-    Ok(bytes)
+    Ok(starting_point)
 }
 
 pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {
@@ -529,4 +539,21 @@ pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {
     server_info.put_bytes(0, 1);
 
     server_info
+}
+
+pub trait BytesMutReader {
+    fn read_string(&mut self) -> Result<String, Error>;
+}
+
+impl BytesMutReader for Cursor<&BytesMut> {
+    /// Should only be used when reading strings from the message protocol.
+    ///
+    /// Can be used to read multiple strings from the same message which are separated by the null byte
+    fn read_string(&mut self) -> Result<String, Error> {
+        let mut buf = vec![];
+        match self.read_until(b'\0', &mut buf) {
+            Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string()),
+            Err(err) => return Err(Error::ParseBytesError(err.to_string())),
+        }
+    }
 }

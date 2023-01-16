@@ -2,7 +2,7 @@
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
@@ -10,6 +10,7 @@ use tokio::net::{
     TcpStream,
 };
 
+use crate::client::Client;
 use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
@@ -33,7 +34,7 @@ pub struct Server {
     write: OwnedWriteHalf,
 
     /// Our server response buffer. We buffer data before we give it to the client.
-    buffer: BytesMut,
+    message_buffer: BytesMut,
 
     /// Server information the server sent us over on startup.
     server_info: BytesMut,
@@ -318,12 +319,12 @@ impl Server {
                     let mut server = Server {
                         address: address.clone(),
                         read: BufReader::new(read),
-                        write,
-                        buffer: BytesMut::with_capacity(8196),
-                        server_info,
-                        server_id,
-                        process_id,
-                        secret_key,
+                        write: write,
+                        message_buffer: BytesMut::with_capacity(8196),
+                        server_info: server_info,
+                        server_id: server_id,
+                        process_id: process_id,
+                        secret_key: secret_key,
                         in_transaction: false,
                         data_available: false,
                         bad: false,
@@ -381,7 +382,7 @@ impl Server {
     }
 
     /// Send messages to the server from the client.
-    pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
+    pub async fn send(&mut self, messages: &BytesMut) -> Result<(), Error> {
         self.stats.data_sent(messages.len(), self.server_id);
 
         match write_all_half(&mut self.write, messages).await {
@@ -401,29 +402,30 @@ impl Server {
     /// Receive data from the server in response to a client request.
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
-    pub async fn recv(&mut self) -> Result<BytesMut, Error> {
+    pub async fn recv(&mut self) -> Result<(), Error> {
         loop {
-            let mut message = match read_message(&mut self.read).await {
-                Ok(message) => message,
-                Err(err) => {
-                    error!("Terminating server because of: {:?}", err);
-                    self.bad = true;
-                    return Err(err);
-                }
-            };
+            let message_start =
+                match read_message_into_buffer(&mut self.read, &mut self.message_buffer).await {
+                    Ok(message) => message,
+                    Err(err) => {
+                        error!("Terminating server because of: {:?}", err);
+                        self.bad = true;
+                        return Err(err);
+                    }
+                };
 
-            // Buffer the message we'll forward to the client later.
-            self.buffer.put(&message[..]);
+            let mut message_cursor = Cursor::new(&self.message_buffer);
+            message_cursor.advance(message_start);
 
-            let code = message.get_u8() as char;
-            let _len = message.get_i32();
+            let code = message_cursor.get_u8() as char;
+            let _len = message_cursor.get_i32();
 
             trace!("Message: {}", code);
 
             match code {
                 // ReadyForQuery
                 'Z' => {
-                    let transaction_state = message.get_u8() as char;
+                    let transaction_state = message_cursor.get_u8() as char;
 
                     match transaction_state {
                         // In transaction.
@@ -460,7 +462,7 @@ impl Server {
                 // CommandComplete
                 'C' => {
                     let mut command_tag = String::new();
-                    match message.reader().read_to_string(&mut command_tag) {
+                    match message_cursor.reader().read_to_string(&mut command_tag) {
                         Ok(_) => {
                             // Non-exhaustive list of commands that are likely to change session variables/resources
                             // which can leak between clients. This is a best effort to block bad clients
@@ -496,7 +498,7 @@ impl Server {
                     self.data_available = true;
 
                     // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
-                    if self.buffer.len() >= 8196 {
+                    if self.message_buffer.len() >= 8196 {
                         break;
                     }
                 }
@@ -513,7 +515,7 @@ impl Server {
                 // CopyData
                 'd' => {
                     // Don't flush yet, buffer until we reach limit
-                    if self.buffer.len() >= 8196 {
+                    if self.message_buffer.len() >= 8196 {
                         break;
                     }
                 }
@@ -528,19 +530,41 @@ impl Server {
             };
         }
 
-        let bytes = self.buffer.clone();
-
         // Keep track of how much data we got from the server for stats.
-        self.stats.data_received(bytes.len(), self.server_id);
-
-        // Clear the buffer for next query.
-        self.buffer.clear();
+        self.stats
+            .data_received(self.message_buffer.len(), self.server_id);
 
         // Successfully received data from server
         self.last_activity = SystemTime::now();
 
-        // Pass the data back to the client.
-        Ok(bytes)
+        Ok(())
+    }
+
+    /// This function takes a client and sends the buffered server messages to the client.
+    /// This will also clear the the server message buffer
+    pub async fn send_buffered_messages_to_client<S, T>(
+        &mut self,
+        client: &mut Client<S, T>,
+    ) -> Result<(), Error>
+    where
+        S: tokio::io::AsyncRead + std::marker::Unpin,
+        T: tokio::io::AsyncWrite + std::marker::Unpin,
+    {
+        if self.message_buffer.is_empty() {
+            return Err(Error::ClientError(format!("Attempting to send empty buffered server message to client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", client.get_username(), client.get_pool_name(), client.get_application_name())));
+        }
+
+        match write_all_half(&mut client.write, &self.message_buffer).await {
+            Ok(_) => {}
+            Err(_) => {
+                self.mark_bad(); // We have some weird state with the server and buffer here
+                return Err(Error::SocketError(format!("Error sending server message to client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", client.get_username(), client.get_pool_name(), client.get_application_name())));
+            }
+        };
+
+        self.message_buffer.clear();
+
+        Ok(())
     }
 
     /// If the server is still inside a transaction.
@@ -593,7 +617,7 @@ impl Server {
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
         let query = simple_query(query);
 
-        self.send(query).await?;
+        self.send(&query).await?;
 
         loop {
             let _ = self.recv().await?;
@@ -603,12 +627,20 @@ impl Server {
             }
         }
 
+        self.message_buffer.clear();
+
         Ok(())
     }
 
     /// Perform any necessary cleanup before putting the server
     /// connection back in the pool
     pub async fn checkin_cleanup(&mut self) -> Result<(), Error> {
+        // Incase the message buffer wasn't flushed properly
+        if !self.message_buffer.is_empty() {
+            warn!("Server message buffer was not cleated before cleanup");
+            self.message_buffer.clear();
+        }
+
         // Client disconnected with an open transaction on the server connection.
         // Pgbouncer behavior is to close the server connection but that can cause
         // server connection thrashing if clients repeatedly do this.
