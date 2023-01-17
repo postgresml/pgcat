@@ -581,7 +581,7 @@ impl ConnectionPool {
     }
 
     fn busy_connection_count(&self, address: &Address) -> u32 {
-        let state = self.databases[address.shard][address.address_index].state();
+        let state = self.pool_state(address.shard, address.address_index);
         let idle = state.idle_connections;
         let provisioned = state.connections;
 
