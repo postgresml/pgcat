@@ -264,7 +264,6 @@ pub enum PoolMode {
     #[serde(alias = "session", alias = "Session")]
     Session,
 }
-
 impl ToString for PoolMode {
     fn to_string(&self) -> String {
         match *self {
@@ -274,10 +273,32 @@ impl ToString for PoolMode {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub enum LoadBalancingMode {
+    #[serde(alias = "random", alias = "Random")]
+    Random,
+
+    #[serde(alias = "loc", alias = "LOC", alias = "least_outstanding_connections")]
+    LeastOutstandingConnections,
+}
+impl ToString for LoadBalancingMode {
+    fn to_string(&self) -> String {
+        match *self {
+            LoadBalancingMode::Random => "random".to_string(),
+            LoadBalancingMode::LeastOutstandingConnections => {
+                "least_outstanding_connections".to_string()
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Pool {
     #[serde(default = "Pool::default_pool_mode")]
     pub pool_mode: PoolMode,
+
+    #[serde(default = "Pool::default_load_balancing_mode")]
+    pub load_balancing_mode: LoadBalancingMode,
 
     pub default_role: String,
 
@@ -303,6 +324,10 @@ pub struct Pool {
 impl Pool {
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
+    }
+
+    pub fn default_load_balancing_mode() -> LoadBalancingMode {
+        LoadBalancingMode::Random
     }
 
     pub fn default_automatic_sharding_key() -> Option<String> {
@@ -345,6 +370,7 @@ impl Default for Pool {
     fn default() -> Pool {
         Pool {
             pool_mode: Self::default_pool_mode(),
+            load_balancing_mode: Self::default_load_balancing_mode(),
             shards: BTreeMap::from([(String::from("1"), Shard::default())]),
             users: BTreeMap::default(),
             default_role: String::from("any"),
@@ -472,6 +498,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                         pool.pool_mode.to_string(),
                     ),
                     (
+                        format!("pools.{}.load_balancing_mode", pool_name),
+                        pool.load_balancing_mode.to_string(),
+                    ),
+                    (
                         format!("pools.{}.primary_reads_enabled", pool_name),
                         pool.primary_reads_enabled.to_string(),
                     ),
@@ -593,6 +623,10 @@ impl Config {
             info!(
                 "[pool: {}] Pool mode: {:?}",
                 pool_name, pool_config.pool_mode
+            );
+            info!(
+                "[pool: {}] Load Balancing mode: {:?}",
+                pool_name, pool_config.load_balancing_mode
             );
             let connect_timeout = match pool_config.connect_timeout {
                 Some(connect_timeout) => connect_timeout,

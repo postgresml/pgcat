@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::config::{get_config, Address, General, PoolMode, Role, User};
+use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::server::Server;
@@ -62,6 +62,9 @@ pub struct PoolSettings {
     /// Transaction or Session.
     pub pool_mode: PoolMode,
 
+    /// Random or LeastOutstandingConnections.
+    pub load_balancing_mode: LoadBalancingMode,
+
     // Number of shards.
     pub shards: usize,
 
@@ -94,6 +97,7 @@ impl Default for PoolSettings {
     fn default() -> PoolSettings {
         PoolSettings {
             pool_mode: PoolMode::Transaction,
+            load_balancing_mode: LoadBalancingMode::Random,
             shards: 1,
             user: User::default(),
             default_role: None,
@@ -257,6 +261,7 @@ impl ConnectionPool {
                     server_info: BytesMut::new(),
                     settings: PoolSettings {
                         pool_mode: pool_config.pool_mode,
+                        load_balancing_mode: pool_config.load_balancing_mode,
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
                         user: user.clone(),
@@ -356,8 +361,17 @@ impl ConnectionPool {
             .filter(|address| address.role == role)
             .collect();
 
-        // Random load balancing
+        // We shuffle even if least_outstanding_queries is used to avoid imbalance
+        // in cases where all candidates have more or less the same number of outstanding
+        // queries
         candidates.shuffle(&mut thread_rng());
+        if self.settings.load_balancing_mode == LoadBalancingMode::LeastOutstandingConnections {
+            candidates.sort_by(|a, b| {
+                self.busy_connection_count(b)
+                    .partial_cmp(&self.busy_connection_count(a))
+                    .unwrap()
+            });
+        }
 
         while !candidates.is_empty() {
             // Get the next candidate
@@ -564,6 +578,20 @@ impl ConnectionPool {
 
     pub fn server_info(&self) -> BytesMut {
         self.server_info.clone()
+    }
+
+    fn busy_connection_count(&self, address: &Address) -> u32 {
+        let state = self.pool_state(address.shard, address.address_index);
+        let idle = state.idle_connections;
+        let provisioned = state.connections;
+
+        if idle > provisioned {
+            // Unlikely but avoids an overflow panic if this ever happens
+            return 0;
+        }
+        let busy = provisioned - idle;
+        debug!("{:?} has {:?} busy connections", address, busy);
+        return busy;
     }
 }
 
