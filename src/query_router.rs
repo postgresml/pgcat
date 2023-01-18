@@ -260,7 +260,7 @@ impl QueryRouter {
     }
 
     /// Try to infer which server to connect to based on the contents of the query.
-    pub fn infer(&mut self, mut message_buffer: &BytesMut) -> bool {
+    pub fn infer(&mut self, message_buffer: &BytesMut) -> bool {
         debug!("Inferring role");
 
         let mut message_cursor = Cursor::new(message_buffer);
