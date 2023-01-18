@@ -1,5 +1,3 @@
-![PgCat](./pgcat3.png)
-
 ##### PgCat: PostgreSQL at petabyte scale
 
 [![CircleCI](https://circleci.com/gh/levkk/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/levkk/pgcat/tree/main)
@@ -216,7 +214,7 @@ We use the `PARTITION BY HASH` hashing function, the same as used by Postgres fo
 To route queries to a particular shard, we use this custom SQL syntax:
 
 ```sql
--- To talk to a shard explicitely
+-- To talk to a shard explicitly
 SET SHARD TO '1';
 
 -- To let the pooler choose based on a value

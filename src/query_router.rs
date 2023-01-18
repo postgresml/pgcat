@@ -768,6 +768,7 @@ mod test {
 
         let pool_settings = PoolSettings {
             pool_mode: PoolMode::Transaction,
+            load_balancing_mode: crate::config::LoadBalancingMode::Random,
             shards: 2,
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),

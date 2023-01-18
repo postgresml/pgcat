@@ -89,7 +89,7 @@ kill -SIGHUP $(pgrep pgcat) # Reload config again
 #
 cd tests/ruby
 sudo gem install bundler
-bundle install
+sudo bundle install
 bundle exec ruby tests.rb || exit 1
 bundle exec rspec *_spec.rb || exit 1
 cd ../..
