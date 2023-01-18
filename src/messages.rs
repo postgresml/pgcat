@@ -544,7 +544,6 @@ pub trait BytesMutReader {
 
 impl BytesMutReader for Cursor<&BytesMut> {
     /// Should only be used when reading strings from the message protocol.
-    ///
     /// Can be used to read multiple strings from the same message which are separated by the null byte
     fn read_string(&mut self) -> Result<String, Error> {
         let mut buf = vec![];
