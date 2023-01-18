@@ -534,6 +534,7 @@ impl ConnectionPool {
         }
     }
 
+    /// Determines if we can try to unban this server
     pub async fn can_unban(&self, address: &Address) -> bool {
         // If somehow primary ends up being banned we should return true here
         if address.role == Role::Primary {
@@ -558,14 +559,14 @@ impl ConnectionPool {
             write_guard[address.shard].clear();
             drop(write_guard);
 
-            return false;
+            return true;
         }
 
         // Check if ban time is expired
         let read_guard = self.banlist.read();
         let banned_timestamp = match read_guard[address.shard].get(address) {
             Some(timestamp) => timestamp.clone(),
-            None => return false,
+            None => return true,
         };
         drop(read_guard);
 
@@ -577,11 +578,10 @@ impl ConnectionPool {
             write_guard[address.shard].remove(address);
             drop(write_guard);
 
-            false
+            true
         } else {
             warn!("{:?} is banned", address);
-
-            true
+            false
         }
     }
 
