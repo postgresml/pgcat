@@ -542,7 +542,7 @@ impl ConnectionPool {
         }
     }
 
-    /// Determines if we can try to unban this server
+    /// Determines trying to unban this server was successful
     pub async fn try_unban(&self, address: &Address) -> bool {
         // If somehow primary ends up being banned we should return true here
         if address.role == Role::Primary {
