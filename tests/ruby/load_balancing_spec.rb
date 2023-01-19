@@ -93,7 +93,7 @@ describe "Least Outstanding Queries Load Balancing" do
       threads = Array.new(slow_query_count) do
         Thread.new do
           conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
-          conn.async_exec("SELECT pg_sleep(2)")
+          conn.async_exec("BEGIN")
         end
       end
 
