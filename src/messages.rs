@@ -136,9 +136,10 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
 
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
-        Err(_) => {
+        Err(err) => {
             return Err(Error::SocketError(format!(
-                "Error writing startup to server socket"
+                "Error writing startup to server socket - Error: {:?}",
+                err
             )))
         }
     }
@@ -454,7 +455,12 @@ where
 {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
-        Err(_) => return Err(Error::SocketError(format!("Error writing to socket"))),
+        Err(err) => {
+            return Err(Error::SocketError(format!(
+                "Error writing to socket- Error: {:?}",
+                err
+            )))
+        }
     }
 }
 
@@ -465,7 +471,12 @@ where
 {
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
-        Err(_) => return Err(Error::SocketError(format!("Error writing to socket"))),
+        Err(err) => {
+            return Err(Error::SocketError(format!(
+                "Error writing to socket - Error: {:?}",
+                err
+            )))
+        }
     }
 }
 
@@ -476,19 +487,20 @@ where
 {
     let code = match stream.read_u8().await {
         Ok(code) => code,
-        Err(_) => {
+        Err(err) => {
             return Err(Error::SocketError(format!(
-                "Error reading message code from socket"
+                "Error reading message code from socket - Error {:?}",
+                err
             )))
         }
     };
 
     let len = match stream.read_i32().await {
         Ok(len) => len,
-        Err(_) => {
+        Err(err) => {
             return Err(Error::SocketError(format!(
-                "Error reading message len from socket, code: {:?}",
-                code
+                "Error reading message len from socket - Code: {:?}, Error: {:?}",
+                code, err
             )))
         }
     };
@@ -509,10 +521,10 @@ where
         .await
     {
         Ok(_) => (),
-        Err(_) => {
+        Err(err) => {
             return Err(Error::SocketError(format!(
-                "Error reading message from socket, code: {:?}",
-                code
+                "Error reading message from socket - Code: {:?}, Error: {:?}",
+                code, err
             )))
         }
     };
