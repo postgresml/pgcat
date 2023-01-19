@@ -580,7 +580,7 @@ impl ConnectionPool {
 
             true
         } else {
-            warn!("{:?} is banned", address);
+            debug!("{:?} is banned", address);
             false
         }
     }
