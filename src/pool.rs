@@ -388,7 +388,7 @@ impl ConnectionPool {
             let mut force_healthcheck = false;
 
             if self.is_banned(address) {
-                if self.can_unban(&address).await {
+                if self.try_unban(&address).await {
                     force_healthcheck = true;
                 } else {
                     debug!("Address {:?} is banned", address);
@@ -509,6 +509,11 @@ impl ConnectionPool {
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, client_id: i32) {
+        // Primary can never be banned
+        if address.role == Role::Primary {
+            return;
+        }
+
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
         error!("Banning {:?}", address);
@@ -530,18 +535,21 @@ impl ConnectionPool {
 
         match guard[address.shard].get(address) {
             Some(_) => true,
-            None => false,
+            None => {
+                debug!("{:?} is ok", address);
+                false
+            }
         }
     }
 
     /// Determines if we can try to unban this server
-    pub async fn can_unban(&self, address: &Address) -> bool {
+    pub async fn try_unban(&self, address: &Address) -> bool {
         // If somehow primary ends up being banned we should return true here
         if address.role == Role::Primary {
             return true;
         }
 
-        // Check if all instances are banned, in that case unban everything
+        // Check if all replicas are banned, in that case unban all of them
         let replicas_available = self.addresses[address.shard]
             .iter()
             .filter(|addr| addr.role == Role::Replica)
@@ -557,22 +565,22 @@ impl ConnectionPool {
             let mut write_guard = self.banlist.write();
             warn!("Unbanning all replicas.");
             write_guard[address.shard].clear();
-            drop(write_guard);
 
             return true;
         }
 
         // Check if ban time is expired
         let read_guard = self.banlist.read();
-        let banned_timestamp = match read_guard[address.shard].get(address) {
-            Some(timestamp) => timestamp.clone(),
+        let exceeded_ban_time = match read_guard[address.shard].get(address) {
+            Some(timestamp) => {
+                let now = chrono::offset::Utc::now().naive_utc();
+                now.timestamp() - timestamp.timestamp() > self.settings.ban_time
+            }
             None => return true,
         };
         drop(read_guard);
 
-        let now = chrono::offset::Utc::now().naive_utc();
-
-        if now.timestamp() - banned_timestamp.timestamp() > self.settings.ban_time {
+        if exceeded_ban_time {
             warn!("Unbanning {:?}", address);
             let mut write_guard = self.banlist.write();
             write_guard[address.shard].remove(address);
