@@ -457,7 +457,7 @@ where
         Ok(_) => Ok(()),
         Err(err) => {
             return Err(Error::SocketError(format!(
-                "Error writing to socket- Error: {:?}",
+                "Error writing to socket - Error: {:?}",
                 err
             )))
         }
