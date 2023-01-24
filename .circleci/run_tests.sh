@@ -150,8 +150,8 @@ sleep 1
 pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
 
 # Check that the comment based sharding commands work
-psql < tests/sharding/query_routing_setup.sql
-./tests/pgbench/external_shard_test.sh
+PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 5432 -U postgres -f tests/sharding/query_routing_setup.sql
+PGPASSWORD=sharding_user PG./tests/pgbench/external_shard_test.sh
 
 # Attempt clean shut down
 killall pgcat -s SIGINT
