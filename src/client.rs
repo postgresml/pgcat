@@ -1,7 +1,11 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
+use once_cell::sync::Lazy;
+use regex::Regex;
+use std::cmp;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -644,6 +648,35 @@ where
                 },
                 message_result = read_message(&mut self.read) => message_result?
             };
+
+            // Check for any shard_id commands in the initial comments of an incoming query
+            let mut cursor = Cursor::new(&message);
+            let code = cursor.get_u8();
+            match code as char {
+                // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
+                'P' | 'Q' => {
+                    // Pattern for setting the shard id on a per-query basis as a comment rather than a separate command
+                    static SHARD_RE: Lazy<Regex> =
+                        Lazy::new(|| Regex::new(r"/\* shard_id: (\d+) \*/").unwrap());
+
+                    let len = cursor.get_i32() as usize;
+                    let seg = cmp::min(len - 5, 1000);
+                    let initial_segment = String::from_utf8_lossy(&message[0..seg]);
+                    trace!(
+                        "Got a {} message, checking for shard in {}",
+                        code,
+                        initial_segment
+                    );
+                    let shard_id = SHARD_RE.captures(&initial_segment).and_then(|cap| {
+                        cap.get(1).and_then(|id| id.as_str().parse::<usize>().ok())
+                    });
+                    if let Some(shard_id) = shard_id {
+                        debug!("Setting shard to {:?}", shard_id);
+                        query_router.set_shard(shard_id)
+                    }
+                }
+                _ => {}
+            }
 
             match message[0] as char {
                 // Buffer extended protocol messages even if we do not have
