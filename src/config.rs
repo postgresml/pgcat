@@ -319,6 +319,10 @@ pub struct Pool {
 
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
+
+    pub sharding_key_regex: Option<String>,
+    pub shard_id_regex: Option<String>,
+    pub regex_search_limit: Option<usize>,
 }
 
 impl Pool {
@@ -380,6 +384,9 @@ impl Default for Pool {
             automatic_sharding_key: None,
             connect_timeout: None,
             idle_timeout: None,
+            sharding_key_regex: None,
+            shard_id_regex: None,
+            regex_search_limit: Some(1000),
         }
     }
 }
