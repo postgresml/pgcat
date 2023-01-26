@@ -157,12 +157,12 @@ impl QueryRouter {
                     }
                 }
             }
-            _ => {
-                // Only simple protocol supported for commands processed below
-                if code != 'Q' {
-                    return None;
-                }
-            }
+            _ => {}
+        }
+
+        // Only simple protocol supported for commands processed below
+        if code != 'Q' {
+            return None;
         }
 
         let _len = message_cursor.get_i32() as usize;
