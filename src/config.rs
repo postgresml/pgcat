@@ -2,6 +2,7 @@
 use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
+use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
@@ -364,6 +365,18 @@ impl Pool {
                 }
             };
             shard.validate()?;
+        }
+
+        for (option, name) in [
+            (&self.shard_id_regex, "shard_id_regex"),
+            (&self.sharding_key_regex, "sharding_key_regex"),
+        ] {
+            if let Some(regex) = option {
+                if let Err(parse_err) = Regex::new(regex.as_str()) {
+                    error!("{} is not a valid Regex: {}", name, parse_err);
+                    return Err(Error::BadConfig);
+                }
+            }
         }
 
         Ok(())

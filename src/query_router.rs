@@ -134,7 +134,9 @@ impl QueryRouter {
                         });
                         if let Some(shard_id) = shard_id {
                             debug!("Setting shard to {:?}", shard_id);
-                            self.set_shard(shard_id)
+                            self.set_shard(shard_id);
+                            // Skip other command processing since a sharding command was found
+                            return None;
                         }
                     }
 
@@ -149,16 +151,18 @@ impl QueryRouter {
                         if let Some(sharding_key) = sharding_key {
                             debug!("Setting sharding_key to {:?}", sharding_key);
                             self.set_sharding_key(sharding_key);
+                            // Skip other command processing since a sharding command was found
+                            return None;
                         }
                     }
                 }
             }
-            _ => {}
-        }
-
-        // Only simple protocol supported for commands.
-        if code != 'Q' {
-            return None;
+            _ => {
+                // Only simple protocol supported for commands processed below
+                if code != 'Q' {
+                    return None;
+                }
+            }
         }
 
         let _len = message_cursor.get_i32() as usize;
