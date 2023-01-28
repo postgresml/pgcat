@@ -293,11 +293,7 @@ where
                 let address = pool.address(shard, server);
                 let pool_state = pool.pool_state(shard, server);
                 let banned = pool.is_banned(address);
-                let paused = if pool.paused() {
-                    "1".to_string()
-                } else {
-                    "0".to_string()
-                };
+                let paused = pool.paused();
 
                 res.put(data_row(&vec![
                     address.name(),                         // name
@@ -311,7 +307,11 @@ where
                     pool_config.pool_mode.to_string(),      // pool_mode
                     pool_config.user.pool_size.to_string(), // max_connections
                     pool_state.connections.to_string(),     // current_connections
-                    paused,                                 // paused
+                    match paused {
+                        // paused
+                        true => "1".to_string(),
+                        false => "0".to_string(),
+                    },
                     match banned {
                         // disabled
                         true => "1".to_string(),

@@ -147,11 +147,11 @@ pub struct ConnectionPool {
 
     /// If not validated, we need to double check the pool is available before allowing a client
     /// to use it.
-    pub validated: Arc<AtomicBool>,
+    validated: Arc<AtomicBool>,
 
     /// If the pool has been paused or not.
-    pub paused: Arc<AtomicBool>,
-    pub paused_waiter: Arc<Notify>,
+    paused: Arc<AtomicBool>,
+    paused_waiter: Arc<Notify>,
 }
 
 impl ConnectionPool {
