@@ -693,24 +693,13 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let pool = match get_pool(&self.pool_name, &self.username) {
-                Some(pool) => pool,
-                None => {
-                    error_response(
-                        &mut self.write,
-                        &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
-                            self.pool_name, self.username
-                        ),
-                    )
-                    .await?;
-
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
-                }
-            };
+            let mut pool = self.get_pool().await?;
 
             // Check if the pool is paused and wait until it's resumed.
-            pool.wait_paused().await;
+            if pool.wait_paused().await {
+                // Refresh pool information, something might have changed.
+                pool = self.get_pool().await?;
+            }
 
             query_router.update_pool_settings(pool.settings.clone());
             let current_shard = query_router.shard();
@@ -1032,6 +1021,33 @@ where
 
             self.release();
             self.stats.client_idle(self.process_id);
+        }
+    }
+
+    async fn get_pool(&mut self) -> Result<ConnectionPool, Error> {
+        match get_pool(&self.pool_name, &self.username) {
+            Some(pool) => Ok(pool),
+            None => {
+                error_response(
+                    &mut self.write,
+                    &format!(
+                        "No pool configured for database: {:?}, user: {:?}",
+                        self.pool_name, self.username
+                    ),
+                )
+                .await?;
+
+                Err(
+                    Error::ClientError(
+                        format!(
+                            "Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                            self.pool_name,
+                            self.username,
+                            self.application_name
+                        )
+                    )
+                )
+            }
         }
     }
 

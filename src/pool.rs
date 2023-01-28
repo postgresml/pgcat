@@ -60,6 +60,12 @@ impl PoolIdentifier {
     }
 }
 
+impl From<&Address> for PoolIdentifier {
+    fn from(address: &Address) -> PoolIdentifier {
+        PoolIdentifier::new(&address.database, &address.username)
+    }
+}
+
 /// Pool settings.
 #[derive(Clone, Debug)]
 pub struct PoolSettings {
@@ -394,12 +400,15 @@ impl ConnectionPool {
     }
 
     /// Check if the pool is paused and wait until it's resumed.
-    pub async fn wait_paused(&self) {
+    pub async fn wait_paused(&self) -> bool {
         let waiter = self.paused_waiter.notified();
+        let paused = self.paused.load(Ordering::Relaxed);
 
-        if self.paused.load(Ordering::Relaxed) {
+        if paused {
             waiter.await;
         }
+
+        paused
     }
 
     /// Get a connection from the pool.
