@@ -14,6 +14,7 @@ use std::sync::{
     Arc,
 };
 use std::time::Instant;
+use tokio::sync::Notify;
 
 use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, Role, User};
 use crate::errors::Error;
@@ -147,6 +148,10 @@ pub struct ConnectionPool {
     /// If not validated, we need to double check the pool is available before allowing a client
     /// to use it.
     pub validated: Arc<AtomicBool>,
+
+    /// If the pool has been paused or not.
+    pub paused: Arc<AtomicBool>,
+    pub paused_waiter: Arc<Notify>,
 }
 
 impl ConnectionPool {
@@ -291,6 +296,8 @@ impl ConnectionPool {
                         ban_time: config.general.ban_time,
                     },
                     validated: Arc::new(AtomicBool::new(false)),
+                    paused: Arc::new(AtomicBool::new(false)),
+                    paused_waiter: Arc::new(Notify::new()),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -368,6 +375,31 @@ impl ConnectionPool {
     /// Call `validate()` to do so.
     pub fn validated(&self) -> bool {
         self.validated.load(Ordering::Relaxed)
+    }
+
+    /// Pause the pool, allowing no more queries and make clients wait.
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::Relaxed);
+    }
+
+    /// Resume the pool, allowing queries and resuming any pending queries.
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::Relaxed);
+        self.paused_waiter.notify_waiters();
+    }
+
+    /// Check if the pool is paused.
+    pub fn paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
+    }
+
+    /// Check if the pool is paused and wait until it's resumed.
+    pub async fn wait_paused(&self) {
+        let waiter = self.paused_waiter.notified();
+
+        if self.paused.load(Ordering::Relaxed) {
+            waiter.await;
+        }
     }
 
     /// Get a connection from the pool.

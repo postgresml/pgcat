@@ -56,6 +56,13 @@ psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accou
 sleep 1
 killall psql -s SIGINT
 
+# Pause/resume test
+PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'PAUSE sharding_db,sharding_user'
+pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended &
+BENCH_PID=$!
+PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RESUME sharding_db,sharding_user'
+wait ${BENCH_PID}
+
 # Reload pool (closing unused server connections)
 PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD'
 

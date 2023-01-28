@@ -708,6 +708,10 @@ where
                     return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
                 }
             };
+
+            // Check if the pool is paused and wait until it's resumed.
+            pool.wait_paused().await;
+
             query_router.update_pool_settings(pool.settings.clone());
             let current_shard = query_router.shard();
 
