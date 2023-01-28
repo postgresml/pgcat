@@ -546,6 +546,7 @@ impl Server {
     /// If the server is still inside a transaction.
     /// If the client disconnects while the server is in a transaction, we will clean it up.
     pub fn in_transaction(&self) -> bool {
+        debug!("Server in transaction: {}", self.in_transaction);
         self.in_transaction
     }
 

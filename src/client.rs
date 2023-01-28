@@ -476,7 +476,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(pool_name, username) {
+            let mut pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -503,6 +503,25 @@ where
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
+
+            // If the pool hasn't been validated yet,
+            // connect to the servers and figure out what's what.
+            if !pool.validated() {
+                match pool.validate().await {
+                    Ok(_) => (),
+                    Err(err) => {
+                        error_response(
+                            &mut write,
+                            &format!(
+                                "Pool down for database: {:?}, user: {:?}",
+                                pool_name, username
+                            ),
+                        )
+                        .await?;
+                        return Err(Error::ClientError(format!("Pool down: {:?}", err)));
+                    }
+                }
+            }
 
             (transaction_mode, pool.server_info())
         };
@@ -674,22 +693,16 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let pool = match get_pool(&self.pool_name, &self.username) {
-                Some(pool) => pool,
-                None => {
-                    error_response(
-                        &mut self.write,
-                        &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
-                            self.pool_name, self.username
-                        ),
-                    )
-                    .await?;
+            let mut pool = self.get_pool().await?;
 
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
-                }
-            };
+            // Check if the pool is paused and wait until it's resumed.
+            if pool.wait_paused().await {
+                // Refresh pool information, something might have changed.
+                pool = self.get_pool().await?;
+            }
+
             query_router.update_pool_settings(pool.settings.clone());
+
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
@@ -1009,6 +1022,29 @@ where
 
             self.release();
             self.stats.client_idle(self.process_id);
+        }
+    }
+
+    /// Retrieve connection pool, if it exists.
+    /// Return an error to the client otherwise.
+    async fn get_pool(&mut self) -> Result<ConnectionPool, Error> {
+        match get_pool(&self.pool_name, &self.username) {
+            Some(pool) => Ok(pool),
+            None => {
+                error_response(
+                    &mut self.write,
+                    &format!(
+                        "No pool configured for database: {}, user: {}",
+                        self.pool_name, self.username
+                    ),
+                )
+                .await?;
+
+                Err(Error::ClientError(format!(
+                    "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
+                    self.pool_name, self.username, self.application_name
+                )))
+            }
         }
     }
 

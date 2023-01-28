@@ -7,7 +7,7 @@ use tokio::time::Instant;
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
-use crate::pool::get_all_pools;
+use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{
     get_address_stats, get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState,
 };
@@ -44,15 +44,13 @@ where
     }
 
     let len = query.get_i32() as usize;
-    let query = String::from_utf8_lossy(&query[..len - 5])
-        .to_string()
-        .to_ascii_uppercase();
+    let query = String::from_utf8_lossy(&query[..len - 5]).to_string();
 
     trace!("Admin query: {}", query);
 
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
-    match query_parts[0] {
+    match query_parts[0].to_ascii_uppercase().as_str() {
         "RELOAD" => {
             trace!("RELOAD");
             reload(stream, client_server_map).await
@@ -61,7 +59,15 @@ where
             trace!("SET");
             ignore_set(stream).await
         }
-        "SHOW" => match query_parts[1] {
+        "PAUSE" => {
+            trace!("PAUSE");
+            pause(stream, query_parts[1]).await
+        }
+        "RESUME" => {
+            trace!("RESUME");
+            resume(stream, query_parts[1]).await
+        }
+        "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
             "CONFIG" => {
                 trace!("SHOW CONFIG");
                 show_config(stream).await
@@ -287,6 +293,7 @@ where
                 let address = pool.address(shard, server);
                 let pool_state = pool.pool_state(shard, server);
                 let banned = pool.is_banned(address);
+                let paused = pool.paused();
 
                 res.put(data_row(&vec![
                     address.name(),                         // name
@@ -300,7 +307,11 @@ where
                     pool_config.pool_mode.to_string(),      // pool_mode
                     pool_config.user.pool_size.to_string(), // max_connections
                     pool_state.connections.to_string(),     // current_connections
-                    "0".to_string(),                        // paused
+                    match paused {
+                        // paused
+                        true => "1".to_string(),
+                        false => "0".to_string(),
+                    },
                     match banned {
                         // disabled
                         true => "1".to_string(),
@@ -560,4 +571,98 @@ where
     res.put_u8(b'I');
 
     write_all_half(stream, &res).await
+}
+
+/// Pause a pool. It won't pass any more queries to the backends.
+async fn pause<T>(stream: &mut T, query: &str) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let parts: Vec<&str> = query.split(",").map(|part| part.trim()).collect();
+
+    if parts.len() != 2 {
+        error_response(
+            stream,
+            "PAUSE requires a database and a user, e.g. PAUSE my_db,my_user",
+        )
+        .await
+    } else {
+        let database = parts[0];
+        let user = parts[1];
+
+        match get_pool(database, user) {
+            Some(pool) => {
+                pool.pause();
+
+                let mut res = BytesMut::new();
+
+                res.put(command_complete(&format!("PAUSE {},{}", database, user)));
+
+                // ReadyForQuery
+                res.put_u8(b'Z');
+                res.put_i32(5);
+                res.put_u8(b'I');
+
+                write_all_half(stream, &res).await
+            }
+
+            None => {
+                error_response(
+                    stream,
+                    &format!(
+                        "No pool configured for database: {}, user: {}",
+                        database, user
+                    ),
+                )
+                .await
+            }
+        }
+    }
+}
+
+/// Resume a pool. Queries are allowed again.
+async fn resume<T>(stream: &mut T, query: &str) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let parts: Vec<&str> = query.split(",").map(|part| part.trim()).collect();
+
+    if parts.len() != 2 {
+        error_response(
+            stream,
+            "RESUME requires a database and a user, e.g. RESUME my_db,my_user",
+        )
+        .await
+    } else {
+        let database = parts[0];
+        let user = parts[1];
+
+        match get_pool(database, user) {
+            Some(pool) => {
+                pool.resume();
+
+                let mut res = BytesMut::new();
+
+                res.put(command_complete(&format!("RESUME {},{}", database, user)));
+
+                // ReadyForQuery
+                res.put_u8(b'Z');
+                res.put_i32(5);
+                res.put_u8(b'I');
+
+                write_all_half(stream, &res).await
+            }
+
+            None => {
+                error_response(
+                    stream,
+                    &format!(
+                        "No pool configured for database: {}, user: {}",
+                        database, user
+                    ),
+                )
+                .await
+            }
+        }
+    }
 }
