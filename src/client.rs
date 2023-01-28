@@ -476,7 +476,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(pool_name, username) {
+            let mut pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -503,6 +503,25 @@ where
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
+
+            // If the pool hasn't been validated yet,
+            // connect to the servers and figure out what's what.
+            if !pool.validated() {
+                match pool.validate().await {
+                    Ok(_) => (),
+                    Err(err) => {
+                        error_response(
+                            &mut write,
+                            &format!(
+                                "Pool down for database: {:?}, user: {:?}",
+                                pool_name, username
+                            ),
+                        )
+                        .await?;
+                        return Err(Error::ClientError(format!("Pool down: {:?}", err)));
+                    }
+                }
+            }
 
             (transaction_mode, pool.server_info())
         };
