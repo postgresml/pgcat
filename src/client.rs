@@ -1040,16 +1040,10 @@ where
                 )
                 .await?;
 
-                Err(
-                    Error::ClientError(
-                        format!(
-                            "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
-                            self.pool_name,
-                            self.username,
-                            self.application_name
-                        )
-                    )
-                )
+                Err(Error::ClientError(format!(
+                    "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
+                    self.pool_name, self.username, self.application_name
+                )))
             }
         }
     }
