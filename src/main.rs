@@ -48,11 +48,11 @@ use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use pgcat::format_duration;
 use tokio::net::TcpListener;
-use tokio::{
-    runtime::Builder,
-    signal::unix::{signal as unix_signal, SignalKind},
-    sync::mpsc,
-};
+#[cfg(not(windows))]
+use tokio::signal::unix::{signal as unix_signal, SignalKind};
+#[cfg(windows)]
+use tokio::signal::windows as win_signal;
+use tokio::{runtime::Builder, sync::mpsc};
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -197,8 +197,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
+        #[cfg(windows)]
+        let mut term_signal = win_signal::ctrl_close().unwrap();
+        #[cfg(windows)]
+        let mut interrupt_signal = win_signal::ctrl_c().unwrap();
+        #[cfg(windows)]
+        let mut sighup_signal = win_signal::ctrl_shutdown().unwrap();
+
+        #[cfg(not(windows))]
         let mut term_signal = unix_signal(SignalKind::terminate()).unwrap();
+        #[cfg(not(windows))]
         let mut interrupt_signal = unix_signal(SignalKind::interrupt()).unwrap();
+        #[cfg(not(windows))]
         let mut sighup_signal = unix_signal(SignalKind::hangup()).unwrap();
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
         let (drain_tx, mut drain_rx) = mpsc::channel::<i32>(2048);
