@@ -702,6 +702,7 @@ where
             }
 
             query_router.update_pool_settings(pool.settings.clone());
+
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
@@ -1024,6 +1025,8 @@ where
         }
     }
 
+    /// Retrieve connection pool, if it exists.
+    /// Return an error to the client otherwise.
     async fn get_pool(&mut self) -> Result<ConnectionPool, Error> {
         match get_pool(&self.pool_name, &self.username) {
             Some(pool) => Ok(pool),
@@ -1031,7 +1034,7 @@ where
                 error_response(
                     &mut self.write,
                     &format!(
-                        "No pool configured for database: {:?}, user: {:?}",
+                        "No pool configured for database: {}, user: {}",
                         self.pool_name, self.username
                     ),
                 )
@@ -1040,7 +1043,7 @@ where
                 Err(
                     Error::ClientError(
                         format!(
-                            "Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                            "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
                             self.pool_name,
                             self.username,
                             self.application_name

@@ -609,7 +609,7 @@ where
             None => {
                 error_response(
                     stream,
-                    &format!("No pool for database {} and user {} exists", database, user),
+                    &format!("No pool configured for database: {}, user: {}", database, user),
                 )
                 .await
             }
@@ -653,7 +653,7 @@ where
             None => {
                 error_response(
                     stream,
-                    &format!("No pool for database {} and user {} exists", database, user),
+                    &format!("No pool configured for database: {}, user: {}", database, user),
                 )
                 .await
             }
