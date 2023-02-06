@@ -843,14 +843,47 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
-                        match read_message(&mut self.read).await {
-                            Ok(message) => message,
-                            Err(err) => {
-                                // Client disconnected inside a transaction.
-                                // Clean up the server and re-use it.
-                                server.checkin_cleanup().await?;
+                        match pool.settings.idle_transaction_timeout {
+                            Some(timeout) => {
+                                match tokio::time::timeout(
+                                    tokio::time::Duration::from_millis(timeout),
+                                    read_message(&mut self.read),
+                                )
+                                .await
+                                {
+                                    Ok(result) => {
+                                        match result {
+                                            Ok(message) => message,
+                                            Err(err) => {
+                                                // Client disconnected inside a transaction.
+                                                // Clean up the server and re-use it.
+                                                server.checkin_cleanup().await?;
 
-                                return Err(err);
+                                                return Err(err);
+                                            }
+                                        }
+                                    }
+                                    Err(_) => {
+                                        error_response_terminal(
+                                            &mut self.write,
+                                            "idle transaction timeout",
+                                        )
+                                        .await?;
+                                        return Err(Error::IdleTransactionTimeout);
+                                    }
+                                }
+                            }
+                            None => {
+                                match read_message(&mut self.read).await {
+                                    Ok(message) => message,
+                                    Err(err) => {
+                                        // Client disconnected inside a transaction.
+                                        // Clean up the server and re-use it.
+                                        server.checkin_cleanup().await?;
+
+                                        return Err(err);
+                                    }
+                                }
                             }
                         }
                     }

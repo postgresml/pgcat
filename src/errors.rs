@@ -12,6 +12,7 @@ pub enum Error {
     ClientError(String),
     TlsError,
     StatementTimeout,
+    IdleTransactionTimeout,
     ShuttingDown,
     ParseBytesError(String),
 }

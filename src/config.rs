@@ -160,6 +160,8 @@ pub struct General {
     #[serde(default = "General::default_idle_timeout")]
     pub idle_timeout: u64,
 
+    pub idle_transaction_timeout: Option<u64>,
+
     #[serde(default)] // False
     pub log_client_connections: bool,
 
@@ -237,6 +239,7 @@ impl Default for General {
             prometheus_exporter_port: 9930,
             connect_timeout: General::default_connect_timeout(),
             idle_timeout: General::default_idle_timeout(),
+            idle_transaction_timeout: None,
             shutdown_timeout: Self::default_shutdown_timeout(),
             healthcheck_timeout: Self::default_healthcheck_timeout(),
             healthcheck_delay: Self::default_healthcheck_delay(),

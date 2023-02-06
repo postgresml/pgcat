@@ -104,6 +104,9 @@ pub struct PoolSettings {
 
     // Ban time
     pub ban_time: i64,
+
+    // Idle in transaction timeout
+    pub idle_transaction_timeout: Option<u64>,
 }
 
 impl Default for PoolSettings {
@@ -121,6 +124,7 @@ impl Default for PoolSettings {
             healthcheck_delay: General::default_healthcheck_delay(),
             healthcheck_timeout: General::default_healthcheck_timeout(),
             ban_time: General::default_ban_time(),
+            idle_transaction_timeout: None,
         }
     }
 }
@@ -300,6 +304,7 @@ impl ConnectionPool {
                         healthcheck_delay: config.general.healthcheck_delay,
                         healthcheck_timeout: config.general.healthcheck_timeout,
                         ban_time: config.general.ban_time,
+                        idle_transaction_timeout: config.general.idle_transaction_timeout,
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
