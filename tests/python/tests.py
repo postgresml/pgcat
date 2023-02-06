@@ -6,6 +6,7 @@ import signal
 import time
 
 SHUTDOWN_TIMEOUT = 5
+IDLE_TRANSACTION_TIMEOUT = 3
 
 PGCAT_HOST = "127.0.0.1"
 PGCAT_PORT = "6432"
@@ -78,6 +79,36 @@ def test_admin_db_access():
     print(res)
     cleanup_conn(conn, cur)
 
+def test_idle_transaction_timeout():
+
+    # - - - - - - - - - - - - - - - - - -
+    # LESS THAN IDLE TRANSACTION TIMEOUT
+
+    conn, cur = connect_db(admin=False)
+    cur.execute("BEGIN;")
+    time.sleep(1)
+    cur.execute("SELECT 1;")
+    cur.execute("COMMIT;")
+    cleanup_conn(conn, cur)
+
+    # - - - - - - - - - - - - - - - - - -
+    # MORE THAN IDLE TRANSACTION TIMEOUT
+
+    conn, cur = connect_db(admin=False)
+    cur.execute("BEGIN;")
+    cur.execute("SELECT 1;")
+    time.sleep(IDLE_TRANSACTION_TIMEOUT + 1)
+
+    try:
+        cur.execute("SELECT 1;")
+    except psycopg2.OperationalError as e:
+        pass
+    else:
+        # Fail if query execution succeeded
+        raise Exception("Server allowed query that exceeds idle transaction timeout")
+
+    cur.execute("COMMIT;")
+    cleanup_conn(conn, cur)
 
 def test_shutdown_logic():
 

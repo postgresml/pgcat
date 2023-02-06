@@ -775,6 +775,7 @@ mod test {
             healthcheck_delay: PoolSettings::default().healthcheck_delay,
             healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
             ban_time: PoolSettings::default().ban_time,
+            idle_transaction_timeout: None,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);

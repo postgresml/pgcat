@@ -105,7 +105,7 @@ pub struct PoolSettings {
     // Ban time
     pub ban_time: i64,
 
-    // Idle in transaction timeout
+    // Idle in transaction timeout in milliseconds
     pub idle_transaction_timeout: Option<u64>,
 }
 
