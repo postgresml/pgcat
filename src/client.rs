@@ -869,6 +869,7 @@ where
                                             "idle transaction timeout",
                                         )
                                         .await?;
+                                        server.checkin_cleanup().await?;
                                         return Err(Error::IdleTransactionTimeout);
                                     }
                                 }
