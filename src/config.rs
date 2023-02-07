@@ -167,7 +167,6 @@ pub struct General {
 
     pub enable_prometheus_exporter: Option<bool>,
     pub prometheus_exporter_port: i16,
-    pub statsd: Option<StatsDMode>,
 
     #[serde(default = "General::default_connect_timeout")]
     pub connect_timeout: u64,
@@ -203,6 +202,8 @@ pub struct General {
     pub tls_private_key: Option<String>,
     pub admin_username: String,
     pub admin_password: String,
+
+    pub statsd: Option<StatsDMode>,
 }
 
 impl General {
