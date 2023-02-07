@@ -52,6 +52,7 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 6432 -U postgres -c 'SELECT 1'
 | `healthcheck_timeout`        | Maximum time to pass a health check (`SELECT 1`, milliseconds). If reached, the server is banned and the next target is attempted.         | `1000`                           |
 | `shutdown_timeout`           | Maximum time to give clients during shutdown before forcibly killing client connections (ms).                                              | `60000`                          |
 | `healthcheck_delay`          | How long to keep connection available for immediate re-use, without running a healthcheck query on it                                      | `30000`                          |
+| `idle_transaction_timeout`          | If a client has been in “idle in transaction” state longer than timeout, it will be disconnected (ms)                                      | `None`                          |
 | `ban_time`                   | Ban time for a server (seconds). It won't be allowed to serve transactions until the ban expires; failover targets will be used instead.   | `60`                             |
 | `autoreload`                 | Enable auto-reload of config after fixed time-interval.                                                                                    | `false`                          |
 |                              |                                                                                                                                            |                                  |
