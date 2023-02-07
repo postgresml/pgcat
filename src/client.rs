@@ -476,7 +476,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(pool_name, username) {
+            let mut pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -503,6 +503,25 @@ where
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
+
+            // If the pool hasn't been validated yet,
+            // connect to the servers and figure out what's what.
+            if !pool.validated() {
+                match pool.validate().await {
+                    Ok(_) => (),
+                    Err(err) => {
+                        error_response(
+                            &mut write,
+                            &format!(
+                                "Pool down for database: {:?}, user: {:?}",
+                                pool_name, username
+                            ),
+                        )
+                        .await?;
+                        return Err(Error::ClientError(format!("Pool down: {:?}", err)));
+                    }
+                }
+            }
 
             (transaction_mode, pool.server_info())
         };
@@ -674,30 +693,24 @@ where
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
             // when starting a query.
-            let pool = match get_pool(&self.pool_name, &self.username) {
-                Some(pool) => pool,
-                None => {
-                    error_response(
-                        &mut self.write,
-                        &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
-                            self.pool_name, self.username
-                        ),
-                    )
-                    .await?;
+            let mut pool = self.get_pool().await?;
 
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", self.pool_name, self.username, self.application_name)));
-                }
-            };
+            // Check if the pool is paused and wait until it's resumed.
+            if pool.wait_paused().await {
+                // Refresh pool information, something might have changed.
+                pool = self.get_pool().await?;
+            }
+
             query_router.update_pool_settings(pool.settings.clone());
+
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(message.clone()) {
+            match query_router.try_execute_command(&message) {
                 // Normal query, not a custom command.
                 None => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer(message.clone());
+                        query_router.infer(&message);
                     }
                 }
 
@@ -861,7 +874,7 @@ where
                     'Q' => {
                         debug!("Sending query to server");
 
-                        self.send_and_receive_loop(code, message, server, &address, &pool)
+                        self.send_and_receive_loop(code, Some(&message), server, &address, &pool)
                             .await?;
 
                         if !server.in_transaction() {
@@ -931,14 +944,8 @@ where
                             }
                         }
 
-                        self.send_and_receive_loop(
-                            code,
-                            self.buffer.clone(),
-                            server,
-                            &address,
-                            &pool,
-                        )
-                        .await?;
+                        self.send_and_receive_loop(code, None, server, &address, &pool)
+                            .await?;
 
                         self.buffer.clear();
 
@@ -955,21 +962,32 @@ where
 
                     // CopyData
                     'd' => {
-                        // Forward the data to the server,
-                        // don't buffer it since it can be rather large.
-                        self.send_server_message(server, message, &address, &pool)
-                            .await?;
+                        self.buffer.put(&message[..]);
+
+                        // Want to limit buffer size
+                        if self.buffer.len() > 8196 {
+                            // Forward the data to the server,
+                            self.send_server_message(server, &self.buffer, &address, &pool)
+                                .await?;
+                            self.buffer.clear();
+                        }
                     }
 
                     // CopyDone or CopyFail
                     // Copy is done, successfully or not.
                     'c' | 'f' => {
-                        self.send_server_message(server, message, &address, &pool)
+                        // We may already have some copy data in the buffer, add this message to buffer
+                        self.buffer.put(&message[..]);
+
+                        self.send_server_message(server, &self.buffer, &address, &pool)
                             .await?;
+
+                        // Clear the buffer
+                        self.buffer.clear();
 
                         let response = self.receive_server_message(server, &address, &pool).await?;
 
-                        match write_all_half(&mut self.write, response).await {
+                        match write_all_half(&mut self.write, &response).await {
                             Ok(_) => (),
                             Err(err) => {
                                 server.mark_bad();
@@ -1007,6 +1025,29 @@ where
         }
     }
 
+    /// Retrieve connection pool, if it exists.
+    /// Return an error to the client otherwise.
+    async fn get_pool(&mut self) -> Result<ConnectionPool, Error> {
+        match get_pool(&self.pool_name, &self.username) {
+            Some(pool) => Ok(pool),
+            None => {
+                error_response(
+                    &mut self.write,
+                    &format!(
+                        "No pool configured for database: {}, user: {}",
+                        self.pool_name, self.username
+                    ),
+                )
+                .await?;
+
+                Err(Error::ClientError(format!(
+                    "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
+                    self.pool_name, self.username, self.application_name
+                )))
+            }
+        }
+    }
+
     /// Release the server from the client: it can't cancel its queries anymore.
     pub fn release(&self) {
         let mut guard = self.client_server_map.lock();
@@ -1016,12 +1057,17 @@ where
     async fn send_and_receive_loop(
         &mut self,
         code: char,
-        message: BytesMut,
+        message: Option<&BytesMut>,
         server: &mut Server,
         address: &Address,
         pool: &ConnectionPool,
     ) -> Result<(), Error> {
         debug!("Sending {} to server", code);
+
+        let message = match message {
+            Some(message) => message,
+            None => &self.buffer,
+        };
 
         self.send_server_message(server, message, address, pool)
             .await?;
@@ -1032,7 +1078,7 @@ where
         loop {
             let response = self.receive_server_message(server, address, pool).await?;
 
-            match write_all_half(&mut self.write, response).await {
+            match write_all_half(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
                     server.mark_bad();
@@ -1058,7 +1104,7 @@ where
     async fn send_server_message(
         &self,
         server: &mut Server,
-        message: BytesMut,
+        message: &BytesMut,
         address: &Address,
         pool: &ConnectionPool,
     ) -> Result<(), Error> {

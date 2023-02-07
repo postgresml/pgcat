@@ -381,7 +381,7 @@ impl Server {
     }
 
     /// Send messages to the server from the client.
-    pub async fn send(&mut self, messages: BytesMut) -> Result<(), Error> {
+    pub async fn send(&mut self, messages: &BytesMut) -> Result<(), Error> {
         self.stats.data_sent(messages.len(), self.server_id);
 
         match write_all_half(&mut self.write, messages).await {
@@ -546,6 +546,7 @@ impl Server {
     /// If the server is still inside a transaction.
     /// If the client disconnects while the server is in a transaction, we will clean it up.
     pub fn in_transaction(&self) -> bool {
+        debug!("Server in transaction: {}", self.in_transaction);
         self.in_transaction
     }
 
@@ -593,7 +594,7 @@ impl Server {
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
         let query = simple_query(query);
 
-        self.send(query).await?;
+        self.send(&query).await?;
 
         loop {
             let _ = self.recv().await?;
