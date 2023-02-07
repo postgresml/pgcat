@@ -102,12 +102,13 @@ def test_idle_transaction_timeout():
     try:
         cur.execute("SELECT 1;")
     except psycopg2.OperationalError as e:
-        pass
+        if "idle transaction timeout" not in e.pgerror:
+            raise Exception("Server did not raise exceeds idle transaction timeout error")        
+
     else:
         # Fail if query execution succeeded
         raise Exception("Server allowed query that exceeds idle transaction timeout")
 
-    cur.execute("COMMIT;")
     cleanup_conn(conn, cur)
 
 def test_shutdown_logic():
@@ -285,4 +286,5 @@ def test_shutdown_logic():
 
 test_normal_db_access()
 test_admin_db_access()
+test_idle_transaction_timeout()
 test_shutdown_logic()
