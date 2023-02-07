@@ -618,7 +618,7 @@ impl Collector {
                             *duration += duration_ms as i64;
                         }
                         None => (),
-                    }
+                    };
 
                     self.statsd_client.send_count("query_count", 1, tags);
                 }
@@ -657,16 +657,20 @@ impl Collector {
                             *counter += stat.value;
                         }
                         None => (),
-                    }
+                    };
 
                     self.statsd_client.send_count("tx_count", 1, tags);
                 }
 
                 EventName::DataSentToServer { server_id } => {
+                    let mut tags = HashMap::new();
+
                     // Update server stats and address aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.bytes_sent += stat.value as u64;
+
+                            add_server_tags(&mut tags, &server_info);
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -676,14 +680,21 @@ impl Collector {
                             *counter += stat.value;
                         }
                         None => (),
-                    }
+                    };
+
+                    self.statsd_client
+                        .send_count("bytes_sent", stat.value, tags);
                 }
 
                 EventName::DataReceivedFromServer { server_id } => {
+                    let mut tags = HashMap::new();
+
                     // Update server states and address aggregation stats
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.bytes_received += stat.value as u64;
+
+                            add_server_tags(&mut tags, &server_info);
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -694,13 +705,18 @@ impl Collector {
                             *counter += stat.value;
                         }
                         None => (),
-                    }
+                    };
+
+                    self.statsd_client
+                        .send_count("bytes_recv", stat.value, tags);
                 }
 
                 EventName::CheckoutTime {
                     client_id,
                     server_id,
                 } => {
+                    let mut tags = HashMap::new();
+
                     // Update client stats
                     let app_name = match client_states.get_mut(&client_id) {
                         Some(client_info) => {
@@ -714,6 +730,8 @@ impl Collector {
                     match server_states.get_mut(&server_id) {
                         Some(server_info) => {
                             server_info.application_name = app_name;
+
+                            add_server_tags(&mut tags, &server_info);
 
                             let address_stats = address_stat_lookup
                                 .entry(server_info.address_id)
@@ -738,7 +756,10 @@ impl Collector {
                             }
                         }
                         None => (),
-                    }
+                    };
+
+                    self.statsd_client
+                        .send_count("checkout_time", stat.value, tags);
                 }
 
                 EventName::ClientRegistered {
@@ -747,26 +768,31 @@ impl Collector {
                     username,
                     application_name,
                 } => {
+                    let mut tags = HashMap::new();
+
                     match client_states.get_mut(&client_id) {
                         Some(_) => warn!("Client {:?} was double registered!", client_id),
                         None => {
-                            client_states.insert(
+                            let client_info = ClientInformation {
+                                state: ClientState::Idle,
+                                connect_time: Instant::now(),
                                 client_id,
-                                ClientInformation {
-                                    state: ClientState::Idle,
-                                    connect_time: Instant::now(),
-                                    client_id,
-                                    pool_name: pool_name.clone(),
-                                    username: username.clone(),
-                                    application_name: application_name.clone(),
-                                    total_wait_time: 0,
-                                    transaction_count: 0,
-                                    query_count: 0,
-                                    error_count: 0,
-                                },
-                            );
+                                pool_name: pool_name.clone(),
+                                username: username.clone(),
+                                application_name: application_name.clone(),
+                                total_wait_time: 0,
+                                transaction_count: 0,
+                                query_count: 0,
+                                error_count: 0,
+                            };
+
+                            add_client_tags(&mut tags, &client_info);
+
+                            client_states.insert(client_id, client_info);
                         }
                     };
+
+                    self.statsd_client.send_count("client_registered", 1, tags);
                 }
 
                 EventName::ClientBanError {
