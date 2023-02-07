@@ -30,7 +30,7 @@ healthcheck_delay = 30000
 shutdown_timeout = 5000
 
 # How long a transaction (ms) can stay idle before being disconected.
-idle_transaction_timeout = 3000
+idle_transaction_timeout = 8000
 
 # For how long to ban a server if it fails a health check (seconds).
 ban_time = 60 # Seconds
