@@ -97,6 +97,7 @@ def test_idle_transaction_timeout():
     conn, cur = connect_db(admin=False)
     cur.execute("BEGIN;")
     cur.execute("SELECT 1;")
+
     time.sleep(IDLE_TRANSACTION_TIMEOUT + 1)
 
     try:
