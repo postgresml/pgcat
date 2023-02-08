@@ -92,6 +92,7 @@ impl Server {
                     )));
                 }
             };
+        configure_socket(&stream);
 
         trace!("Sending StartupMessage");
 
@@ -368,6 +369,7 @@ impl Server {
                 return Err(Error::SocketError(format!("Error reading cancel message")));
             }
         };
+        configure_socket(&stream);
 
         debug!("Sending CancelRequest");
 

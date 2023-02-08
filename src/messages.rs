@@ -1,14 +1,18 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, BytesMut};
+use log::error;
 use md5::{Digest, Md5};
+use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use crate::config::get_config;
 use crate::errors::Error;
 use std::collections::HashMap;
 use std::io::{BufRead, Cursor};
 use std::mem;
+use std::time::Duration;
 
 /// Postgres data type mappings
 /// used in RowDescription ('T') message.
@@ -548,6 +552,26 @@ pub fn server_parameter_message(key: &str, value: &str) -> BytesMut {
     server_info.put_bytes(0, 1);
 
     server_info
+}
+
+pub fn configure_socket(stream: &TcpStream) {
+    let sock_ref = SockRef::from(stream);
+    let conf = get_config();
+
+    match sock_ref.set_keepalive(true) {
+        Ok(_) => {
+            match sock_ref.set_tcp_keepalive(
+                &TcpKeepalive::new()
+                    .with_interval(Duration::from_secs(conf.general.tcp_keepalives_interval))
+                    .with_retries(conf.general.tcp_keepalives_count)
+                    .with_time(Duration::from_secs(conf.general.tcp_keepalives_idle)),
+            ) {
+                Ok(_) => (),
+                Err(err) => error!("Could not configure socket: {}", err),
+            }
+        }
+        Err(err) => error!("Could not configure socket: {}", err),
+    }
 }
 
 pub trait BytesMutReader {

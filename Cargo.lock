@@ -730,6 +730,7 @@ dependencies = [
  "serde_derive",
  "sha-1",
  "sha2",
+ "socket2",
  "sqlparser",
  "stringprep",
  "tokio",
