@@ -5,7 +5,7 @@ require_relative 'pg_instance'
 
 module Helpers
   module Pgcat
-    def self.three_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random")
+    def self.three_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info")
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -13,7 +13,7 @@ module Helpers
         "username" => "sharding_user"
       }
 
-      pgcat    = PgcatProcess.new("info")
+      pgcat    = PgcatProcess.new(log_level)
       primary0 = PgInstance.new(5432, user["username"], user["password"], "shard0")
       primary1 = PgInstance.new(7432, user["username"], user["password"], "shard1")
       primary2 = PgInstance.new(8432, user["username"], user["password"], "shard2")
@@ -47,7 +47,7 @@ module Helpers
       end
     end
 
-    def self.single_instance_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random")
+    def self.single_instance_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="trace")
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -55,7 +55,7 @@ module Helpers
         "username" => "sharding_user"
       }
 
-      pgcat = PgcatProcess.new("trace")
+      pgcat = PgcatProcess.new(log_level)
       pgcat_cfg = pgcat.current_config
 
       primary  = PgInstance.new(5432, user["username"], user["password"], "shard0")
@@ -92,7 +92,7 @@ module Helpers
       end
     end
 
-    def self.single_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random")
+    def self.single_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info")
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -100,7 +100,7 @@ module Helpers
         "username" => "sharding_user"
       }
 
-      pgcat = PgcatProcess.new("info")
+      pgcat = PgcatProcess.new(log_level)
       pgcat_cfg = pgcat.current_config
 
       primary  = PgInstance.new(5432, user["username"], user["password"], "shard0")

@@ -8,6 +8,51 @@ describe "Miscellaneous" do
     processes.pgcat.shutdown
   end
 
+  describe "TCP Keepalives" do
+    # Ideally, we should block TCP traffic to the database using
+    # iptables to mimic passive (connection is dropped without a RST packet)
+    # but we cannot do this in CircleCI because iptables requires NET_ADMIN
+    # capability that we cannot enable in CircleCI
+    # Toxiproxy won't work either because it does not block keepalives
+    # so our best bet is to query the OS keepalive params set on the socket
+
+    context "default settings" do
+      it "applies default keepalive settings" do
+        # We query ss command to verify that we have correct keepalive values set
+        # we can only verify the keepalives_idle parameter but that's good enough
+        # example output
+        #Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+        #0      0          127.0.0.1:60526    127.0.0.1:18432 timer:(keepalive,1min59sec,0)
+        #0      0          127.0.0.1:60664    127.0.0.1:19432 timer:(keepalive,4.123ms,0)
+
+        port_search_criteria = processes.all_databases.map { |d| "dport = :#{d.port}"}.join(" or ")
+        results = `ss -t4 state established -o -at '( #{port_search_criteria}  )'`.lines
+        results.shift
+        results.each { |line| expect(line).to match(/timer:\(keepalive,.*ms,0\)/) }
+      end
+    end
+
+    context "changed settings" do
+      it "applies keepalive settings from config" do
+        new_configs = processes.pgcat.current_config
+
+        new_configs["general"]["tcp_keepalives_idle"] = 120
+        new_configs["general"]["tcp_keepalives_count"] = 1
+        new_configs["general"]["tcp_keepalives_interval"] = 1
+        processes.pgcat.update_config(new_configs)
+        # We need to kill the old process that was using the default configs
+        processes.pgcat.stop
+        processes.pgcat.start
+        processes.pgcat.wait_until_ready
+
+        port_search_criteria = processes.all_databases.map { |d| "dport = :#{d.port}"}.join(" or ")
+        results = `ss -t4 state established -o -at '( #{port_search_criteria}  )'`.lines
+        results.shift
+        results.each { |line| expect(line).to include("timer:(keepalive,1min") }
+      end
+    end
+  end
+
   describe "Extended Protocol handling" do
     it "does not send packets that client does not expect during extended protocol sequence" do
       new_configs = processes.pgcat.current_config
@@ -189,7 +234,7 @@ describe "Miscellaneous" do
         expect(processes.primary.count_query("DISCARD ALL")).to eq(10)
       end
     end
-    
+
     context "transaction mode with transactions" do
       let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "transaction") }
       it "Does not clear set statement state when declared in a transaction" do
@@ -200,7 +245,7 @@ describe "Miscellaneous" do
           conn.async_exec("SET statement_timeout to 1000")
           conn.async_exec("COMMIT")
           conn.close
-        end 
+        end
         expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
 
         10.times do
@@ -210,7 +255,7 @@ describe "Miscellaneous" do
           conn.async_exec("SET LOCAL statement_timeout to 1000")
           conn.async_exec("COMMIT")
           conn.close
-        end 
+        end
         expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
       end
     end
