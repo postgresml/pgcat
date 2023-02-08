@@ -432,7 +432,7 @@ where
 
         let code = match read.read_u8().await {
             Ok(p) => p,
-            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
         };
 
         // PasswordMessage
@@ -445,14 +445,14 @@ where
 
         let len = match read.read_i32().await {
             Ok(len) => len,
-            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
         };
 
         let mut password_response = vec![0u8; (len - 4) as usize];
 
         match read.read_exact(&mut password_response).await {
             Ok(_) => (),
-            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name))),
+            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
         };
 
         // Authenticate admin user.
@@ -466,10 +466,10 @@ where
             );
 
             if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
             }
 
             (false, generate_server_info_for_admin())
@@ -488,7 +488,7 @@ where
                     )
                     .await?;
 
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
+                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
                 }
             };
 
@@ -496,10 +496,10 @@ where
             let password_hash = md5_hash_password(username, &pool.settings.user.password, &salt);
 
             if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name);
+                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name);
                 wrong_password(&mut write, username).await?;
 
-                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", pool_name, username, application_name)));
+                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;

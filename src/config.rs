@@ -162,6 +162,13 @@ pub struct General {
 
     pub idle_transaction_timeout: Option<u64>,
 
+    #[serde(default = "General::default_tcp_keepalives_idle")]
+    pub tcp_keepalives_idle: u64,
+    #[serde(default = "General::default_tcp_keepalives_count")]
+    pub tcp_keepalives_count: u32,
+    #[serde(default = "General::default_tcp_keepalives_interval")]
+    pub tcp_keepalives_interval: u64,
+
     #[serde(default)] // False
     pub log_client_connections: bool,
 
@@ -205,6 +212,21 @@ impl General {
         1000
     }
 
+    // These keepalive defaults should detect a dead connection within 30 seconds.
+    // Tokio defaults to disabling keepalives which keeps dead connections around indefinitely.
+    // This can lead to permenant server pool exhaustion
+    pub fn default_tcp_keepalives_idle() -> u64 {
+        5 // 5 seconds
+    }
+
+    pub fn default_tcp_keepalives_count() -> u32 {
+        5 // 5 time
+    }
+
+    pub fn default_tcp_keepalives_interval() -> u64 {
+        5 // 5 seconds
+    }
+
     pub fn default_idle_timeout() -> u64 {
         60000 // 10 minutes
     }
@@ -245,6 +267,9 @@ impl Default for General {
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
             worker_threads: Self::default_worker_threads(),
+            tcp_keepalives_idle: Self::default_tcp_keepalives_idle(),
+            tcp_keepalives_count: Self::default_tcp_keepalives_count(),
+            tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
             log_client_connections: false,
             log_client_disconnections: false,
             autoreload: false,
