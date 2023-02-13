@@ -8,7 +8,11 @@ class PgcatProcess
   attr_reader :pid
 
   def self.finalize(pid, log_filename, config_filename)
-    `kill #{pid}` if pid
+    if pid
+      Process.kill("TERM", pid)
+      Process.wait(pid)
+    end
+
     File.delete(config_filename) if File.exist?(config_filename)
     File.delete(log_filename) if File.exist?(log_filename)
   end
@@ -77,8 +81,8 @@ class PgcatProcess
   def stop
     return unless @pid
 
-    `kill #{@pid}`
-    sleep 0.1
+    Process.kill("TERM", @pid)
+    Process.wait(@pid)
     @pid = nil
   end
 
