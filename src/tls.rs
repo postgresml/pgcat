@@ -1,6 +1,7 @@
 // Stream wrapper.
 
 use rustls_pemfile::{certs, read_one, Item};
+use std::iter;
 use std::path::Path;
 use std::sync::Arc;
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
@@ -18,19 +19,16 @@ pub fn load_certs(path: &Path) -> std::io::Result<Vec<Certificate>> {
 
 pub fn load_keys(path: &Path) -> std::io::Result<Vec<PrivateKey>> {
     let mut rd = std::io::BufReader::new(std::fs::File::open(path)?);
-    let mut keys = Vec::<Vec<u8>>::new();
 
-    loop {
-        match read_one(&mut rd)? {
-            None => break,
-            Some(Item::RSAKey(key)) => keys.push(key),
-            Some(Item::PKCS8Key(key)) => keys.push(key),
-            Some(Item::ECKey(key)) => keys.push(key),
-            _ => {}
-        };
-    }
-
-    Ok(keys.drain(..).map(PrivateKey).collect())
+    iter::from_fn(|| read_one(&mut rd).transpose())
+        .filter_map(|item| match item {
+            Err(err) => Some(Err(err)),
+            Ok(Item::RSAKey(key)) => Some(Ok(PrivateKey(key))),
+            Ok(Item::ECKey(key)) => Some(Ok(PrivateKey(key))),
+            Ok(Item::PKCS8Key(key)) => Some(Ok(PrivateKey(key))),
+            _ => None,
+        })
+        .collect()
 }
 
 pub struct Tls {
