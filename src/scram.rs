@@ -2,6 +2,7 @@
 // https://github.com/sfackler/rust-postgres/
 // SASL implementation.
 
+use base64::{engine::general_purpose, Engine as _};
 use bytes::BytesMut;
 use hmac::{Hmac, Mac};
 use rand::{self, Rng};
@@ -81,7 +82,7 @@ impl ScramSha256 {
             return Err(Error::ProtocolSyncError(format!("SCRAM")));
         }
 
-        let salt = match base64::decode(&server_message.salt) {
+        let salt = match general_purpose::STANDARD.decode(&server_message.salt) {
             Ok(salt) => salt,
             Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
         };
@@ -111,7 +112,7 @@ impl ScramSha256 {
         let mut cbind_input = vec![];
         cbind_input.extend("n,,".as_bytes());
 
-        let cbind_input = base64::encode(&cbind_input);
+        let cbind_input = general_purpose::STANDARD.encode(&cbind_input);
 
         self.message.clear();
 
@@ -149,7 +150,11 @@ impl ScramSha256 {
             *proof ^= signature;
         }
 
-        match write!(&mut self.message, ",p={}", base64::encode(&*client_proof)) {
+        match write!(
+            &mut self.message,
+            ",p={}",
+            general_purpose::STANDARD.encode(&*client_proof)
+        ) {
             Ok(_) => (),
             Err(_) => return Err(Error::ServerError),
         };
@@ -161,7 +166,7 @@ impl ScramSha256 {
     pub fn finish(&mut self, message: &BytesMut) -> Result<(), Error> {
         let final_message = FinalMessage::parse(message)?;
 
-        let verifier = match base64::decode(&final_message.value) {
+        let verifier = match general_purpose::STANDARD.decode(&final_message.value) {
             Ok(verifier) => verifier,
             Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
         };
