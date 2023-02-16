@@ -34,6 +34,7 @@ rustls-pemfile = "1"
 hyper = { version = "0.14", features = ["full"] }
 phf = { version = "0.11.1", features = ["macros"] }
 exitcode = "1.1.2"
+cadence = "0.29"
 futures = "0.3"
 socket2 = { version = "0.4.7", features = ["all"] }
 

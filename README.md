@@ -69,6 +69,32 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 6432 -U postgres -c 'SELECT 1'
 | `query_parser_enabled`       | Enable the query parser which will inspect incoming queries and route them to a primary or replicas.                                       | `false`                          |
 | `primary_reads_enabled`      | Enable this to allow read queries on the primary; otherwise read queries are routed to the replicas.                                       | `true`                           |
 
+## Statsd Configuration
+Statsd is optional and can be configured in both UnixSocket and Udp modes
+
+
+UDP
+```toml
+[general.statsd]
+type = "Udp"
+[general.statsd.args]
+prefix = "prefix.pgcat"
+host = "statsd.host.ac"
+port = 8125
+```
+
+Unix Socket
+```toml
+[general.statsd]
+type = "UnixSocket"
+[general.statsd.args]
+prefix = "prefix.pgcat"
+path = "/var/run/statsd.socket"
+```
+
+**Note**: The statsd client in pgcat will require it's own thread to run so it doesn't interfere with the main server threads. Under default configs that would mean **5 threads** will be required to run pgcat.
+
+
 ## Local development
 
 1. Install Rust (latest stable will work great).

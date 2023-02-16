@@ -21,6 +21,20 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Globally available configuration.
 static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(|| ArcSwap::from_pointee(Config::default()));
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[serde(tag = "type", content = "args")]
+pub enum StatsDMode {
+    UnixSocket {
+        prefix: String,
+        path: String,
+    },
+    Udp {
+        prefix: String,
+        host: String,
+        port: u16,
+    },
+}
+
 /// Server role: primary or replica.
 #[derive(Clone, PartialEq, Serialize, Deserialize, Hash, std::cmp::Eq, Debug, Copy)]
 pub enum Role {
@@ -196,6 +210,8 @@ pub struct General {
     pub tls_private_key: Option<String>,
     pub admin_username: String,
     pub admin_password: String,
+
+    pub statsd: Option<StatsDMode>,
 }
 
 impl General {
@@ -258,6 +274,7 @@ impl Default for General {
             port: Self::default_port(),
             enable_prometheus_exporter: Some(false),
             prometheus_exporter_port: 9930,
+            statsd: None,
             connect_timeout: General::default_connect_timeout(),
             idle_timeout: General::default_idle_timeout(),
             shutdown_timeout: Self::default_shutdown_timeout(),
@@ -625,6 +642,11 @@ impl Config {
             "Healthcheck timeout: {}ms",
             self.general.healthcheck_timeout
         );
+        if let Some(statsd_mode) = self.general.statsd.clone() {
+            info!("Statsd: {:?}", statsd_mode);
+        } else {
+            info!("Statsd: Not Enabled");
+        };
         info!("Connection timeout: {}ms", self.general.connect_timeout);
         info!("Idle timeout: {}ms", self.general.idle_timeout);
         info!(
