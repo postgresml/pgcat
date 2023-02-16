@@ -20,28 +20,28 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=md5 --auth-host=md5 --auth=md5
       - image: postgres:14
         command: ["postgres", "-p", "7432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_INITDB_ARGS: --auth-local=md5 --auth-host=md5 --auth=md5
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       - image: postgres:14
         command: ["postgres", "-p", "8432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_INITDB_ARGS: --auth-local=password --auth-host=password --auth=password
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       - image: postgres:14
         command: ["postgres", "-p", "9432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_INITDB_ARGS: --auth-local=trust --auth-host=trust --auth=trust
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
 
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
