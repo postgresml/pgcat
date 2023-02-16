@@ -39,9 +39,6 @@ services:
   main:
     build: .
     command: ["bash", "/app/tests/docker/run.sh"]
-    environment:
-      RUSTFLAGS: "-C instrument-coverage"
-      LLVM_PROFILE_FILE: "pgcat-%m.profraw"
     volumes:
       - ../../:/app/
       - /app/target/
