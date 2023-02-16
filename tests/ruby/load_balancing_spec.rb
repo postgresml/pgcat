@@ -46,6 +46,7 @@ describe "Random Load Balancing" do
         end
       end
 
+      puts processes.pgcat.logs
       expect(failed_count).to eq(2)
       processes.all_databases.each do |instance|
         queries_routed = instance.count_select_1_plus_2

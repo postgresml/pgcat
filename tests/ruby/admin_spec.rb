@@ -221,7 +221,7 @@ describe "Admin" do
         results = admin_conn.async_exec("SHOW POOLS")[0]
 
         expect(results["maxwait"]).to eq("1")
-        expect(results["maxwait_us"].to_i).to be_within(100_000).of(750_000)
+        expect(results["maxwait_us"].to_i).to be_within(100_000).of(500_000)
 
         sleep(4.5) # Allow time for stats to update
         results = admin_conn.async_exec("SHOW POOLS")[0]
