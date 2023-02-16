@@ -621,6 +621,7 @@ impl Config {
     /// Print current configuration.
     pub fn show(&self) {
         info!("Ban time: {}s", self.general.ban_time);
+        info!("Worker threads: {}", self.general.worker_threads);
         info!(
             "Healthcheck timeout: {}ms",
             self.general.healthcheck_timeout
