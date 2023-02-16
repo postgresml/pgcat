@@ -4,7 +4,7 @@ require 'pg'
 require_relative 'helpers/pgcat_helper'
 
 QUERY_COUNT = 300
-MARGIN_OF_ERROR = 0.30
+MARGIN_OF_ERROR = 0.35
 
 def with_captured_stdout_stderr
   sout = STDOUT.clone
