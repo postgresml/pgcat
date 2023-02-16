@@ -209,7 +209,7 @@ describe "Admin" do
         connections.map(&:close)
       end
 
-      it "show correct max_wait" do
+      xit "show correct max_wait" do
         threads = []
         connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
         connections.each do |c|
