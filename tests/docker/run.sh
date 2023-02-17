@@ -5,7 +5,6 @@ rm /app/*.profraw || true
 rm /app/pgcat.profdata || true
 rm -rf /app/cov || true
 
-export RUSTFLAGS="-Cinstrument-coverage"
 export LLVM_PROFILE_FILE="/app/pgcat-%m-%p.profraw"
 export RUSTC_BOOTSTRAP=1
 export CARGO_INCREMENTAL=0
@@ -18,6 +17,7 @@ cargo build
 cargo test --tests
 
 bash .circleci/run_tests.sh
+
 TEST_OBJECTS=$( \
     for file in $(cargo test --no-run 2>&1 | grep "target/debug/deps/pgcat-[[:alnum:]]\+" -o); \
     do \

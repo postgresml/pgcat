@@ -8,8 +8,8 @@ TEST_OBJECTS=$( \
     done \
 )
 
-rust-profdata merge -sparse pgcat-*.profraw -o pgcat.profdata
+rust-profdata merge -sparse /tmp/pgcat-*.profraw -o /tmp/pgcat.profdata
 
-bash -c "rust-cov export -ignore-filename-regex='rustc|registry' -Xdemangler=rustfilt -instr-profile=pgcat.profdata $TEST_OBJECTS --object ./target/debug/pgcat --format lcov > ./lcov.info"
+bash -c "rust-cov export -ignore-filename-regex='rustc|registry' -Xdemangler=rustfilt -instr-profile=/tmp/pgcat.profdata $TEST_OBJECTS --object ./target/debug/pgcat --format lcov > ./lcov.info"
 
 genhtml lcov.info -show-details --highlight --ignore-errors source --legend  --output-directory /tmp/cov --prefix $(pwd)

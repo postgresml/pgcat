@@ -12,12 +12,11 @@ jobs:
       - image: ghcr.io/levkk/pgcat-ci:latest
         environment:
           RUST_LOG: info
-          LLVM_PROFILE_FILE: pgcat-%m-%p.profraw
+          LLVM_PROFILE_FILE: /tmp/pgcat-%m-%p.profraw
           RUSTC_BOOTSTRAP: 1
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort -Cinstrument-coverage"
           RUSTDOCFLAGS: "-Cpanic=abort"
-
       - image: postgres:14
         command: ["postgres", "-p", "5432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
