@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -104,6 +105,15 @@ pub struct PoolSettings {
 
     // Ban time
     pub ban_time: i64,
+
+    // Regex for searching for the sharding key in SQL statements
+    pub sharding_key_regex: Option<Regex>,
+
+    // Regex for searching for the shard id in SQL statements
+    pub shard_id_regex: Option<Regex>,
+
+    // Limit how much of each query is searched for a potential shard regex match
+    pub regex_search_limit: usize,
 }
 
 impl Default for PoolSettings {
@@ -121,6 +131,9 @@ impl Default for PoolSettings {
             healthcheck_delay: General::default_healthcheck_delay(),
             healthcheck_timeout: General::default_healthcheck_timeout(),
             ban_time: General::default_ban_time(),
+            sharding_key_regex: None,
+            shard_id_regex: None,
+            regex_search_limit: 1000,
         }
     }
 }
@@ -300,6 +313,15 @@ impl ConnectionPool {
                         healthcheck_delay: config.general.healthcheck_delay,
                         healthcheck_timeout: config.general.healthcheck_timeout,
                         ban_time: config.general.ban_time,
+                        sharding_key_regex: pool_config
+                            .sharding_key_regex
+                            .clone()
+                            .map(|regex| Regex::new(regex.as_str()).unwrap()),
+                        shard_id_regex: pool_config
+                            .shard_id_regex
+                            .clone()
+                            .map(|regex| Regex::new(regex.as_str()).unwrap()),
+                        regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
