@@ -31,7 +31,7 @@ rust-profdata merge -sparse /app/pgcat-*.profraw -o /app/pgcat.profdata
 
 bash -c "rust-cov export -ignore-filename-regex='rustc|registry' -Xdemangler=rustfilt -instr-profile=/app/pgcat.profdata $TEST_OBJECTS --object ./target/debug/pgcat --format lcov > ./lcov.info"
 
-genhtml lcov.info -show-details --highlight --ignore-errors source --legend  --output-directory cov --prefix $(pwd)
+genhtml lcov.info --title "PgCat Code Coverage" --css-file ./cov-style.css --highlight --no-function-coverage --ignore-errors source --legend  --output-directory cov --prefix $(pwd)
 
 rm /app/*.profraw
 rm /app/pgcat.profdata

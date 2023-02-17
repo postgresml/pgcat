@@ -1,0 +1,158 @@
+/*
+ * Copyright 2021 Collabora, Ltd.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the
+ * next paragraph) shall be included in all copies or substantial
+ * portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+body {
+	background-color: #f2f2f2;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+		"Noto Sans", Ubuntu, Cantarell, "Helvetica Neue", sans-serif,
+		"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+		"Noto Color Emoji";
+}
+
+.sourceHeading, .source, .coverFn,
+.testName, .testPer, .testNum,
+.coverLegendCovLo, .headerCovTableEntryLo, .coverPerLo, .coverNumLo,
+.coverLegendCovMed, .headerCovTableEntryMed, .coverPerMed, .coverNumMed,
+.coverLegendCovHi, .headerCovTableEntryHi, .coverPerHi, .coverNumHi,
+.coverFile {
+	font-family: "Menlo", "DejaVu Sans Mono", "Liberation Mono",
+		"Consolas", "Ubuntu Mono", "Courier New", "andale mono",
+		"lucida console", monospace;
+}
+
+pre {
+	font-size: 0.7875rem;
+}
+
+.headerCovTableEntry, .testPer, .testNum, .testName,
+.coverLegendCovLo, .headerCovTableEntryLo, .coverPerLo, .coverNumLo,
+.coverLegendCovMed, .headerCovTableEntryMed, .coverPerMed, .coverNumMed,
+.coverLegendCovHi, .headerCovTableEntryHi, .coverPerHi, .coverNumHi {
+	text-align: right;
+	white-space: nowrap;
+}
+
+.coverPerLo, .coverPerMed, .coverPerHi, .testPer {
+/*	font-weight: bold;*/
+}
+
+.coverNumLo, .coverNumMed, .coverNumHi, .testNum {
+	font-style: italic;
+	font-size: 90%;
+	padding-left: 1em;
+}
+
+.title {
+	font-size: 200%;
+}
+
+.tableHead {
+	text-align: center;
+	font-weight: bold;
+	background-color: #bfbfbf;
+}
+
+.coverFile, .coverBar, .coverFn {
+	background-color: #d9d9d9;
+}
+
+.headerCovTableHead {
+	font-weight: bold;
+	text-align: right;
+}
+
+.headerCovTableEntry {
+	background-color: #d9d9d9;
+}
+
+.coverFnLo,
+.coverLegendCovLo, .headerCovTableEntryLo, .coverPerLo, .coverNumLo {
+	background-color: #f2dada;
+}
+
+.coverFnHi,
+.coverLegendCovMed, .headerCovTableEntryMed, .coverPerMed, .coverNumMed {
+	background-color: #add9ad;
+}
+
+.coverLegendCovHi, .headerCovTableEntryHi, .coverPerHi, .coverNumHi {
+	background-color: #59b359;
+}
+
+.coverBarOutline {
+	border-style: solid;
+	border-width: 1px;
+	border-color: black;
+	padding: 0px;
+}
+
+.coverFnLo, .coverFnHi {
+	text-align: right;
+}
+
+.lineNum {
+	background-color: #d9d9d9;
+}
+
+.coverLegendCov, .lineCov, .branchCov {
+	background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAABCAIAAABsYngUAAADAXpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjazZVbktwgDEX/WUWWgCSExHIwj6rsIMvPxcY9PY9MzVTyEVMNtCwkoYNwGL9+zvADDxHHkNQ8l5wjnlRS4YqJx+upZ08xnf313O/otTw8FBgzwShbP2/5gJyhz1vetp0KuT4ZKmO/OF6/qNsQ+3ZwO9yOhC4HcRsOdRsS3p7T9f+4thVzcXveQtv6sz5t1dfW0CUxzprJEvrE0SwXzJ1jMuStr0CPvhfqdvTmf7hVGTHxEJKI3leEsn4kFWNCT/CGfUnBXDEuyd4yaHGIhnm58/r581nk4Q59Y32N+p69Qc3xPelwJvRWkTeE8mP8UE76Ig/PSE9uT55z3jN+LZ/pJaibXLjxzdl9znHtrqaMLee9qXuL5wx6x8rWuSqjGX4afSV7tYLmKImGc9RxyA60RoUYGCcl6lRp0jjHRg0hJh4MjszcALcFCB0wCjcgJYBGo8kGzF0cB6DhOAik/IiFTrfldNfI4biTB5wegjHCkr9q4StKc66CIlq55CtXiItXwhHFIkeE6ocaiNDcSdUzwXd7+yyuAoJ6ptmxwRqPZQH4D6WXwyUnaIGiYrwKmKxvA0gRIlAEQwICMZMoZYrGHIwIiXQAqgidJfEBLKTKHUFyEsmAgyqAb6wxOlVZ+RLjIgQIlRzEwAaFCFgpKc6PJccZqiqaVDWrqWvRmiWvCsvZ8rpRq4klU8tm5lasBhdPrp7d3L14LVwEN64W1GPxUkqtcFphuWJ1hUKtBx9ypEOPfNjhRzlq49CkpaYtN2veSqudu3TUcc/duvfS66CBozTS0JGHDR9l1ImjNmWmqTNPmz5LmPVBbWN9175BjTY1PkktRXtQg9TsNkHrOtHFDMQ4EYDbIkASmBez6JQSL3KLWSyMqlBGkLrgdFrEQDANYp30YPdCToPkf8MtAAT/C3JhofsCuffcPqLW6/mhk5PQKsOV1CiovpHgnx3LcCvhwlnz9dF8P4Y/vfju+J8aQpZK+A373P3XzDqcKwAAAAZiS0dEAAAAAAAA+UO7fwAAAAlwSFlzAAAOxAAADsQBlSsOGwAAAAd0SU1FB+UEEQYyDQA04tUAAAAZdEVYdENvbW1lbnQAQ3JlYXRlZCB3aXRoIEdJTVBXgQ4XAAAADklEQVQI12PULVBlwAYAEagAxGHRDdwAAAAASUVORK5CYII=');
+	background-repeat: repeat-y;
+	background-position: left top;
+	background-color: #c6ffb8;
+}
+
+.coverLegendNoCov, .lineNoCov, .branchNoCov, .branchNoExec {
+	background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAABCAIAAABsYngUAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAB3RJTUUH5QMUCiMidNgp2gAAABl0RVh0Q29tbWVudABDcmVhdGVkIHdpdGggR0lNUFeBDhcAAAAPSURBVAjXY/wZIcWADQAAIa4BbZaExr0AAAAASUVORK5CYII=');
+	background-repeat: repeat-y;
+	background-position: left top;
+	background-color: #ffcfbb;
+}
+
+.coverLegendCov, .coverLegendNoCov {
+	padding: 0em 1em 0em 1em;
+}
+
+.headerItem, .headerValue, .headerValueLeg {
+	white-space: nowrap;
+}
+
+.headerItem {
+	text-align: right;
+	font-weight: bold;
+}
+
+.ruler {
+	background-color: #d9d9d9;
+}
+
+.detail {
+	font-size: 80%;
+}
+
+.versionInfo {
+	font-size: 80%;
+	text-align: right;
+}
+
