@@ -1,8 +1,7 @@
 name: publish-ci-docker-image
-on: [push]
-#on:
-#  push:
-#    branches: [ main ]
+on:
+  push:
+    branches: [ main ]
 jobs:
   publish-ci-docker-image:
     runs-on: ubuntu-latest
