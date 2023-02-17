@@ -85,6 +85,12 @@ query_parser_enabled = true
 # queries. The primary can always be explicitly selected with our custom protocol.
 primary_reads_enabled = true
 
+# Allow sharding commands to be passed as statement comments instead of
+# separate commands. If these are unset this functionality is disabled.
+# sharding_key_regex = '/\* sharding_key: (\d+) \*/'
+# shard_id_regex = '/\* shard_id: (\d+) \*/'
+# regex_search_limit = 1000 # only look at the first 1000 characters of SQL statements
+
 # So what if you wanted to implement a different hashing function,
 # or you've already built one and you want this pooler to use it?
 #

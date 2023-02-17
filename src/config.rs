@@ -2,6 +2,7 @@
 use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
+use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::Hash;
@@ -342,8 +343,15 @@ pub struct Pool {
     #[serde(default = "Pool::default_automatic_sharding_key")]
     pub automatic_sharding_key: Option<String>,
 
+    pub sharding_key_regex: Option<String>,
+    pub shard_id_regex: Option<String>,
+    pub regex_search_limit: Option<usize>,
+
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
+    // Note, don't put simple fields below these configs. There's a compatability issue with TOML that makes it
+    // incompatible to have simple fields in TOML after complex objects. See
+    // https://users.rust-lang.org/t/why-toml-to-string-get-error-valueaftertable/85903
 }
 
 impl Pool {
@@ -387,6 +395,18 @@ impl Pool {
             shard.validate()?;
         }
 
+        for (option, name) in [
+            (&self.shard_id_regex, "shard_id_regex"),
+            (&self.sharding_key_regex, "sharding_key_regex"),
+        ] {
+            if let Some(regex) = option {
+                if let Err(parse_err) = Regex::new(regex.as_str()) {
+                    error!("{} is not a valid Regex: {}", name, parse_err);
+                    return Err(Error::BadConfig);
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -405,6 +425,9 @@ impl Default for Pool {
             automatic_sharding_key: None,
             connect_timeout: None,
             idle_timeout: None,
+            sharding_key_regex: None,
+            shard_id_regex: None,
+            regex_search_limit: Some(1000),
         }
     }
 }
@@ -598,6 +621,7 @@ impl Config {
     /// Print current configuration.
     pub fn show(&self) {
         info!("Ban time: {}s", self.general.ban_time);
+        info!("Worker threads: {}", self.general.worker_threads);
         info!(
             "Healthcheck timeout: {}ms",
             self.general.healthcheck_timeout

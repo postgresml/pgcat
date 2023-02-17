@@ -14,6 +14,7 @@ use crate::messages::BytesMutReader;
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
+use std::cmp;
 use std::collections::BTreeSet;
 use std::io::Cursor;
 
@@ -114,7 +115,52 @@ impl QueryRouter {
 
         let code = message_cursor.get_u8() as char;
 
-        // Only simple protocol supported for commands.
+        // Check for any sharding regex matches in any queries
+        match code as char {
+            // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
+            'P' | 'Q' => {
+                if self.pool_settings.shard_id_regex.is_some()
+                    || self.pool_settings.sharding_key_regex.is_some()
+                {
+                    // Check only the first block of bytes configured by the pool settings
+                    let len = message_cursor.get_i32() as usize;
+                    let seg = cmp::min(len - 5, self.pool_settings.regex_search_limit);
+                    let initial_segment = String::from_utf8_lossy(&message_buffer[0..seg]);
+
+                    // Check for a shard_id included in the query
+                    if let Some(shard_id_regex) = &self.pool_settings.shard_id_regex {
+                        let shard_id = shard_id_regex.captures(&initial_segment).and_then(|cap| {
+                            cap.get(1).and_then(|id| id.as_str().parse::<usize>().ok())
+                        });
+                        if let Some(shard_id) = shard_id {
+                            debug!("Setting shard to {:?}", shard_id);
+                            self.set_shard(shard_id);
+                            // Skip other command processing since a sharding command was found
+                            return None;
+                        }
+                    }
+
+                    // Check for a sharding_key included in the query
+                    if let Some(sharding_key_regex) = &self.pool_settings.sharding_key_regex {
+                        let sharding_key =
+                            sharding_key_regex
+                                .captures(&initial_segment)
+                                .and_then(|cap| {
+                                    cap.get(1).and_then(|id| id.as_str().parse::<i64>().ok())
+                                });
+                        if let Some(sharding_key) = sharding_key {
+                            debug!("Setting sharding_key to {:?}", sharding_key);
+                            self.set_sharding_key(sharding_key);
+                            // Skip other command processing since a sharding command was found
+                            return None;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Only simple protocol supported for commands processed below
         if code != 'Q' {
             return None;
         }
@@ -192,13 +238,11 @@ impl QueryRouter {
 
         match command {
             Command::SetShardingKey => {
-                let sharder = Sharder::new(
-                    self.pool_settings.shards,
-                    self.pool_settings.sharding_function,
-                );
-                let shard = sharder.shard(value.parse::<i64>().unwrap());
-                self.active_shard = Some(shard);
-                value = shard.to_string();
+                // TODO: some error handling here
+                value = self
+                    .set_sharding_key(value.parse::<i64>().unwrap())
+                    .unwrap()
+                    .to_string();
             }
 
             Command::SetShard => {
@@ -463,6 +507,16 @@ impl QueryRouter {
                 None
             }
         }
+    }
+
+    fn set_sharding_key(&mut self, sharding_key: i64) -> Option<usize> {
+        let sharder = Sharder::new(
+            self.pool_settings.shards,
+            self.pool_settings.sharding_function,
+        );
+        let shard = sharder.shard(sharding_key);
+        self.set_shard(shard);
+        self.active_shard
     }
 
     /// Get the current desired server role we should be talking to.
@@ -775,6 +829,9 @@ mod test {
             healthcheck_delay: PoolSettings::default().healthcheck_delay,
             healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
             ban_time: PoolSettings::default().ban_time,
+            sharding_key_regex: None,
+            shard_id_regex: None,
+            regex_search_limit: 1000,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -819,5 +876,48 @@ mod test {
             "SELECT 123; INSERT INTO t VALUES (5); SELECT 1;"
         )));
         assert_eq!(qr.role(), Role::Primary);
+    }
+
+    #[test]
+    fn test_regex_shard_parsing() {
+        QueryRouter::setup();
+
+        let pool_settings = PoolSettings {
+            pool_mode: PoolMode::Transaction,
+            load_balancing_mode: crate::config::LoadBalancingMode::Random,
+            shards: 5,
+            user: crate::config::User::default(),
+            default_role: Some(Role::Replica),
+            query_parser_enabled: true,
+            primary_reads_enabled: false,
+            sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: Some(String::from("id")),
+            healthcheck_delay: PoolSettings::default().healthcheck_delay,
+            healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
+            ban_time: PoolSettings::default().ban_time,
+            sharding_key_regex: Some(Regex::new(r"/\* sharding_key: (\d+) \*/").unwrap()),
+            shard_id_regex: Some(Regex::new(r"/\* shard_id: (\d+) \*/").unwrap()),
+            regex_search_limit: 1000,
+        };
+        let mut qr = QueryRouter::new();
+        qr.update_pool_settings(pool_settings.clone());
+
+        // Shard should start out unset
+        assert_eq!(qr.active_shard, None);
+
+        // Make sure setting it works
+        let q1 = simple_query("/* shard_id: 1 */ select 1 from foo;");
+        assert!(qr.try_execute_command(&q1) == None);
+        assert_eq!(qr.active_shard, Some(1));
+
+        // And make sure changing it works
+        let q2 = simple_query("/* shard_id: 0 */ select 1 from foo;");
+        assert!(qr.try_execute_command(&q2) == None);
+        assert_eq!(qr.active_shard, Some(0));
+
+        // Validate setting by shard with expected shard copied from sharding.rs tests
+        let q2 = simple_query("/* sharding_key: 6 */ select 1 from foo;");
+        assert!(qr.try_execute_command(&q2) == None);
+        assert_eq!(qr.active_shard, Some(2));
     }
 }
