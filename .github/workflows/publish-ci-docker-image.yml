@@ -1,4 +1,4 @@
-name: publish
+name: publish-ci-docker-image
 on: [push]
 #    branches: [ mostafa_add-missing-dependancy-to-dkr-image2 ]
 jobs:
