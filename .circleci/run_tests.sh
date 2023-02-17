@@ -24,10 +24,6 @@ PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard0 -i
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard1 -i
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard2 -i
 
-# Install Toxiproxy to simulate a downed/slow database
-wget -O toxiproxy-2.4.0.deb https://github.com/Shopify/toxiproxy/releases/download/v2.4.0/toxiproxy_2.4.0_linux_$(dpkg --print-architecture).deb
-sudo dpkg -i toxiproxy-2.4.0.deb
-
 # Start Toxiproxy
 LOG_LEVEL=error toxiproxy-server &
 sleep 1
@@ -99,7 +95,6 @@ kill -SIGHUP $(pgrep pgcat) # Reload config again
 # ActiveRecord tests
 #
 cd tests/ruby
-sudo gem install bundler
 sudo bundle install
 bundle exec ruby tests.rb || exit 1
 bundle exec rspec *_spec.rb || exit 1

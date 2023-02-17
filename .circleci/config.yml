@@ -9,39 +9,42 @@ jobs:
     # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
     # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
-      - image: levkk/pgcat-ci:latest
+      - image: ghcr.io/levkk/pgcat-ci:latest
         environment:
           RUST_LOG: info
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "pgcat-%m.profraw"
+          LLVM_PROFILE_FILE: /tmp/pgcat-%m-%p.profraw
+          RUSTC_BOOTSTRAP: 1
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort -Cinstrument-coverage"
+          RUSTDOCFLAGS: "-Cpanic=abort"
       - image: postgres:14
         command: ["postgres", "-p", "5432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=md5 --auth-host=md5 --auth=md5
       - image: postgres:14
         command: ["postgres", "-p", "7432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       - image: postgres:14
         command: ["postgres", "-p", "8432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       - image: postgres:14
         command: ["postgres", "-p", "9432", "-c", "shared_preload_libraries=pg_stat_statements"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+          POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
 
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
@@ -53,17 +56,8 @@ jobs:
           name: "Lint"
           command: "cargo fmt --check"
       - run:
-          name: "Install dependencies"
-          command: "sudo apt-get update && sudo apt-get install -y psmisc postgresql-contrib-12 postgresql-client-12 ruby ruby-dev libpq-dev python3 python3-pip lcov llvm-11 iproute2 && sudo apt-get upgrade curl"
-      - run:
-          name: "Install rust tools"
-          command: "cargo install cargo-binutils rustfilt && rustup component add llvm-tools-preview"
-      - run:
-          name: "Build"
-          command: "cargo build"
-      - run:
           name: "Tests"
-          command: "cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
+          command: "cargo clean && cargo build && cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
       - store_artifacts:
           path: /tmp/cov
           destination: coverage-data
