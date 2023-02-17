@@ -57,11 +57,8 @@ jobs:
           name: "Lint"
           command: "cargo fmt --check"
       - run:
-          name: "Build"
-          command: "cargo build"
-      - run:
           name: "Tests"
-          command: "cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
+          command: "cargo clean && cargo build && cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
       - store_artifacts:
           path: /tmp/cov
           destination: coverage-data

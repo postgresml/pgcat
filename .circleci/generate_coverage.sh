@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 # inspired by https://doc.rust-lang.org/rustc/instrument-coverage.html#tips-for-listing-the-binaries-automatically
 TEST_OBJECTS=$( \
     for file in $(cargo test --no-run 2>&1 | grep "target/debug/deps/pgcat-[[:alnum:]]\+" -o); \
