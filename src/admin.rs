@@ -676,7 +676,7 @@ async fn show_users<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let res = BytesMut::new();
+    let mut res = BytesMut::new();
 
     res.put(row_description(&vec![
         ("name", DataType::Text),
@@ -685,8 +685,10 @@ where
 
     for (user_pool, pool) in get_all_pools() {
         let pool_config = &pool.settings;
-        let mut row = vec![user_pool.user.clone(), pool_config.pool_mode.to_string()];
-        res.put(data_row(&row));
+        res.put(data_row(&vec![
+            user_pool.user.clone(),
+            pool_config.pool_mode.to_string(),
+        ]));
     }
 
     res.put(command_complete("SHOW"));
