@@ -2,3 +2,6 @@
 /target
 *.deb
 .vscode
+.profraw
+cov/
+lcov.info

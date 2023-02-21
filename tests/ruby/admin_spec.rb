@@ -286,4 +286,14 @@ describe "Admin" do
       connections.map(&:close)
     end
   end
+
+  describe "SHOW users" do
+    it "returns the right users" do
+      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+      results = admin_conn.async_exec("SHOW USERS")[0]
+      admin_conn.close
+      expect(results["name"]).to eq("sharding_user")
+      expect(results["pool_mode"]).to eq("transaction")
+    end
+  end
 end

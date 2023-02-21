@@ -100,6 +100,10 @@ where
                 trace!("SHOW VERSION");
                 show_version(stream).await
             }
+            "USERS" => {
+                trace!("SHOW USERS");
+                show_users(stream).await
+            }
             _ => error_response(stream, "Unsupported SHOW query against the admin database").await,
         },
         _ => error_response(stream, "Unsupported query against the admin database").await,
@@ -665,4 +669,33 @@ where
             }
         }
     }
+}
+
+/// Show Users.
+async fn show_users<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![
+        ("name", DataType::Text),
+        ("pool_mode", DataType::Text),
+    ]));
+
+    for (user_pool, pool) in get_all_pools() {
+        let pool_config = &pool.settings;
+        res.put(data_row(&vec![
+            user_pool.user.clone(),
+            pool_config.pool_mode.to_string(),
+        ]));
+    }
+
+    res.put(command_complete("SHOW"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
 }
