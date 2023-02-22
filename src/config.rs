@@ -4,8 +4,9 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -355,6 +356,12 @@ pub struct Pool {
 }
 
 impl Pool {
+    pub fn hash_value(&self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        s.finish()
+    }
+
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
     }

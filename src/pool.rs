@@ -9,7 +9,7 @@ use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -37,8 +37,6 @@ pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
-static POOLS_HASH: Lazy<ArcSwap<HashSet<crate::config::Pool>>> =
-    Lazy::new(|| ArcSwap::from_pointee(HashSet::default()));
 
 /// An identifier for a PgCat pool,
 /// a database visible to clients.
@@ -168,6 +166,11 @@ pub struct ConnectionPool {
     /// to use it.
     validated: Arc<AtomicBool>,
 
+    /// Hash value for the pool configs. It is used to compare new configs
+    /// against current config to decide whether or not we need to recreate
+    /// the pool after a RELOAD command
+    pub config_hash: u64,
+
     /// If the pool has been paused or not.
     paused: Arc<AtomicBool>,
     paused_waiter: Arc<Notify>,
@@ -181,18 +184,18 @@ impl ConnectionPool {
         let mut new_pools = HashMap::new();
         let mut address_id = 0;
 
-        let mut pools_hash = (*(*POOLS_HASH.load())).clone();
-
         for (pool_name, pool_config) in &config.pools {
-            let changed = pools_hash.insert(pool_config.clone());
+            let new_pool_hash_value = pool_config.hash_value();
 
             // There is one pool per database/user pair.
             for user in pool_config.users.values() {
-                // If the pool hasn't changed, get existing reference and insert it into the new_pools.
-                // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
-                if !changed {
-                    match get_pool(pool_name, &user.username) {
-                        Some(pool) => {
+                let old_pool_ref = get_pool(pool_name, &user.username);
+
+                match old_pool_ref {
+                    Some(pool) => {
+                        // If the pool hasn't changed, get existing reference and insert it into the new_pools.
+                        // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
+                        if pool.config_hash == new_pool_hash_value {
                             info!(
                                 "[pool: {}][user: {}] has not changed",
                                 pool_name, user.username
@@ -203,8 +206,8 @@ impl ConnectionPool {
                             );
                             continue;
                         }
-                        None => (),
                     }
+                    None => (),
                 }
 
                 info!(
@@ -293,6 +296,7 @@ impl ConnectionPool {
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     stats: get_reporter(),
+                    config_hash: new_pool_hash_value,
                     server_info: Arc::new(RwLock::new(BytesMut::new())),
                     settings: PoolSettings {
                         pool_mode: pool_config.pool_mode,
@@ -342,8 +346,6 @@ impl ConnectionPool {
         }
 
         POOLS.store(Arc::new(new_pools.clone()));
-        POOLS_HASH.store(Arc::new(pools_hash.clone()));
-
         Ok(())
     }
 
