@@ -204,8 +204,8 @@ impl ConnectionPool {
                                 PoolIdentifier::new(pool_name, &user.username),
                                 pool.clone(),
                             );
+                            continue;
                         }
-                        continue;
                     }
                     None => (),
                 }
