@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
+use crate::dns_cache::CachedResolver;
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
@@ -1131,6 +1132,10 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
         }
     };
     let new_config = get_config();
+    match CachedResolver::from_config().await {
+        Ok(_) => (),
+        Err(err) => error!("DNS cache reinitialization error: {:?}", err),
+    };
 
     if old_config.pools != new_config.pools {
         info!("Pool configuration changed");

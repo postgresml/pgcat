@@ -167,25 +167,21 @@ impl Server {
         auth_hash: Arc<RwLock<Option<String>>>,
     ) -> Result<Server, Error> {
         let cached_resolver = CACHED_RESOLVER.load();
-        let addr_set = match cached_resolver.as_ref() {
-            Some(cached_resolver) => {
-                if address.host.parse::<IpAddr>().is_err() {
-                    debug!("Resolving {}", &address.host);
-                    match cached_resolver.load().lookup_ip(&address.host).await {
-                        Ok(ok) => {
-                            debug!("Obtained: {:?}", ok);
-                            Some(ok)
-                        }
-                        Err(err) => {
-                            warn!("Error trying to resolve {}, ({:?})", &address.host, err);
-                            None
-                        }
-                    }
-                } else {
+        let mut addr_set: Option<AddrSet> = None;
+
+        // If we are caching addresses and hostname is not an IP
+        if cached_resolver.enabled() && address.host.parse::<IpAddr>().is_err() {
+            debug!("Resolving {}", &address.host);
+            addr_set = match cached_resolver.lookup_ip(&address.host).await {
+                Ok(ok) => {
+                    debug!("Obtained: {:?}", ok);
+                    Some(ok)
+                }
+                Err(err) => {
+                    warn!("Error trying to resolve {}, ({:?})", &address.host, err);
                     None
                 }
             }
-            None => None,
         };
 
         let mut stream =
@@ -880,13 +876,10 @@ impl Server {
         if self.bad {
             return self.bad;
         };
-
-        if let Some(cached_resolver) = CACHED_RESOLVER.load().as_ref() {
+        let cached_resolver = CACHED_RESOLVER.load();
+        if cached_resolver.enabled() {
             if let Some(addr_set) = &self.addr_set {
-                if cached_resolver
-                    .load()
-                    .has_changed(self.address.host.as_str(), addr_set)
-                {
+                if cached_resolver.has_changed(self.address.host.as_str(), addr_set) {
                     warn!(
                         "DNS changed for {}, it was {:?}. Dropping server connection.",
                         self.address.host.as_str(),
