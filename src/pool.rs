@@ -166,8 +166,9 @@ pub struct ConnectionPool {
     /// to use it.
     validated: Arc<AtomicBool>,
 
-    /// Hash value for the pool configs. It used to compare new configs against current config
-    /// to decide whether or not we need to recreate the pool after a RELOAD
+    /// Hash value for the pool configs. It is used to compare new configs
+    /// against current config to decide whether or not we need to recreate
+    /// the pool after a RELOAD command
     pub config_hash: u64,
 
     /// If the pool has been paused or not.
@@ -204,6 +205,7 @@ impl ConnectionPool {
                                 pool.clone(),
                             );
                         }
+                        continue;
                     }
                     None => (),
                 }
