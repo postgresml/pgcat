@@ -53,7 +53,7 @@ class PgcatProcess
 
   def reload_config
     `kill -s HUP #{@pid}`
-    sleep 0.1
+    sleep 0.5
   end
 
   def start
