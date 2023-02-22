@@ -8,6 +8,55 @@ describe "Miscellaneous" do
     processes.pgcat.shutdown
   end
 
+  context "when adding then removing instance using RELOAD" do
+    it "works correctly" do
+      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+
+      current_configs = processes.pgcat.current_config
+      correct_count = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].count
+      expect(admin_conn.async_exec("SHOW DATABASES").count).to eq(correct_count)
+
+      extra_replica = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].last.clone
+      extra_replica[0] = "127.0.0.1"
+      current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"] << extra_replica
+
+      processes.pgcat.update_config(current_configs) # with replica added
+      processes.pgcat.reload_config
+      correct_count = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].count
+      expect(admin_conn.async_exec("SHOW DATABASES").count).to eq(correct_count)
+
+      current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].pop
+
+      processes.pgcat.update_config(current_configs) # with replica removed again
+      processes.pgcat.reload_config
+      correct_count = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].count
+      expect(admin_conn.async_exec("SHOW DATABASES").count).to eq(correct_count)
+    end
+  end
+
+  context "when removing then adding instance back using RELOAD" do
+    it "works correctly" do
+      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+
+      current_configs = processes.pgcat.current_config
+      correct_count = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].count
+      expect(admin_conn.async_exec("SHOW DATABASES").count).to eq(correct_count)
+
+      removed_replica = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].pop
+      processes.pgcat.update_config(current_configs) # with replica removed
+      processes.pgcat.reload_config
+      correct_count = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].count
+      expect(admin_conn.async_exec("SHOW DATABASES").count).to eq(correct_count)
+
+      current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"] << removed_replica
+
+      processes.pgcat.update_config(current_configs) # with replica added again
+      processes.pgcat.reload_config
+      correct_count = current_configs["pools"]["sharded_db"]["shards"]["0"]["servers"].count
+      expect(admin_conn.async_exec("SHOW DATABASES").count).to eq(correct_count)
+    end
+  end
+
   describe "TCP Keepalives" do
     # Ideally, we should block TCP traffic to the database using
     # iptables to mimic passive (connection is dropped without a RST packet)
