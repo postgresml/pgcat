@@ -30,17 +30,20 @@ pub async fn handle_admin<T>(
     stream: &mut T,
     mut query: BytesMut,
     client_server_map: ClientServerMap,
-) -> Result<(), Error>
+) -> (bool, Result<(), Error>)
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let code = query.get_u8() as char;
 
     if code != 'Q' {
-        return Err(Error::ProtocolSyncError(format!(
-            "Invalid code, expected 'Q' but got '{}'",
-            code
-        )));
+        return (
+            false,
+            Err(Error::ProtocolSyncError(format!(
+                "Invalid code, expected 'Q' but got '{}'",
+                code
+            ))),
+        );
     }
 
     let len = query.get_i32() as usize;
@@ -50,7 +53,9 @@ where
 
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
-    match query_parts[0].to_ascii_uppercase().as_str() {
+    let mut is_shutdown = false;
+
+    let res = match query_parts[0].to_ascii_uppercase().as_str() {
         "RELOAD" => {
             trace!("RELOAD");
             reload(stream, client_server_map).await
@@ -66,6 +71,11 @@ where
         "RESUME" => {
             trace!("RESUME");
             resume(stream, query_parts[1]).await
+        }
+        "SHUTDOWN" => {
+            trace!("SHUTDOWN");
+            is_shutdown = true;
+            shutdown(stream).await
         }
         "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
             "CONFIG" => {
@@ -107,7 +117,9 @@ where
             _ => error_response(stream, "Unsupported SHOW query against the admin database").await,
         },
         _ => error_response(stream, "Unsupported query against the admin database").await,
-    }
+    };
+
+    (is_shutdown, res)
 }
 
 /// Column-oriented statistics.
@@ -669,6 +681,22 @@ where
             }
         }
     }
+}
+
+/// Send response packets for shutdown.
+async fn shutdown<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
+
+    res.put(command_complete("SHUTDOWN"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
 }
 
 /// Show Users.

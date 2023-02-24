@@ -89,6 +89,9 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
+
+    /// Used to notify pgcat of an admin shutdown query
+    initiate_shutdown: Sender<()>,
 }
 
 /// Client entrypoint.
@@ -97,6 +100,7 @@ pub async fn client_entrypoint(
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
     drain: Sender<i32>,
+    initiate_shutdown: Sender<()>,
     admin_only: bool,
     tls_certificate: Option<String>,
     log_client_connections: bool,
@@ -116,7 +120,15 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown, admin_only).await {
+                match startup_tls(
+                    stream,
+                    client_server_map,
+                    shutdown,
+                    initiate_shutdown,
+                    admin_only,
+                )
+                .await
+                {
                     Ok(mut client) => {
                         if log_client_connections {
                             info!("Client {:?} connected (TLS)", addr);
@@ -161,6 +173,7 @@ pub async fn client_entrypoint(
                             bytes,
                             client_server_map,
                             shutdown,
+                            initiate_shutdown,
                             admin_only,
                         )
                         .await
@@ -211,6 +224,7 @@ pub async fn client_entrypoint(
                 bytes,
                 client_server_map,
                 shutdown,
+                initiate_shutdown,
                 admin_only,
             )
             .await
@@ -243,7 +257,17 @@ pub async fn client_entrypoint(
             let (read, write) = split(stream);
 
             // Continue with cancel query request.
-            match Client::cancel(read, write, addr, bytes, client_server_map, shutdown).await {
+            match Client::cancel(
+                read,
+                write,
+                addr,
+                bytes,
+                client_server_map,
+                shutdown,
+                initiate_shutdown,
+            )
+            .await
+            {
                 Ok(mut client) => {
                     info!("Client {:?} issued a cancel query request", addr);
 
@@ -314,6 +338,7 @@ pub async fn startup_tls(
     stream: TcpStream,
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
+    initiate_shutdown: Sender<()>,
     admin_only: bool,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
@@ -345,6 +370,7 @@ pub async fn startup_tls(
                 bytes,
                 client_server_map,
                 shutdown,
+                initiate_shutdown,
                 admin_only,
             )
             .await
@@ -377,6 +403,7 @@ where
         bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
+        initiate_shutdown: Sender<()>,
         admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
         let stats = get_reporter();
@@ -554,6 +581,7 @@ where
             username: username.clone(),
             application_name: application_name.to_string(),
             shutdown,
+            initiate_shutdown,
             connected_to_server: false,
         })
     }
@@ -566,6 +594,7 @@ where
         mut bytes: BytesMut, // The rest of the startup message.
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
+        initiate_shutdown: Sender<()>,
     ) -> Result<Client<S, T>, Error> {
         let process_id = bytes.get_i32();
         let secret_key = bytes.get_i32();
@@ -588,6 +617,7 @@ where
             username: String::from("undefined"),
             application_name: String::from("undefined"),
             shutdown,
+            initiate_shutdown,
             connected_to_server: false,
         })
     }
@@ -686,7 +716,16 @@ where
             // Handle admin database queries.
             if self.admin {
                 debug!("Handling admin command");
-                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
+                let (is_shutdown, res) =
+                    handle_admin(&mut self.write, message, self.client_server_map.clone()).await;
+                if res.is_err() {
+                    return res;
+                }
+
+                if is_shutdown {
+                    info!("Got SHUTDOWN admin command");
+                    let _ = self.initiate_shutdown.send(()).await;
+                }
                 continue;
             }
 

@@ -216,6 +216,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut admin_only = false;
         let mut total_clients = 0;
 
+        let (initiate_shutdown_tx, mut initiate_shutdown_rx) = mpsc::channel::<()>(1);
+
         info!("Waiting for clients");
 
         loop {
@@ -230,9 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     get_config().show();
                 },
 
-                // Initiate graceful shutdown sequence on sig int
-                _ = interrupt_signal.recv() => {
-                    info!("Got SIGINT, waiting for client connection drain now");
+                _ = initiate_shutdown_rx.recv() => {
                     admin_only = true;
 
                     // Broadcast that client tasks need to finish
@@ -254,85 +254,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                       let _ = exit_tx.send(()).await;
                     });
+                }
+
+                // Initiate graceful shutdown sequence on sig int
+                _ = interrupt_signal.recv() => {
+                    info!("Got SIGINT");
+
+                    let _ = initiate_shutdown_tx.send(()).await;
                 },
 
                 _ = term_signal.recv() => {
                     info!("Got SIGTERM, closing with {} clients active", total_clients);
                     break;
-            },
+                },
 
-            new_client = listener.accept() => {
-                let (socket, addr) = match new_client {
-                    Ok((socket, addr)) => (socket, addr),
-                    Err(err) => {
-                        error!("{:?}", err);
-                        continue;
-                    }
-                };
-
-                let shutdown_rx = shutdown_tx.subscribe();
-                let drain_tx = drain_tx.clone();
-                let client_server_map = client_server_map.clone();
-
-                let tls_certificate = config.general.tls_certificate.clone();
-
-                tokio::task::spawn(async move {
-                    let start = chrono::offset::Utc::now().naive_utc();
-
-                    match client::client_entrypoint(
-                        socket,
-                        client_server_map,
-                        shutdown_rx,
-                        drain_tx,
-                        admin_only,
-                        tls_certificate.clone(),
-                        config.general.log_client_connections,
-                    )
-                    .await
-                    {
-                        Ok(()) => {
-                            let duration = chrono::offset::Utc::now().naive_utc() - start;
-
-                            if config.general.log_client_disconnections {
-                                info!(
-                                    "Client {:?} disconnected, session duration: {}",
-                                    addr,
-                                    format_duration(&duration)
-                                );
-                            } else {
-                                debug!(
-                                    "Client {:?} disconnected, session duration: {}",
-                                    addr,
-                                    format_duration(&duration)
-                                );
-                            }
-                        }
-
+                new_client = listener.accept() => {
+                    let (socket, addr) = match new_client {
+                        Ok((socket, addr)) => (socket, addr),
                         Err(err) => {
-                            match err {
-                                errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
-                                _ => warn!("Client disconnected with error {:?}", err),
-                            }
-
+                            error!("{:?}", err);
+                            continue;
                         }
                     };
-                });
-            }
 
-            _ = exit_rx.recv() => {
-                break;
-            }
+                    let shutdown_rx = shutdown_tx.subscribe();
+                    let drain_tx = drain_tx.clone();
+                    let initiate_shutdown_tx = initiate_shutdown_tx.clone();
+                    let client_server_map = client_server_map.clone();
 
-            client_ping = drain_rx.recv() => {
-                let client_ping = client_ping.unwrap();
-                total_clients += client_ping;
+                    let tls_certificate = config.general.tls_certificate.clone();
 
-                if total_clients == 0 && admin_only {
-                    let _ = exit_tx.send(()).await;
+                    tokio::task::spawn(async move {
+                        let start = chrono::offset::Utc::now().naive_utc();
+
+                        match client::client_entrypoint(
+                            socket,
+                            client_server_map,
+                            shutdown_rx,
+                            drain_tx,
+                            initiate_shutdown_tx,
+                            admin_only,
+                            tls_certificate.clone(),
+                            config.general.log_client_connections,
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                let duration = chrono::offset::Utc::now().naive_utc() - start;
+
+                                if config.general.log_client_disconnections {
+                                    info!(
+                                        "Client {:?} disconnected, session duration: {}",
+                                        addr,
+                                        format_duration(&duration)
+                                    );
+                                } else {
+                                    debug!(
+                                        "Client {:?} disconnected, session duration: {}",
+                                        addr,
+                                        format_duration(&duration)
+                                    );
+                                }
+                            }
+
+                            Err(err) => {
+                                match err {
+                                    errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
+                                    _ => warn!("Client disconnected with error {:?}", err),
+                                }
+
+                            }
+                        };
+                    });
+                }
+
+                _ = exit_rx.recv() => {
+                    break;
+                }
+
+                client_ping = drain_rx.recv() => {
+                    let client_ping = client_ping.unwrap();
+                    total_clients += client_ping;
+
+                    if total_clients == 0 && admin_only {
+                        let _ = exit_tx.send(()).await;
+                    }
                 }
             }
         }
-    }
 
     info!("Shutting down...");
     });
