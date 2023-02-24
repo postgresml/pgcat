@@ -233,6 +233,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
 
                 _ = initiate_shutdown_rx.recv() => {
+                    // Don't want this to happen more than once
+                    if admin_only == true {
+                        continue;
+                    }
+
                     admin_only = true;
 
                     // Broadcast that client tasks need to finish
