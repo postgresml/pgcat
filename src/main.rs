@@ -216,8 +216,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut admin_only = false;
         let mut total_clients = 0;
 
-        let (initiate_shutdown_tx, mut initiate_shutdown_rx) = mpsc::channel::<()>(1);
-
         info!("Waiting for clients");
 
         loop {
@@ -232,7 +230,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     get_config().show();
                 },
 
-                _ = initiate_shutdown_rx.recv() => {
+                // Initiate graceful shutdown sequence on sig int
+                _ = interrupt_signal.recv() => {
+                    info!("Got SIGINT");
+
                     // Don't want this to happen more than once
                     if admin_only == true {
                         continue;
@@ -246,26 +247,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let _ = drain_tx.send(0).await;
 
                     tokio::task::spawn(async move {
-                      let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(config.general.shutdown_timeout));
+                        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(config.general.shutdown_timeout));
 
-                      // First tick fires immediately.
-                      interval.tick().await;
+                        // First tick fires immediately.
+                        interval.tick().await;
 
-                      // Second one in the interval time.
-                      interval.tick().await;
+                        // Second one in the interval time.
+                        interval.tick().await;
 
-                      // We're done waiting.
-                      error!("Graceful shutdown timed out. {} active clients being closed", total_clients);
+                        // We're done waiting.
+                        error!("Graceful shutdown timed out. {} active clients being closed", total_clients);
 
-                      let _ = exit_tx.send(()).await;
+                        let _ = exit_tx.send(()).await;
                     });
-                }
-
-                // Initiate graceful shutdown sequence on sig int
-                _ = interrupt_signal.recv() => {
-                    info!("Got SIGINT");
-
-                    let _ = initiate_shutdown_tx.send(()).await;
                 },
 
                 _ = term_signal.recv() => {
@@ -284,7 +278,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let shutdown_rx = shutdown_tx.subscribe();
                     let drain_tx = drain_tx.clone();
-                    let initiate_shutdown_tx = initiate_shutdown_tx.clone();
                     let client_server_map = client_server_map.clone();
 
                     let tls_certificate = config.general.tls_certificate.clone();
@@ -297,7 +290,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             client_server_map,
                             shutdown_rx,
                             drain_tx,
-                            initiate_shutdown_tx,
                             admin_only,
                             tls_certificate.clone(),
                             config.general.log_client_connections,

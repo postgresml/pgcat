@@ -1,6 +1,7 @@
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{info, trace};
+use log::{error, info, trace};
+use nix::unistd::Pid;
 use std::collections::HashMap;
 use tokio::time::Instant;
 
@@ -12,6 +13,8 @@ use crate::stats::{
     get_address_stats, get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState,
 };
 use crate::ClientServerMap;
+
+use nix::sys::signal::{self, Signal};
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
@@ -30,20 +33,17 @@ pub async fn handle_admin<T>(
     stream: &mut T,
     mut query: BytesMut,
     client_server_map: ClientServerMap,
-) -> (bool, Result<(), Error>)
+) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let code = query.get_u8() as char;
 
     if code != 'Q' {
-        return (
-            false,
-            Err(Error::ProtocolSyncError(format!(
-                "Invalid code, expected 'Q' but got '{}'",
-                code
-            ))),
-        );
+        return Err(Error::ProtocolSyncError(format!(
+            "Invalid code, expected 'Q' but got '{}'",
+            code
+        )));
     }
 
     let len = query.get_i32() as usize;
@@ -53,9 +53,7 @@ where
 
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
-    let mut is_shutdown = false;
-
-    let res = match query_parts[0].to_ascii_uppercase().as_str() {
+    match query_parts[0].to_ascii_uppercase().as_str() {
         "RELOAD" => {
             trace!("RELOAD");
             reload(stream, client_server_map).await
@@ -74,7 +72,6 @@ where
         }
         "SHUTDOWN" => {
             trace!("SHUTDOWN");
-            is_shutdown = true;
             shutdown(stream).await
         }
         "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
@@ -117,9 +114,7 @@ where
             _ => error_response(stream, "Unsupported SHOW query against the admin database").await,
         },
         _ => error_response(stream, "Unsupported query against the admin database").await,
-    };
-
-    (is_shutdown, res)
+    }
 }
 
 /// Column-oriented statistics.
@@ -689,6 +684,18 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![("success", DataType::Text)]));
+
+    let mut shutdown_success = "T";
+
+    let pid = std::process::id();
+    if signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGINT).is_err() {
+        error!("Unable to send SIGINT to PID: {}", pid);
+        shutdown_success = "F";
+    }
+
+    res.put(data_row(&vec![shutdown_success.to_string()]));
 
     res.put(command_complete("SHUTDOWN"));
 
