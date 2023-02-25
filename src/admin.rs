@@ -1,6 +1,7 @@
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
+use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;
 use tokio::time::Instant;
@@ -13,8 +14,6 @@ use crate::stats::{
     get_address_stats, get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState,
 };
 use crate::ClientServerMap;
-
-use nix::sys::signal::{self, Signal};
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
