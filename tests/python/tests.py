@@ -124,10 +124,8 @@ def test_shutdown_logic():
     cur.execute("SELECT 1;")
     cur.execute("COMMIT;")
 
-    # Send SHUTDOWN command pgcat while still in transaction
+    # Send SHUTDOWN command pgcat while not in transaction
     admin_cur.execute("SHUTDOWN;")
-    if cur.fetchall()[0][0] != "t":
-        raise Exception("PgCat unable to send signal")
     time.sleep(1)
 
     # Check that any new queries fail after SHUTDOWN command since server should close with no active transactions
