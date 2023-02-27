@@ -111,6 +111,37 @@ def test_shutdown_logic():
     pg_cat_send_signal(signal.SIGTERM)
 
     # - - - - - - - - - - - - - - - - - -
+    # NO ACTIVE QUERIES ADMIN SHUTDOWN COMMAND
+
+    # Start pgcat
+    pgcat_start()
+
+    # Create client connection and begin transaction
+    conn, cur = connect_db()
+    admin_conn, admin_cur = connect_db(admin=True)
+
+    cur.execute("BEGIN;")
+    cur.execute("SELECT 1;")
+    cur.execute("COMMIT;")
+
+    # Send SHUTDOWN command pgcat while not in transaction
+    admin_cur.execute("SHUTDOWN;")
+    time.sleep(1)
+
+    # Check that any new queries fail after SHUTDOWN command since server should close with no active transactions
+    try:
+        cur.execute("SELECT 1;")
+    except psycopg2.OperationalError as e:
+        pass
+    else:
+        # Fail if query execution succeeded
+        raise Exception("Server not closed after sigint")
+
+    cleanup_conn(conn, cur)
+    cleanup_conn(admin_conn, admin_cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    # - - - - - - - - - - - - - - - - - -
     # HANDLE TRANSACTION WITH SIGINT
 
     # Start pgcat
@@ -134,6 +165,36 @@ def test_shutdown_logic():
         raise Exception("Server closed while in transaction", e.pgerror)
 
     cleanup_conn(conn, cur)
+    pg_cat_send_signal(signal.SIGTERM)
+
+    # - - - - - - - - - - - - - - - - - -
+    # HANDLE TRANSACTION WITH ADMIN SHUTDOWN COMMAND
+
+    # Start pgcat
+    pgcat_start()
+
+    # Create client connection and begin transaction
+    conn, cur = connect_db()
+    admin_conn, admin_cur = connect_db(admin=True)
+
+    cur.execute("BEGIN;")
+    cur.execute("SELECT 1;")
+
+    # Send SHUTDOWN command pgcat while still in transaction
+    admin_cur.execute("SHUTDOWN;")
+    if admin_cur.fetchall()[0][0] != "t":
+        raise Exception("PgCat unable to send signal")
+    time.sleep(1)
+
+    # Check that any new queries succeed after SHUTDOWN command since server should still allow transaction to complete
+    try:
+        cur.execute("SELECT 1;")
+    except psycopg2.OperationalError as e:
+        # Fail if query fails since server closed
+        raise Exception("Server closed while in transaction", e.pgerror)
+
+    cleanup_conn(conn, cur)
+    cleanup_conn(admin_conn, admin_cur)
     pg_cat_send_signal(signal.SIGTERM)
 
     # - - - - - - - - - - - - - - - - - -
