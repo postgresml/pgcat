@@ -182,7 +182,7 @@ def test_shutdown_logic():
 
     # Send SHUTDOWN command pgcat while still in transaction
     admin_cur.execute("SHUTDOWN;")
-    if cur.fetchall()[0][0] != "t":
+    if admin_cur.fetchall()[0][0] != "t":
         raise Exception("PgCat unable to send signal")
     time.sleep(1)
 
