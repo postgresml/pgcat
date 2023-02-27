@@ -235,7 +235,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     info!("Got SIGINT");
 
                     // Don't want this to happen more than once
-                    if admin_only == true {
+                    if admin_only {
                         continue;
                     }
 

@@ -686,12 +686,12 @@ where
 
     res.put(row_description(&vec![("success", DataType::Text)]));
 
-    let mut shutdown_success = "T";
+    let mut shutdown_success = "t";
 
     let pid = std::process::id();
     if signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGINT).is_err() {
         error!("Unable to send SIGINT to PID: {}", pid);
-        shutdown_success = "F";
+        shutdown_success = "f";
     }
 
     res.put(data_row(&vec![shutdown_success.to_string()]));
