@@ -15,8 +15,8 @@ use log::{Level, Log, Metadata, Record, SetLoggerError};
 //   - If the above is not true, it is sent to the stderr logger that will log it or not depending on the value
 //     of the RUST_LOG env var.
 //
-// So to summarize, if no `STDOUT_LOG` env var is present, the logger is the default logger. If STDOUT_LOG is set, everything
-// but errors, that matches the log level set in the STDOUT_LOG env var is sent to stdout. You can have also some esoteric configuration
+// So to summarize, if no `STDOUT_LOG` env var is present, the logger is the default logger. If `STDOUT_LOG` is set, everything
+// but errors, that matches the log level set in the `STDOUT_LOG` env var is sent to stdout. You can have also some esoteric configuration
 // where you set `RUST_LOG=debug` and `STDOUT_LOG=info`, in here, erros will go to stderr, warns and infos to stdout and debugs to stderr.
 //
 pub struct MultiLogger {

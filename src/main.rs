@@ -66,6 +66,7 @@ mod config;
 mod constants;
 mod errors;
 mod messages;
+mod multi_logger;
 mod pool;
 mod prometheus;
 mod query_router;
@@ -74,7 +75,6 @@ mod server;
 mod sharding;
 mod stats;
 mod tls;
-mod multi_logger;
 
 use crate::config::{get_config, reload_config, VERSION};
 use crate::pool::{ClientServerMap, ConnectionPool};
@@ -161,7 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
         // Statistics reporting.
-        let (stats_tx, stats_rx) = mpsc::channel(100_000);
+        let (stats_tx, stats_rx) = mpsc::channel(500_000);
         REPORTER.store(Arc::new(Reporter::new(stats_tx.clone())));
 
         // Connection pool that allows to query all shards and replicas.
