@@ -74,6 +74,7 @@ mod server;
 mod sharding;
 mod stats;
 mod tls;
+mod multi_logger;
 
 use crate::config::{get_config, reload_config, VERSION};
 use crate::pool::{ClientServerMap, ConnectionPool};
@@ -81,7 +82,7 @@ use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::builder().format_timestamp_micros().init();
+    multi_logger::MultiLogger::init().unwrap();
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 

@@ -8,6 +8,7 @@ pub mod server;
 pub mod sharding;
 pub mod stats;
 pub mod tls;
+pub mod multi_logger;
 
 /// Format chrono::Duration to be more human-friendly.
 ///
