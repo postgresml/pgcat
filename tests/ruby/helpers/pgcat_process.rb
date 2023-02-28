@@ -24,7 +24,13 @@ class PgcatProcess
     @log_filename = "/tmp/pgcat_log_#{SecureRandom.urlsafe_base64}.log"
     @config_filename = "/tmp/pgcat_cfg_#{SecureRandom.urlsafe_base64}.toml"
 
-    @command = "../../target/debug/pgcat #{@config_filename}"
+    command_path = if ENV['CARGO_TARGET_DIR'] then
+                     "#{ENV['CARGO_TARGET_DIR']}/debug/pgcat"
+                   else
+                     '../../target/debug/pgcat'
+                   end
+                     
+    @command = "#{command_path} #{@config_filename}"
 
     FileUtils.cp("../../pgcat.toml", @config_filename)
     cfg = current_config
