@@ -374,7 +374,7 @@ impl Pool {
         None
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&mut self) -> Result<(), Error> {
         match self.default_role.as_ref() {
             "any" => (),
             "primary" => (),
@@ -413,6 +413,23 @@ impl Pool {
                 }
             }
         }
+
+        self.automatic_sharding_key = match &self.automatic_sharding_key {
+            Some(key) => {
+                let key = key.replace("\"", "");
+
+                if key.split(".").count() != 2 {
+                    error!(
+                        "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
+                        key, key
+                    );
+                    return Err(Error::BadConfig);
+                }
+
+                Some(key)
+            }
+            None => None,
+        };
 
         Ok(())
     }

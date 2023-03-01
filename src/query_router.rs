@@ -5,7 +5,9 @@ use log::{debug, error};
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexSet};
 use sqlparser::ast::Statement::{Query, StartTransaction};
-use sqlparser::ast::{BinaryOperator, Expr, SetExpr, Value};
+use sqlparser::ast::{
+    BinaryOperator, Expr, Ident, JoinConstraint, JoinOperator, SetExpr, TableFactor, Value,
+};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
@@ -403,9 +405,22 @@ impl QueryRouter {
 
     /// A `selection` is the `WHERE` clause. This parses
     /// the clause and extracts the sharding key, if present.
-    fn selection_parser(&self, expr: &Expr) -> Vec<i64> {
+    fn selection_parser(&self, expr: &Expr, table_names: &Vec<Vec<Ident>>) -> Vec<i64> {
         let mut result = Vec::new();
         let mut found = false;
+
+        let sharding_key = self
+            .pool_settings
+            .automatic_sharding_key
+            .as_ref()
+            .unwrap()
+            .split(".")
+            .map(|ident| Ident::new(ident))
+            .collect::<Vec<Ident>>();
+
+        // Sharding key must be always fully qualified
+        assert_eq!(sharding_key.len(), 2);
+        debug!("Tables in query: {:?}", table_names);
 
         // This parses `sharding_key = 5`. But it's technically
         // legal to write `5 = sharding_key`. I don't judge the people
@@ -413,10 +428,33 @@ impl QueryRouter {
         // so we can leave the second as a TODO.
         if let Expr::BinaryOp { left, op, right } = expr {
             match &**left {
-                Expr::BinaryOp { .. } => result.extend(self.selection_parser(left)),
+                Expr::BinaryOp { .. } => result.extend(self.selection_parser(left, table_names)),
                 Expr::Identifier(ident) => {
-                    found =
-                        ident.value == *self.pool_settings.automatic_sharding_key.as_ref().unwrap();
+                    // Only if we're dealing with only one table
+                    // and there is no ambiguity
+                    if table_names.len() == 1 {
+                        let table = &table_names[0];
+
+                        // Table is not fully qualified
+                        // SELECT * FROM t WHERE sharding_key = 5
+                        // automatic_sharding_key = "t.sharding_key"
+                        if table.len() == 1 {
+                            found = &sharding_key[1] == ident && &sharding_key[0] == &table[0];
+                        } else if table.len() == 2 {
+                            // Table is fully qualified with the schema name
+                            // SELECT * FROM public.t WHERE sharding_key = 5
+                            found = &sharding_key[1] == ident && &sharding_key[0] == &table[1];
+                        } else {
+                            debug!(
+                                "Got table name with more that two idents, which is not possible"
+                            );
+                        }
+                    }
+                }
+                Expr::CompoundIdentifier(idents) => {
+                    // The key is fully qualified in the query,
+                    // it will exist or Postgres will throw an error.
+                    found = &sharding_key == idents
                 }
                 _ => (),
             };
@@ -433,7 +471,7 @@ impl QueryRouter {
             };
 
             match &**right {
-                Expr::BinaryOp { .. } => result.extend(self.selection_parser(right)),
+                Expr::BinaryOp { .. } => result.extend(self.selection_parser(right, table_names)),
                 Expr::Value(Value::Number(value, ..)) => {
                     if found {
                         match value.parse::<i64>() {
@@ -456,6 +494,7 @@ impl QueryRouter {
     /// Try to figure out which shard the query should go to.
     fn infer_shard(&self, query: &sqlparser::ast::Query) -> Option<usize> {
         let mut shards = BTreeSet::new();
+        let mut exprs = Vec::new();
 
         match &*query.body {
             SetExpr::Query(query) => {
@@ -467,27 +506,75 @@ impl QueryRouter {
                 };
             }
 
+            // SELECT * FROM ...
+            // We understand that pretty well.
             SetExpr::Select(select) => {
+                // Collect all table names from the query.
+                let mut table_names = Vec::new();
+
+                for table in select.from.iter() {
+                    match &table.relation {
+                        TableFactor::Table { name, .. } => {
+                            table_names.push(name.0.clone());
+                        }
+
+                        _ => (),
+                    };
+
+                    // Get table names from all the joins.
+                    for join in table.joins.iter() {
+                        match &join.relation {
+                            TableFactor::Table { name, .. } => {
+                                table_names.push(name.0.clone());
+                            }
+
+                            _ => (),
+                        };
+
+                        // We can filter results based on join conditions, e.g.
+                        // SELECT * FROM t INNER JOIN B ON B.sharding_key = 5;
+                        match &join.join_operator {
+                            JoinOperator::Inner(inner_join) => match &inner_join {
+                                JoinConstraint::On(expr) => {
+                                    // Parse the selection criteria later.
+                                    exprs.push(expr.clone());
+                                }
+
+                                _ => (),
+                            },
+
+                            _ => (),
+                        };
+                    }
+                }
+
+                // Parse the actual "FROM ..."
                 match &select.selection {
                     Some(selection) => {
-                        let sharding_keys = self.selection_parser(selection);
-
-                        // TODO: Add support for prepared statements here.
-                        // This should just give us the position of the value in the `B` message.
-
-                        let sharder = Sharder::new(
-                            self.pool_settings.shards,
-                            self.pool_settings.sharding_function,
-                        );
-
-                        for value in sharding_keys {
-                            let shard = sharder.shard(value);
-                            shards.insert(shard);
-                        }
+                        exprs.push(selection.clone());
                     }
 
                     None => (),
                 };
+
+                // Look for sharding keys in either the join condition
+                // or the selection.
+                for expr in exprs.iter() {
+                    let sharding_keys = self.selection_parser(expr, &table_names);
+
+                    // TODO: Add support for prepared statements here.
+                    // This should just give us the position of the value in the `B` message.
+
+                    let sharder = Sharder::new(
+                        self.pool_settings.shards,
+                        self.pool_settings.sharding_function,
+                    );
+
+                    for value in sharding_keys {
+                        let shard = sharder.shard(value);
+                        shards.insert(shard);
+                    }
+                }
             }
             _ => (),
         };
