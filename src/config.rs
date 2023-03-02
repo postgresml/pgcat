@@ -416,6 +416,8 @@ impl Pool {
 
         self.automatic_sharding_key = match &self.automatic_sharding_key {
             Some(key) => {
+                // No quotes in the key so we don't have to compare quoted
+                // to unquoted idents.
                 let key = key.replace("\"", "");
 
                 if key.split(".").count() != 2 {
