@@ -459,7 +459,11 @@ impl QueryRouter {
                 Expr::CompoundIdentifier(idents) => {
                     // The key is fully qualified in the query,
                     // it will exist or Postgres will throw an error.
-                    found = &sharding_key == idents
+                    if idents.len() == 2 {
+                        found = &sharding_key[0].value == &idents[0].value
+                            && &sharding_key[1].value == &idents[1].value;
+                    }
+                    // TODO: key can have schema as well, e.g. public.data.id (len == 3)
                 }
                 _ => (),
             };
@@ -1043,5 +1047,10 @@ mod test {
             r#"SELECT * FROM "public"."data" WHERE "id" = 6"#
         )));
         assert_eq!(qr.shard(), 0);
+
+        assert!(qr.infer(&simple_query(
+            r#"SELECT * FROM "public"."data" WHERE "data"."id" = 5"#
+        )));
+        assert_eq!(qr.shard(), 2);
     }
 }
