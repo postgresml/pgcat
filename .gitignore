@@ -5,3 +5,8 @@
 .profraw
 cov/
 lcov.info
+
+# Dev
+dev/.bash_history
+dev/cache
+!dev/cache/.keepme
