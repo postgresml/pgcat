@@ -432,7 +432,11 @@ impl QueryRouter {
                     // Only if we're dealing with only one table
                     // and there is no ambiguity
                     if &ident.value == &sharding_key[1].value {
-                        if table_names.len() == 1 {
+                        // Sharding key is unique enough, don't worry about
+                        // table names.
+                        if &sharding_key[0].value == "*" {
+                            found = true;
+                        } else if table_names.len() == 1 {
                             let table = &table_names[0];
 
                             if table.len() == 1 {
@@ -450,8 +454,6 @@ impl QueryRouter {
                             } else {
                                 debug!("Got table name with more than two idents, which is not possible");
                             }
-                        } else {
-                            debug!("Have more than one table without a fully qualified key, cannot determine sharding key");
                         }
                     }
                 }
@@ -1052,5 +1054,15 @@ mod test {
             r#"SELECT * FROM "public"."data" WHERE "data"."id" = 5"#
         )));
         assert_eq!(qr.shard(), 2);
+
+        // Super unique sharding key
+        qr.pool_settings.automatic_sharding_key = Some("*.unique_enough_column_name".to_string());
+        assert!(qr.infer(&simple_query(
+            "SELECT * FROM table_x WHERE unique_enough_column_name = 6"
+        )));
+        assert_eq!(qr.shard(), 0);
+
+        assert!(qr.infer(&simple_query("SELECT * FROM table_y WHERE another_key = 5")));
+        assert_eq!(qr.shard(), 0);
     }
 }
