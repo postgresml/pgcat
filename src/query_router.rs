@@ -420,7 +420,6 @@ impl QueryRouter {
 
         // Sharding key must be always fully qualified
         assert_eq!(sharding_key.len(), 2);
-        debug!("Tables in query: {:?}", table_names);
 
         // This parses `sharding_key = 5`. But it's technically
         // legal to write `5 = sharding_key`. I don't judge the people
@@ -432,25 +431,31 @@ impl QueryRouter {
                 Expr::Identifier(ident) => {
                     // Only if we're dealing with only one table
                     // and there is no ambiguity
-                    if table_names.len() == 1 {
-                        let table = &table_names[0];
+                    if &ident.value == &sharding_key[1].value {
+                        if table_names.len() == 1 {
+                            let table = &table_names[0];
 
-                        // Table is not fully qualified
-                        // SELECT * FROM t WHERE sharding_key = 5
-                        // automatic_sharding_key = "t.sharding_key"
-                        if table.len() == 1 {
-                            found = &sharding_key[1] == ident && &sharding_key[0] == &table[0];
-                        } else if table.len() == 2 {
-                            // Table is fully qualified with the schema name
-                            // SELECT * FROM public.t WHERE sharding_key = 5
-                            found = &sharding_key[1] == ident && &sharding_key[0] == &table[1];
+                            if table.len() == 1 {
+                                // Table is not fully qualified, e.g.
+                                //      SELECT * FROM t WHERE sharding_key = 5
+                                // Make sure the table name from the sharding key matches
+                                // the table name from the query.
+                                found = &sharding_key[0].value == &table[0].value;
+                            } else if table.len() == 2 {
+                                // Table name is fully qualified with the schema: e.g.
+                                //      SELECT * FROM public.t WHERE sharding_key = 5
+                                // Ignore the schema (TODO: at some point, we want schema support)
+                                // and use the table name only.
+                                found = &sharding_key[0].value == &table[1].value;
+                            } else {
+                                debug!("Got table name with more than two idents, which is not possible");
+                            }
                         } else {
-                            debug!(
-                                "Got table name with more that two idents, which is not possible"
-                            );
+                            debug!("Have more than one table without a fully qualified key, cannot determine sharding key");
                         }
                     }
                 }
+
                 Expr::CompoundIdentifier(idents) => {
                     // The key is fully qualified in the query,
                     // it will exist or Postgres will throw an error.
@@ -912,7 +917,7 @@ mod test {
             query_parser_enabled: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: Some(String::from("id")),
+            automatic_sharding_key: Some(String::from("test.id")),
             healthcheck_delay: PoolSettings::default().healthcheck_delay,
             healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
             ban_time: PoolSettings::default().ban_time,
@@ -941,11 +946,6 @@ mod test {
         let q2 = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(&q2) != None);
         assert_eq!(qr.active_role.unwrap(), pool_settings.default_role);
-
-        // Here we go :)
-        let q3 = simple_query("SELECT * FROM test WHERE id = 5 AND values IN (1, 2, 3)");
-        assert!(qr.infer(&q3));
-        assert_eq!(qr.shard(), 1);
     }
 
     #[test]
@@ -978,7 +978,7 @@ mod test {
             query_parser_enabled: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: Some(String::from("id")),
+            automatic_sharding_key: None,
             healthcheck_delay: PoolSettings::default().healthcheck_delay,
             healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
             ban_time: PoolSettings::default().ban_time,
@@ -1006,5 +1006,42 @@ mod test {
         let q2 = simple_query("/* sharding_key: 6 */ select 1 from foo;");
         assert!(qr.try_execute_command(&q2) == None);
         assert_eq!(qr.active_shard, Some(2));
+    }
+
+    #[test]
+    fn test_automatic_sharding_key() {
+        QueryRouter::setup();
+
+        let mut qr = QueryRouter::new();
+        qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
+        qr.pool_settings.shards = 3;
+
+        assert!(qr.infer(&simple_query("SELECT * FROM data WHERE id = 5")));
+        assert_eq!(qr.shard(), 2);
+
+        assert!(qr.infer(&simple_query(
+            "SELECT one, two, three FROM public.data WHERE id = 6"
+        )));
+        assert_eq!(qr.shard(), 0);
+
+        assert!(qr.infer(&simple_query(
+            "SELECT * FROM data
+            INNER JOIN t2 ON data.id = 5
+            AND t2.data_id = data.id
+        WHERE data.id = 5"
+        )));
+        assert_eq!(qr.shard(), 2);
+
+        // Shard did not move because we couldn't determine the sharding key since it could be ambiguous
+        // in the query.
+        assert!(qr.infer(&simple_query(
+            "SELECT * FROM t2 INNER JOIN data ON id = 6 AND data.id = t2.data_id"
+        )));
+        assert_eq!(qr.shard(), 2);
+
+        assert!(qr.infer(&simple_query(
+            r#"SELECT * FROM "public"."data" WHERE "id" = 6"#
+        )));
+        assert_eq!(qr.shard(), 0);
     }
 }
