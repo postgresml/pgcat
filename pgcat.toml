@@ -102,7 +102,7 @@ primary_reads_enabled = true
 sharding_function = "pg_bigint_hash"
 
 # Automatically parse this from queries and route queries to the right shard!
-automatic_sharding_key = "id"
+automatic_sharding_key = "data.id"
 
 # Idle timeout can be overwritten in the pool
 idle_timeout = 40000
