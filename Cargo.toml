@@ -35,7 +35,7 @@ hyper = { version = "0.14", features = ["full"] }
 phf = { version = "0.11.1", features = ["macros"] }
 exitcode = "1.1.2"
 futures = "0.3"
-socket2 = { version = "0.4.7", features = ["all"] }
+socket2 = { version = "0.5.1", features = ["all"] }
 nix = "0.26.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
