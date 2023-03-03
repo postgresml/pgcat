@@ -288,6 +288,8 @@ describe "Admin" do
   end
 
   describe "Manual Banning" do
+    let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 10) }
+
     describe "BAN/UNBAN and SHOW BANS" do
       it "bans/unbans hosts" do
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
