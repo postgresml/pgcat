@@ -1,6 +1,9 @@
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
+
+use crate::errors::{BanReason, Error};
+
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
@@ -11,7 +14,7 @@ use tokio::sync::mpsc::Sender;
 use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::config::{get_config, Address, PoolMode};
 use crate::constants::*;
-use crate::errors::Error;
+
 use crate::messages::*;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
@@ -1111,7 +1114,7 @@ where
         match server.send(message).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                pool.ban(address, self.process_id);
+                pool.ban(address, BanReason::MessageSendFailed, self.process_id);
                 Err(err)
             }
         }
@@ -1133,7 +1136,7 @@ where
                 Ok(result) => match result {
                     Ok(message) => Ok(message),
                     Err(err) => {
-                        pool.ban(address, self.process_id);
+                        pool.ban(address, BanReason::MessageReceiveFailed, self.process_id);
                         error_response_terminal(
                             &mut self.write,
                             &format!("error receiving data from server: {:?}", err),
@@ -1148,7 +1151,7 @@ where
                         address, pool.settings.user.username
                     );
                     server.mark_bad();
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, BanReason::StatementTimeout, self.process_id);
                     error_response_terminal(&mut self.write, "pool statement timeout").await?;
                     Err(Error::StatementTimeout)
                 }
@@ -1157,7 +1160,7 @@ where
             match server.recv().await {
                 Ok(message) => Ok(message),
                 Err(err) => {
-                    pool.ban(address, self.process_id);
+                    pool.ban(address, BanReason::MessageReceiveFailed, self.process_id);
                     error_response_terminal(
                         &mut self.write,
                         &format!("error receiving data from server: {:?}", err),

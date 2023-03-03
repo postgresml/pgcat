@@ -286,4 +286,51 @@ describe "Admin" do
       connections.map(&:close)
     end
   end
+
+  describe "Manual Banning" do
+    describe "BAN/UNBAN and SHOW BANS" do
+      it "bans/unbans hosts" do
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+
+        # Returns a list of the banned addresses
+        results = admin_conn.async_exec("BAN localhost").to_a
+        expect(results.count).to eq(3)
+        expect(results.map { |r| r["host"] }).to eq(["localhost", "localhost", "localhost"])
+
+        # Subsequent calls should yield no results
+        results = admin_conn.async_exec("BAN localhost").to_a
+        expect(results.count).to eq(0)
+
+        results = admin_conn.async_exec("SHOW BANS").to_a
+        expect(results.count).to eq(3)
+        expect(results.map { |r| r["host"] }).to eq(["localhost", "localhost", "localhost"])
+
+        # Returns a list of the unbanned addresses
+        results = admin_conn.async_exec("UNBAN localhost").to_a
+        expect(results.count).to eq(3)
+        expect(results.map { |r| r["host"] }).to eq(["localhost", "localhost", "localhost"])
+
+        # Subsequent calls should yield no results
+        results = admin_conn.async_exec("UNBAN localhost").to_a
+        expect(results.count).to eq(0)
+
+        results = admin_conn.async_exec("SHOW BANS").to_a
+        expect(results.count).to eq(0)
+
+        # Banning a host that doesn't exist should yield no results
+        results = admin_conn.async_exec("BAN bad_host").to_a
+        expect(results.count).to eq(0)
+
+        results = admin_conn.async_exec("SHOW BANS").to_a
+        expect(results.count).to eq(0)
+
+        # Unbanning a host that doesn't exist should yield no results
+        results = admin_conn.async_exec("UNBAN bad_host").to_a
+        expect(results.count).to eq(0)
+
+        results = admin_conn.async_exec("SHOW BANS").to_a
+        expect(results.count).to eq(0)
+      end
+    end
+  end
 end

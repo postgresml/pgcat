@@ -51,6 +51,14 @@ where
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
     match query_parts[0].to_ascii_uppercase().as_str() {
+        "BAN" => {
+            trace!("BAN");
+            ban(stream, query_parts).await
+        }
+        "UNBAN" => {
+            trace!("UNBAN");
+            unban(stream, query_parts).await
+        }
         "RELOAD" => {
             trace!("RELOAD");
             reload(stream, client_server_map).await
@@ -68,6 +76,10 @@ where
             resume(stream, query_parts[1]).await
         }
         "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
+            "BANS" => {
+                trace!("SHOW BANS");
+                show_bans(stream).await
+            }
             "CONFIG" => {
                 trace!("SHOW CONFIG");
                 show_config(stream).await
@@ -338,6 +350,138 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     custom_protocol_response_ok(stream, "SET").await
+}
+
+/// Bans a replica from being used
+async fn ban<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let host = match tokens.get(1) {
+        Some(host) => host,
+        None => return error_response(stream, "BAN command requires a hostname to ban").await,
+    };
+
+    let columns = vec![
+        ("db", DataType::Text),
+        ("user", DataType::Text),
+        ("role", DataType::Text),
+        ("host", DataType::Text),
+    ];
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    for (id, pool) in get_all_pools().iter() {
+        match pool.get_address_from_host(host) {
+            Some(address) => {
+                if !pool.is_banned(&address) {
+                    pool.ban(&address, crate::errors::BanReason::ManualBan, -1);
+                    res.put(data_row(&vec![
+                        id.db.clone(),
+                        id.user.clone(),
+                        address.role.to_string(),
+                        address.host,
+                    ]));
+                }
+            }
+            None => {}
+        }
+    }
+
+    res.put(command_complete("BAN"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Unbans a replica from being used
+async fn unban<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let host = match tokens.get(1) {
+        Some(host) => host,
+        None => return error_response(stream, "UNBAN command requires a hostname to unban").await,
+    };
+
+    let columns = vec![
+        ("db", DataType::Text),
+        ("user", DataType::Text),
+        ("role", DataType::Text),
+        ("host", DataType::Text),
+    ];
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    for (id, pool) in get_all_pools().iter() {
+        match pool.get_address_from_host(host) {
+            Some(address) => {
+                if pool.is_banned(&address) {
+                    pool.unban(&address);
+                    res.put(data_row(&vec![
+                        id.db.clone(),
+                        id.user.clone(),
+                        address.role.to_string(),
+                        address.host,
+                    ]));
+                }
+            }
+            None => {}
+        }
+    }
+
+    res.put(command_complete("UNBAN"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+async fn show_bans<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let columns = vec![
+        ("db", DataType::Text),
+        ("user", DataType::Text),
+        ("role", DataType::Text),
+        ("host", DataType::Text),
+        ("reason", DataType::Text),
+        ("ban_time", DataType::Text),
+    ];
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    for (id, pool) in get_all_pools().iter() {
+        pool.get_bans()
+            .iter()
+            .for_each(|(address, (ban_reason, ban_time))| {
+                res.put(data_row(&vec![
+                    id.db.clone(),
+                    id.user.clone(),
+                    address.role.to_string(),
+                    address.host.clone(),
+                    format!("{:?}", ban_reason),
+                    ban_time.to_string(),
+                ]));
+            });
+    }
+
+    res.put(command_complete("SHOW BANS"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
 }
 
 /// Reload the configuration file without restarting the process.

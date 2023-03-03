@@ -6,6 +6,7 @@ pub enum Error {
     SocketError(String),
     ClientBadStartup,
     ProtocolSyncError(String),
+    BadQuery(String),
     ServerError,
     BadConfig,
     AllServersDown,
@@ -14,4 +15,16 @@ pub enum Error {
     StatementTimeout,
     ShuttingDown,
     ParseBytesError(String),
+}
+
+/// Various errors.
+#[derive(Debug, PartialEq, Clone)]
+pub enum BanReason {
+    FailedHealthCheck,
+    MessageSendFailed,
+    MessageReceiveFailed,
+    FailedCheckout,
+    StatementTimeout,
+    #[allow(dead_code)]
+    ManualBan,
 }
