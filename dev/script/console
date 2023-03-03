@@ -3,4 +3,10 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 export HOST_UID="$(id -u)"
 export HOST_GID="$(id -g)"
-docker-compose -f "${DIR}/../docker-compose.yaml" run --rm pgcat-shell
+
+if [[ "${1}" == "down" ]]; then
+	docker-compose -f "${DIR}/../docker-compose.yaml" down
+	exit 0
+else
+	docker-compose -f "${DIR}/../docker-compose.yaml" run --rm pgcat-shell
+fi

@@ -24,8 +24,9 @@ module Helpers
           "default_role" => "any",
           "pool_mode" => pool_mode,
           "load_balancing_mode" => lb_mode,
-          "primary_reads_enabled" => false,
-          "query_parser_enabled" => false,
+          "primary_reads_enabled" => true,
+          "query_parser_enabled" => true,
+          "automatic_sharding_key" => "data.id",
           "sharding_function" => "pg_bigint_hash",
           "shards" => {
             "0" => { "database" => "shard0", "servers" => [["localhost", primary0.port.to_s, "primary"]] },
