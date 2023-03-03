@@ -16,14 +16,3 @@ pub enum Error {
     ShuttingDown,
     ParseBytesError(String),
 }
-
-/// Various errors.
-#[derive(Debug, PartialEq, Clone)]
-pub enum BanReason {
-    FailedHealthCheck,
-    MessageSendFailed,
-    MessageReceiveFailed,
-    FailedCheckout,
-    StatementTimeout,
-    ManualBan,
-}

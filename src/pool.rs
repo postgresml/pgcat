@@ -18,7 +18,7 @@ use std::time::Instant;
 use tokio::sync::Notify;
 
 use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, Role, User};
-use crate::errors::{BanReason, Error};
+use crate::errors::Error;
 
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
@@ -37,6 +37,17 @@ pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
+
+// Reasons for banning a server.
+#[derive(Debug, PartialEq, Clone)]
+pub enum BanReason {
+    FailedHealthCheck,
+    MessageSendFailed,
+    MessageReceiveFailed,
+    FailedCheckout,
+    StatementTimeout,
+    AdminBan(i64),
+}
 
 /// An identifier for a PgCat pool,
 /// a database visible to clients.
@@ -655,10 +666,11 @@ impl ConnectionPool {
         let exceeded_ban_time = match read_guard[address.shard].get(address) {
             Some((ban_reason, timestamp)) => {
                 let now = chrono::offset::Utc::now().naive_utc();
-                if ban_reason == &BanReason::ManualBan {
-                    now.timestamp() - timestamp.timestamp() > 60 * 60
-                } else {
-                    now.timestamp() - timestamp.timestamp() > self.settings.ban_time
+                match ban_reason {
+                    BanReason::AdminBan(duration) => {
+                        now.timestamp() - timestamp.timestamp() > *duration
+                    }
+                    _ => now.timestamp() - timestamp.timestamp() > self.settings.ban_time,
                 }
             }
             None => return true,

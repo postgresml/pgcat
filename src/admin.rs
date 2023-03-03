@@ -1,9 +1,11 @@
+use crate::pool::BanReason;
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 
 use crate::config::{get_config, reload_config, VERSION};
@@ -369,8 +371,22 @@ where
 {
     let host = match tokens.get(1) {
         Some(host) => host,
-        None => return error_response(stream, "BAN command requires a hostname to ban").await,
+        None => return error_response(stream, "usage: BAN hostname duration_seconds").await,
     };
+
+    let duration_seconds = match tokens.get(2) {
+        Some(duration_seconds) => match duration_seconds.parse::<i64>() {
+            Ok(duration_seconds) => duration_seconds,
+            Err(_) => {
+                return error_response(stream, "duration_seconds must be an integer").await;
+            }
+        },
+        None => return error_response(stream, "usage: BAN hostname duration_seconds").await,
+    };
+
+    if duration_seconds < 0 {
+        return error_response(stream, "duration_seconds must be >= 0").await;
+    }
 
     let columns = vec![
         ("db", DataType::Text),
@@ -385,7 +401,7 @@ where
         match pool.get_address_from_host(host) {
             Some(address) => {
                 if !pool.is_banned(&address) {
-                    pool.ban(&address, crate::errors::BanReason::ManualBan, -1);
+                    pool.ban(&address, BanReason::AdminBan(duration_seconds), -1);
                     res.put(data_row(&vec![
                         id.db.clone(),
                         id.user.clone(),
@@ -466,14 +482,28 @@ where
         ("host", DataType::Text),
         ("reason", DataType::Text),
         ("ban_time", DataType::Text),
+        ("ban_duration_seconds", DataType::Text),
+        ("ban_remaining_seconds", DataType::Text),
     ];
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
+
+    // The block should be pretty quick so we cache the time outside
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs() as i64;
 
     for (id, pool) in get_all_pools().iter() {
         pool.get_bans()
             .iter()
             .for_each(|(address, (ban_reason, ban_time))| {
+                let ban_duration = match ban_reason {
+                    BanReason::AdminBan(duration) => *duration,
+                    _ => pool.settings.ban_time,
+                };
+                let remaining = ban_duration - (now - ban_time.timestamp());
+
                 res.put(data_row(&vec![
                     id.db.clone(),
                     id.user.clone(),
@@ -481,6 +511,8 @@ where
                     address.host.clone(),
                     format!("{:?}", ban_reason),
                     ban_time.to_string(),
+                    ban_duration.to_string(),
+                    remaining.to_string(),
                 ]));
             });
     }

@@ -293,12 +293,12 @@ describe "Admin" do
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
 
         # Returns a list of the banned addresses
-        results = admin_conn.async_exec("BAN localhost").to_a
+        results = admin_conn.async_exec("BAN localhost 10").to_a
         expect(results.count).to eq(3)
         expect(results.map { |r| r["host"] }).to eq(["localhost", "localhost", "localhost"])
 
         # Subsequent calls should yield no results
-        results = admin_conn.async_exec("BAN localhost").to_a
+        results = admin_conn.async_exec("BAN localhost 10").to_a
         expect(results.count).to eq(0)
 
         results = admin_conn.async_exec("SHOW BANS").to_a
@@ -316,20 +316,33 @@ describe "Admin" do
 
         results = admin_conn.async_exec("SHOW BANS").to_a
         expect(results.count).to eq(0)
+      end
 
-        # Banning a host that doesn't exist should yield no results
-        results = admin_conn.async_exec("BAN bad_host").to_a
-        expect(results.count).to eq(0)
+      it "honors ban duration" do
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
 
+        # Returns a list of the banned addresses
+        results = admin_conn.async_exec("BAN localhost 1").to_a
+        expect(results.count).to eq(3)
+        expect(results.map { |r| r["host"] }).to eq(["localhost", "localhost", "localhost"])
+
+        sleep(2)
+
+        # After 2 seconds the ban should be lifted
         results = admin_conn.async_exec("SHOW BANS").to_a
         expect(results.count).to eq(0)
+      end
 
-        # Unbanning a host that doesn't exist should yield no results
-        results = admin_conn.async_exec("UNBAN bad_host").to_a
-        expect(results.count).to eq(0)
+      it "can handle bad input" do
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
 
-        results = admin_conn.async_exec("SHOW BANS").to_a
-        expect(results.count).to eq(0)
+        expect { admin_conn.async_exec("BAN").to_a }.to raise_error(PG::SystemError)
+        expect { admin_conn.async_exec("BAN a").to_a }.to raise_error(PG::SystemError)
+        expect { admin_conn.async_exec("BAN a a").to_a }.to raise_error(PG::SystemError)
+        expect { admin_conn.async_exec("BAN a -5").to_a }.to raise_error(PG::SystemError)
+        expect { admin_conn.async_exec("BAN a 0").to_a }.to raise_error(PG::SystemError)
+        expect { admin_conn.async_exec("BAN a a a").to_a }.to raise_error(PG::SystemError)
+        expect { admin_conn.async_exec("UNBAN").to_a }.to raise_error(PG::SystemError)
       end
     end
   end

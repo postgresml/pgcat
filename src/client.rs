@@ -1,8 +1,8 @@
+use crate::errors::Error;
+use crate::pool::BanReason;
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
-
-use crate::errors::{BanReason, Error};
 
 use std::collections::HashMap;
 use std::time::Instant;
