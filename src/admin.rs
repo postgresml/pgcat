@@ -362,7 +362,7 @@ where
     custom_protocol_response_ok(stream, "SET").await
 }
 
-/// Bans a replica from being used
+/// Bans a host from being used
 async fn ban<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
@@ -408,7 +408,7 @@ where
     write_all_half(stream, &res).await
 }
 
-/// Unbans a replica from being used
+/// Clear a host for use
 async fn unban<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
@@ -454,6 +454,7 @@ where
     write_all_half(stream, &res).await
 }
 
+/// Shows all the bans
 async fn show_bans<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,

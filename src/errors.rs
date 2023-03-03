@@ -25,6 +25,5 @@ pub enum BanReason {
     MessageReceiveFailed,
     FailedCheckout,
     StatementTimeout,
-    #[allow(dead_code)]
     ManualBan,
 }
