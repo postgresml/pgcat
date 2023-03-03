@@ -1,3 +1,4 @@
+use crate::config::Role;
 use crate::pool::BanReason;
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
@@ -384,7 +385,7 @@ where
         None => return error_response(stream, "usage: BAN hostname duration_seconds").await,
     };
 
-    if duration_seconds < 0 {
+    if duration_seconds <= 0 {
         return error_response(stream, "duration_seconds must be >= 0").await;
     }
 
@@ -398,19 +399,16 @@ where
     res.put(row_description(&columns));
 
     for (id, pool) in get_all_pools().iter() {
-        match pool.get_address_from_host(host) {
-            Some(address) => {
-                if !pool.is_banned(&address) {
-                    pool.ban(&address, BanReason::AdminBan(duration_seconds), -1);
-                    res.put(data_row(&vec![
-                        id.db.clone(),
-                        id.user.clone(),
-                        address.role.to_string(),
-                        address.host,
-                    ]));
-                }
+        for address in pool.get_addresses_from_host(host) {
+            if !pool.is_banned(&address) && address.role != Role::Primary {
+                pool.ban(&address, BanReason::AdminBan(duration_seconds), -1);
+                res.put(data_row(&vec![
+                    id.db.clone(),
+                    id.user.clone(),
+                    address.role.to_string(),
+                    address.host,
+                ]));
             }
-            None => {}
         }
     }
 
@@ -444,19 +442,16 @@ where
     res.put(row_description(&columns));
 
     for (id, pool) in get_all_pools().iter() {
-        match pool.get_address_from_host(host) {
-            Some(address) => {
-                if pool.is_banned(&address) {
-                    pool.unban(&address);
-                    res.put(data_row(&vec![
-                        id.db.clone(),
-                        id.user.clone(),
-                        address.role.to_string(),
-                        address.host,
-                    ]));
-                }
+        for address in pool.get_addresses_from_host(host) {
+            if pool.is_banned(&address) {
+                pool.unban(&address);
+                res.put(data_row(&vec![
+                    id.db.clone(),
+                    id.user.clone(),
+                    address.role.to_string(),
+                    address.host,
+                ]));
             }
-            None => {}
         }
     }
 
@@ -495,26 +490,26 @@ where
         .as_secs() as i64;
 
     for (id, pool) in get_all_pools().iter() {
-        pool.get_bans()
-            .iter()
-            .for_each(|(address, (ban_reason, ban_time))| {
-                let ban_duration = match ban_reason {
-                    BanReason::AdminBan(duration) => *duration,
-                    _ => pool.settings.ban_time,
-                };
-                let remaining = ban_duration - (now - ban_time.timestamp());
-
-                res.put(data_row(&vec![
-                    id.db.clone(),
-                    id.user.clone(),
-                    address.role.to_string(),
-                    address.host.clone(),
-                    format!("{:?}", ban_reason),
-                    ban_time.to_string(),
-                    ban_duration.to_string(),
-                    remaining.to_string(),
-                ]));
-            });
+        for (address, (ban_reason, ban_time)) in pool.get_bans().iter() {
+            let ban_duration = match ban_reason {
+                BanReason::AdminBan(duration) => *duration,
+                _ => pool.settings.ban_time,
+            };
+            let remaining = ban_duration - (now - ban_time.timestamp());
+            if remaining <= 0 || address.role == Role::Primary {
+                continue;
+            }
+            res.put(data_row(&vec![
+                id.db.clone(),
+                id.user.clone(),
+                address.role.to_string(),
+                address.host.clone(),
+                format!("{:?}", ban_reason),
+                ban_time.to_string(),
+                ban_duration.to_string(),
+                remaining.to_string(),
+            ]));
+        }
     }
 
     res.put(command_complete("SHOW BANS"));

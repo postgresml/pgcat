@@ -707,16 +707,17 @@ impl ConnectionPool {
     }
 
     /// Get the address from the host url
-    pub fn get_address_from_host(&self, host: &str) -> Option<Address> {
+    pub fn get_addresses_from_host(&self, host: &str) -> Vec<Address> {
+        let mut addresses = Vec::new();
         for shard in 0..self.shards() {
             for server in 0..self.servers(shard) {
                 let address = self.address(shard, server);
                 if address.host == host {
-                    return Some(address.clone());
+                    addresses.push(address.clone());
                 }
             }
         }
-        None
+        addresses
     }
 
     /// Get the number of servers (primary and replicas)
