@@ -4,8 +4,9 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -355,6 +356,12 @@ pub struct Pool {
 }
 
 impl Pool {
+    pub fn hash_value(&self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        s.finish()
+    }
+
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
     }
@@ -367,7 +374,7 @@ impl Pool {
         None
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&mut self) -> Result<(), Error> {
         match self.default_role.as_ref() {
             "any" => (),
             "primary" => (),
@@ -406,6 +413,25 @@ impl Pool {
                 }
             }
         }
+
+        self.automatic_sharding_key = match &self.automatic_sharding_key {
+            Some(key) => {
+                // No quotes in the key so we don't have to compare quoted
+                // to unquoted idents.
+                let key = key.replace("\"", "");
+
+                if key.split(".").count() != 2 {
+                    error!(
+                        "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
+                        key, key
+                    );
+                    return Err(Error::BadConfig);
+                }
+
+                Some(key)
+            }
+            None => None,
+        };
 
         Ok(())
     }

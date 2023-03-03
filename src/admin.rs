@@ -1,6 +1,8 @@
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{info, trace};
+use log::{error, info, trace};
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
 use std::collections::HashMap;
 use tokio::time::Instant;
 
@@ -75,6 +77,10 @@ where
             trace!("RESUME");
             resume(stream, query_parts[1]).await
         }
+        "SHUTDOWN" => {
+            trace!("SHUTDOWN");
+            shutdown(stream).await
+        }
         "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
             "BANS" => {
                 trace!("SHOW BANS");
@@ -111,6 +117,10 @@ where
             "VERSION" => {
                 trace!("SHOW VERSION");
                 show_version(stream).await
+            }
+            "USERS" => {
+                trace!("SHOW USERS");
+                show_users(stream).await
             }
             _ => error_response(stream, "Unsupported SHOW query against the admin database").await,
         },
@@ -809,4 +819,61 @@ where
             }
         }
     }
+}
+
+/// Send response packets for shutdown.
+async fn shutdown<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![("success", DataType::Text)]));
+
+    let mut shutdown_success = "t";
+
+    let pid = std::process::id();
+    if signal::kill(Pid::from_raw(pid.try_into().unwrap()), Signal::SIGINT).is_err() {
+        error!("Unable to send SIGINT to PID: {}", pid);
+        shutdown_success = "f";
+    }
+
+    res.put(data_row(&vec![shutdown_success.to_string()]));
+
+    res.put(command_complete("SHUTDOWN"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Show Users.
+async fn show_users<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![
+        ("name", DataType::Text),
+        ("pool_mode", DataType::Text),
+    ]));
+
+    for (user_pool, pool) in get_all_pools() {
+        let pool_config = &pool.settings;
+        res.put(data_row(&vec![
+            user_pool.user.clone(),
+            pool_config.pool_mode.to_string(),
+        ]));
+    }
+
+    res.put(command_complete("SHOW"));
+
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
 }
