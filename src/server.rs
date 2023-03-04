@@ -14,6 +14,7 @@ use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
+use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::Reporter;
@@ -68,6 +69,8 @@ pub struct Server {
 
     // Last time that a successful server send or response happened
     last_activity: SystemTime,
+
+    mirror_manager: Option<MirroringManager>,
 }
 
 impl Server {
@@ -316,6 +319,7 @@ impl Server {
 
                     let (read, write) = stream.into_split();
 
+
                     let mut server = Server {
                         address: address.clone(),
                         read: BufReader::new(read),
@@ -334,8 +338,11 @@ impl Server {
                         stats,
                         application_name: String::new(),
                         last_activity: SystemTime::now(),
+                        mirror_manager: match address.mirrors.len() {
+                            0 => None,
+                            _ => Some(MirroringManager::from_addresses(user.clone(), database.to_owned(), address.mirrors.clone()))
+                        },
                     };
-
                     server.set_name("pgcat").await?;
 
                     return Ok(server);
@@ -384,6 +391,7 @@ impl Server {
 
     /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: &BytesMut) -> Result<(), Error> {
+        self.mirror_send(messages);
         self.stats.data_sent(messages.len(), self.server_id);
 
         match write_all_half(&mut self.write, messages).await {
@@ -404,6 +412,8 @@ impl Server {
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
+        self.mirror_recv();
+
         loop {
             let mut message = match read_message(&mut self.read).await {
                 Ok(message) => message,
@@ -594,10 +604,9 @@ impl Server {
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
-        let query = simple_query(query);
+        let query_bytes = simple_query(query);
 
-        self.send(&query).await?;
-
+        self.send(&query_bytes).await?;
         loop {
             let _ = self.recv().await?;
 
@@ -605,7 +614,6 @@ impl Server {
                 break;
             }
         }
-
         Ok(())
     }
 
@@ -674,6 +682,27 @@ impl Server {
     pub fn mark_dirty(&mut self) {
         self.needs_cleanup = true;
     }
+
+    pub fn mirror_send(&mut self, bytes: &BytesMut) {
+        match self.mirror_manager.as_mut() {
+            Some(manager) => manager.send(bytes),
+            None => (),
+        }
+    }
+
+    pub fn mirror_recv(&mut self) {
+        match self.mirror_manager.as_mut() {
+            Some(manager) => manager.receive(),
+            None => (),
+        }
+    }
+
+    pub fn mirror_exit(&mut self) {
+        match self.mirror_manager.as_mut() {
+            Some(manager) => manager.exit(),
+            None => (),
+        }
+    }
 }
 
 impl Drop for Server {
@@ -681,6 +710,7 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
+        self.mirror_exit();
         self.stats.server_disconnecting(self.server_id);
 
         let mut bytes = BytesMut::with_capacity(4);

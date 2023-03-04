@@ -233,7 +233,34 @@ impl ConnectionPool {
                     let mut servers = Vec::new();
                     let mut replica_number = 0;
 
+
+
                     for (address_index, server) in shard.servers.iter().enumerate() {
+
+                        let mut mirror_addresses: Vec<Address> = vec![];
+                        let mirror_idx = 20_000;
+                        match &shard.mirrors {
+                            Some(mirror_settings_vec) => {
+                                for mirror_settings in mirror_settings_vec {
+                                    if mirror_settings.index == address_index {
+                                        mirror_addresses.push(Address {
+                                            id: mirror_idx + address_id,
+                                            database: shard.database.clone(),
+                                            host: mirror_settings.host.clone(),
+                                            port: mirror_settings.port,
+                                            role: server.role,
+                                            address_index: mirror_idx + address_index,
+                                            replica_number,
+                                            shard: shard_idx.parse::<usize>().unwrap(),
+                                            username: user.username.clone(),
+                                            pool_name: pool_name.clone(),
+                                            mirrors: vec![],
+                                        });
+                                    }
+                                }
+                            }
+                            None => (),
+                        };
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
@@ -245,6 +272,7 @@ impl ConnectionPool {
                             shard: shard_idx.parse::<usize>().unwrap(),
                             username: user.username.clone(),
                             pool_name: pool_name.clone(),
+                            mirrors: mirror_addresses,
                         };
 
                         address_id += 1;

@@ -90,6 +90,9 @@ pub struct Address {
 
     /// The name of this pool (i.e. database name visible to the client).
     pub pool_name: String,
+
+    /// List address to get the same traffic.
+    pub mirrors: Vec<Address>,
 }
 
 impl Default for Address {
@@ -105,6 +108,7 @@ impl Default for Address {
             role: Role::Replica,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
+            mirrors: Vec::new(),
         }
     }
 }
@@ -465,11 +469,20 @@ pub struct ServerConfig {
     pub role: Role,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]
+pub struct MirrorServerConfig {
+    pub host: String,
+    pub port: u16,
+    pub index: usize,
+}
+
+
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Shard {
     pub database: String,
     pub servers: Vec<ServerConfig>,
+    pub mirrors: Option<Vec<MirrorServerConfig>>
 }
 
 impl Shard {
@@ -518,6 +531,7 @@ impl Default for Shard {
                 port: 5432,
                 role: Role::Primary,
             }],
+            mirrors: None,
             database: String::from("postgres"),
         }
     }

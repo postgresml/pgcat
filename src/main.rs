@@ -74,6 +74,7 @@ mod scram;
 mod server;
 mod sharding;
 mod stats;
+mod mirrors;
 mod tls;
 
 use crate::config::{get_config, reload_config, VERSION};
