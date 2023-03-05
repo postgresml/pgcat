@@ -25,8 +25,10 @@ describe "Query Mirroing" do
 
   it "can mirror a query" do
     conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
-    conn.async_exec("SELECT 1 + 2")
-    expect(processes.all_databases.first.count_select_1_plus_2).to eq(4)
+    runs = 15
+    runs.times { conn.async_exec("SELECT 1 + 2") }
+    sleep 0.5
+    expect(processes.all_databases.first.count_select_1_plus_2).to eq(runs * 4)
   end
 
   context "when a mirror is down" do
@@ -38,7 +40,6 @@ describe "Query Mirroing" do
       conn.async_exec("SELECT 1 + 2")
       expect(processes.all_databases.first.count_select_1_plus_2).to eq(1)
     end
-
 
     it "does not fail to send the main query (even after thousands of mirror attempts)" do
       conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
