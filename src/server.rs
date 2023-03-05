@@ -608,6 +608,7 @@ impl Server {
         let query = simple_query(query);
 
         self.send(&query).await?;
+
         loop {
             let _ = self.recv().await?;
 
@@ -615,6 +616,7 @@ impl Server {
                 break;
             }
         }
+
         Ok(())
     }
 
