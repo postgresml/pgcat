@@ -605,9 +605,9 @@ impl Server {
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
-        let query_bytes = simple_query(query);
+        let query = simple_query(query);
 
-        self.send(&query_bytes).await?;
+        self.send(&query).await?;
         loop {
             let _ = self.recv().await?;
 
