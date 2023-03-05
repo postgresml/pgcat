@@ -346,6 +346,7 @@ impl Server {
                             )),
                         },
                     };
+
                     server.set_name("pgcat").await?;
 
                     return Ok(server);
