@@ -66,6 +66,7 @@ mod config;
 mod constants;
 mod errors;
 mod messages;
+mod mirrors;
 mod multi_logger;
 mod pool;
 mod prometheus;
@@ -74,7 +75,6 @@ mod scram;
 mod server;
 mod sharding;
 mod stats;
-mod mirrors;
 mod tls;
 
 use crate::config::{get_config, reload_config, VERSION};

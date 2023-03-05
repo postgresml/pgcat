@@ -1,8 +1,8 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
-use bytes::{BytesMut, Bytes};
+use bytes::{Bytes, BytesMut};
 
-use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::config::{Address, User};
 use crate::pool::ClientServerMap;
@@ -11,7 +11,7 @@ use crate::stats::get_reporter;
 
 pub enum MirrorOperation {
     Send(Bytes),
-    Receive
+    Receive,
 }
 pub struct MirrorUnit {
     pub address: Address,
@@ -30,8 +30,10 @@ impl MirrorUnit {
                 &self.user.clone(),
                 self.database.as_str(),
                 ClientServerMap::default(),
-                get_reporter()
-            ).await.unwrap();
+                get_reporter(),
+            )
+            .await
+            .unwrap();
 
             loop {
                 tokio::select! {
@@ -58,12 +60,16 @@ impl MirrorUnit {
 }
 pub struct MirroringManager {
     pub byte_senders: Vec<Sender<MirrorOperation>>,
-    pub exit_senders: Vec<Sender<()>>
+    pub exit_senders: Vec<Sender<()>>,
 }
 impl MirroringManager {
-    pub fn from_addresses(user: User, database: String, addresses: Vec<Address>) -> MirroringManager {
-        let mut byte_senders : Vec<Sender<MirrorOperation>> = vec![];
-        let mut exit_senders : Vec<Sender<()>> = vec![];
+    pub fn from_addresses(
+        user: User,
+        database: String,
+        addresses: Vec<Address>,
+    ) -> MirroringManager {
+        let mut byte_senders: Vec<Sender<MirrorOperation>> = vec![];
+        let mut exit_senders: Vec<Sender<()>> = vec![];
 
         addresses.iter().for_each(|mirror| {
             let (bytes_tx, bytes_rx) = channel::<MirrorOperation>(500);
@@ -82,7 +88,7 @@ impl MirroringManager {
 
         Self {
             byte_senders: byte_senders,
-            exit_senders: exit_senders
+            exit_senders: exit_senders,
         }
     }
 
@@ -90,7 +96,7 @@ impl MirroringManager {
         let cpy = bytes.clone().freeze();
         self.byte_senders.iter_mut().for_each(|sender| {
             match sender.try_send(MirrorOperation::Send(cpy.clone())) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(_) => {}
             }
         });
@@ -99,19 +105,18 @@ impl MirroringManager {
     pub fn receive(self: &mut Self) {
         self.byte_senders.iter_mut().for_each(|sender| {
             match sender.try_send(MirrorOperation::Receive) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(_) => {}
             }
         });
     }
 
     pub fn exit(self: &mut Self) {
-        self.exit_senders.iter_mut().for_each(|sender| {
-            match sender.try_send(()) {
-                Ok(_) => {},
+        self.exit_senders
+            .iter_mut()
+            .for_each(|sender| match sender.try_send(()) {
+                Ok(_) => {}
                 Err(_) => {}
-            }
-        });
-
+            });
     }
 }

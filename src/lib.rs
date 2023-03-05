@@ -2,6 +2,7 @@ pub mod config;
 pub mod constants;
 pub mod errors;
 pub mod messages;
+pub mod mirrors;
 pub mod multi_logger;
 pub mod pool;
 pub mod scram;
@@ -9,7 +10,6 @@ pub mod server;
 pub mod sharding;
 pub mod stats;
 pub mod tls;
-pub mod mirrors;
 
 /// Format chrono::Duration to be more human-friendly.
 ///

@@ -319,7 +319,6 @@ impl Server {
 
                     let (read, write) = stream.into_split();
 
-
                     let mut server = Server {
                         address: address.clone(),
                         read: BufReader::new(read),
@@ -340,7 +339,11 @@ impl Server {
                         last_activity: SystemTime::now(),
                         mirror_manager: match address.mirrors.len() {
                             0 => None,
-                            _ => Some(MirroringManager::from_addresses(user.clone(), database.to_owned(), address.mirrors.clone()))
+                            _ => Some(MirroringManager::from_addresses(
+                                user.clone(),
+                                database.to_owned(),
+                                address.mirrors.clone(),
+                            )),
                         },
                     };
                     server.set_name("pgcat").await?;

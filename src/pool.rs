@@ -233,10 +233,7 @@ impl ConnectionPool {
                     let mut servers = Vec::new();
                     let mut replica_number = 0;
 
-
-
                     for (address_index, server) in shard.servers.iter().enumerate() {
-
                         let mut mirror_addresses: Vec<Address> = vec![];
                         let mirror_idx = 20_000;
                         match &shard.mirrors {

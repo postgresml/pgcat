@@ -476,13 +476,12 @@ pub struct MirrorServerConfig {
     pub index: usize,
 }
 
-
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Shard {
     pub database: String,
     pub servers: Vec<ServerConfig>,
-    pub mirrors: Option<Vec<MirrorServerConfig>>
+    pub mirrors: Option<Vec<MirrorServerConfig>>,
 }
 
 impl Shard {
