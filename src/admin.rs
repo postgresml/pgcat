@@ -400,7 +400,7 @@ where
 
     for (id, pool) in get_all_pools().iter() {
         for address in pool.get_addresses_from_host(host) {
-            if !pool.is_banned(&address) && address.role != Role::Primary {
+            if !pool.is_banned(&address) {
                 pool.ban(&address, BanReason::AdminBan(duration_seconds), -1);
                 res.put(data_row(&vec![
                     id.db.clone(),
@@ -496,7 +496,7 @@ where
                 _ => pool.settings.ban_time,
             };
             let remaining = ban_duration - (now - ban_time.timestamp());
-            if remaining <= 0 || address.role == Role::Primary {
+            if remaining <= 0 {
                 continue;
             }
             res.put(data_row(&vec![
