@@ -72,6 +72,10 @@ class PgInstance
     with_connection { |c| c.async_exec("SELECT pg_stat_statements_reset()") }
   end
 
+  def count_connections
+    with_connection { |c| c.async_exec("SELECT COUNT(*) as count FROM pg_stat_activity")[0]["count"].to_i }
+  end
+
   def count_query(query)
     with_connection { |c| c.async_exec("SELECT SUM(calls) FROM pg_stat_statements WHERE query = '#{query}'")[0]["sum"].to_i }
   end
