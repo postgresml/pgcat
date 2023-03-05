@@ -1,8 +1,7 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
-use bytes::{BytesMut};
+use bytes::{BytesMut, Bytes};
 
-use parking_lot::Mutex;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::config::{Address, User};
@@ -11,7 +10,7 @@ use crate::server::Server;
 use crate::stats::get_reporter;
 
 pub enum MirrorOperation {
-    Send(BytesMut),
+    Send(Bytes),
     Receive
 }
 pub struct MirrorUnit {
@@ -42,7 +41,7 @@ impl MirrorUnit {
                     op = self.bytes_rx.recv() => {
                         match op {
                             Some(MirrorOperation::Send(bytes)) => {
-                                server.send(&bytes).await.unwrap();
+                                server.send(&BytesMut::from(&bytes[..])).await.unwrap();
                             }
                             Some(MirrorOperation::Receive) => {
                                 server.recv().await.unwrap();
@@ -88,7 +87,7 @@ impl MirroringManager {
     }
 
     pub fn send(self: &mut Self, bytes: &BytesMut) {
-        let cpy = bytes.clone();
+        let cpy = bytes.clone().freeze();
         self.byte_senders.iter_mut().for_each(|sender| {
             match sender.try_send(MirrorOperation::Send(cpy.clone())) {
                 Ok(_) => {},
