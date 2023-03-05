@@ -220,7 +220,9 @@ impl MirroringManager {
             .iter_mut()
             .for_each(|sender| match sender.try_send(cpy.clone()) {
                 Ok(_) => {}
-                Err(_) => {}
+                Err(err) => {
+                    error!("Failed to send bytes to a mirror channel {}", err);
+                }
             });
     }
 
@@ -229,7 +231,12 @@ impl MirroringManager {
             .iter_mut()
             .for_each(|sender| match sender.try_send(()) {
                 Ok(_) => {}
-                Err(_) => {}
+                Err(err) => {
+                    error!(
+                        "Failed to send disconnect signal to a mirror channel {}",
+                        err
+                    );
+                }
             });
     }
 }
