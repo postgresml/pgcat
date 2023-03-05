@@ -694,7 +694,7 @@ impl Server {
         }
     }
 
-    pub fn mirror_exit(&mut self) {
+    pub fn mirror_disconnect(&mut self) {
         match self.mirror_manager.as_mut() {
             Some(manager) => manager.exit(),
             None => (),
@@ -707,7 +707,7 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
-        self.mirror_exit();
+        self.mirror_disconnect();
         self.stats.server_disconnecting(self.server_id);
 
         let mut bytes = BytesMut::with_capacity(4);

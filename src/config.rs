@@ -94,7 +94,7 @@ pub struct Address {
     /// The name of this pool (i.e. database name visible to the client).
     pub pool_name: String,
 
-    /// List address to get the same traffic.
+    /// List of addresses to receive mirrored traffic.
     pub mirrors: Vec<Address>,
 }
 
