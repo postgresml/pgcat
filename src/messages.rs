@@ -87,6 +87,16 @@ where
     write_all(stream, key_data).await
 }
 
+pub fn flush() -> BytesMut {
+    let mut res = BytesMut::with_capacity(
+        mem::size_of::<u8>() + mem::size_of::<i32>()
+    );
+    res.put_u8(b'H');
+    res.put_i32(4);
+
+    return res;
+}
+
 /// Construct a `Q`: Query message.
 pub fn simple_query(query: &str) -> BytesMut {
     let mut res = BytesMut::from(&b"Q"[..]);
