@@ -132,11 +132,6 @@ servers = [
     [ "127.0.0.1", 5432, "primary" ],
     [ "localhost", 5432, "replica" ]
 ]
-mirrors = [
-  ["localhost", 5432, 0], # mirrors instance 1
-  ["localhost", 5432, 0], # mirrors instance 1
-  ["localhost", 5432, 0], # mirrors instance 1
-]
 # Database name (e.g. "postgres")
 database = "shard0"
 

@@ -29,7 +29,7 @@ class PgcatProcess
                    else
                      '../../target/debug/pgcat'
                    end
-                     
+
     @command = "#{command_path} #{@config_filename}"
 
     FileUtils.cp("../../pgcat.toml", @config_filename)
@@ -48,12 +48,14 @@ class PgcatProcess
     @original_config = current_config
     output_to_write = TOML::Generator.new(config_hash).body
     output_to_write = output_to_write.gsub(/,\s*["|'](\d+)["|']\s*,/, ',\1,')
+    output_to_write = output_to_write.gsub(/,\s*["|'](\d+)["|']\s*\]/, ',\1]')
     File.write(@config_filename, output_to_write)
   end
 
   def current_config
-    old_cfg = File.read(@config_filename)
-    loadable_string = old_cfg.gsub(/,\s*(\d+)\s*,/, ', "\1",')
+    loadable_string = File.read(@config_filename)
+    loadable_string = loadable_string.gsub(/,\s*(\d+)\s*,/,  ', "\1",')
+    loadable_string = loadable_string.gsub(/,\s*(\d+)\s*\]/, ', "\1"]')
     TOML.load(loadable_string)
   end
 
