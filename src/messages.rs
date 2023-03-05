@@ -88,9 +88,7 @@ where
 }
 
 pub fn flush() -> BytesMut {
-    let mut res = BytesMut::with_capacity(
-        mem::size_of::<u8>() + mem::size_of::<i32>()
-    );
+    let mut res = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>());
     res.put_u8(b'H');
     res.put_i32(4);
 

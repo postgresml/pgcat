@@ -415,8 +415,6 @@ impl Server {
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
-        self.mirror_recv();
-
         loop {
             let mut message = match read_message(&mut self.read).await {
                 Ok(message) => message,
@@ -689,13 +687,6 @@ impl Server {
     pub fn mirror_send(&mut self, bytes: &BytesMut) {
         match self.mirror_manager.as_mut() {
             Some(manager) => manager.send(bytes),
-            None => (),
-        }
-    }
-
-    pub fn mirror_recv(&mut self) {
-        match self.mirror_manager.as_mut() {
-            Some(manager) => manager.receive(),
             None => (),
         }
     }

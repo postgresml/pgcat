@@ -1,14 +1,15 @@
+/// A mirrored PostgreSQL client.
+/// Packets arrive to us through a channel from the main client and we send them to the server.
 use std::cmp::{max, min};
 use std::time::Duration;
 
-/// Implementation of the PostgreSQL server (database) protocol.
-/// Here we are pretending to the a Postgres client.
 use bytes::{Bytes, BytesMut};
 
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::sleep;
 
 use crate::config::{Address, Role, User};
+use crate::errors::Error;
 use crate::messages::flush;
 use crate::pool::ClientServerMap;
 use crate::server::Server;
@@ -18,20 +19,33 @@ use log::{error, info, trace};
 const MAX_CONNECT_RETRIES: u32 = 5;
 const MAX_SEND_RETRIES: u32 = 3;
 
-pub enum MirrorOperation {
-    Send(Bytes),
-    Receive,
-}
 pub struct MirroredClient {
-    pub address: Address,
-    pub user: User,
-    pub database: String,
-    pub bytes_rx: Receiver<MirrorOperation>,
-    pub exit_rx: Receiver<()>,
-    successful_sends_without_recv: u32
+    address: Address,
+    user: User,
+    database: String,
+    bytes_rx: Receiver<Bytes>,
+    exit_rx: Receiver<()>,
+    successful_sends_without_recv: u32,
 }
 
 impl MirroredClient {
+    async fn recv_if_neccessary(&mut self, server: &mut Server) -> Result<(), Error> {
+        /* We only receive a response from the server if we have successfully sent
+          5 messages on the current connection. We also send a flush message to gaurantee
+          a server response.
+        */
+        if self.successful_sends_without_recv >= 5 {
+            // We send a flush message to gaurantee a server response
+            server.send(&flush()).await?;
+            server.recv().await?;
+            self.successful_sends_without_recv = 0;
+            trace!(
+                "Received a response from mirror server {:?}",
+                server.address()
+            );
+        }
+        Ok(())
+    }
 
     async fn connect_with_retries(&mut self, server_id: i32) -> Option<Server> {
         let mut delay = Duration::from_secs(0);
@@ -91,9 +105,9 @@ impl MirroredClient {
     }
 
     pub fn start(mut self, server_id: i32) {
-        let address = self.address.clone();
-        let mut server_optional = None;
         tokio::spawn(async move {
+            let address = self.address.clone();
+            let mut server_optional: Option<Server> = None;
             loop {
                 tokio::select! {
                     _ = self.exit_rx.recv() => {
@@ -101,7 +115,13 @@ impl MirroredClient {
                         break;
                     }
 
-                    op = self.bytes_rx.recv() => {
+                    message = self.bytes_rx.recv() => {
+                        if message.is_none() {
+                            info!("Mirror channel closed, exiting {:?}", address.clone());
+                            break;
+                        }
+
+                        let bytes = message.unwrap();
                         if server_optional.is_none() {
                             server_optional = self.connect_with_retries(server_id).await;
                             if server_optional.is_none() {
@@ -120,70 +140,34 @@ impl MirroredClient {
                             server = server_optional.unwrap();
                         }
 
-                        match op {
-                            Some(MirrorOperation::Send(bytes)) => {
-                                // Retry sending up to MAX_SEND_RETRIES times
-                                let mut retries = 0;
-                                loop {
-                                    match server.send(&BytesMut::from(&bytes[..])).await {
-                                        Ok(_) => {
-                                            trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone());
-                                            self.successful_sends_without_recv += 1;
-                                            break;
-                                        }
-                                        Err(err) => {
-                                            if retries > MAX_SEND_RETRIES {
-                                                error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone());
-                                                break;
-                                            } else {
-                                                error!("Failed to send to mirror, retrying {:?}, {:?}", err, address.clone());
-                                                retries += 1;
-                                                server_optional = self.connect_with_retries(server_id).await;
-                                                if server_optional.is_none() {
-                                                    error!("Failed to connect to mirror, Discarding message {:?}", address.clone());
-                                                    continue;
-                                                }
-                                                server = server_optional.unwrap();
-                                                continue;
-                                            }
-                                        }
+                        // Retry sending up to MAX_SEND_RETRIES times
+                        let mut retries = 0;
+                        loop {
+                            match server.send(&BytesMut::from(&bytes[..])).await {
+                                Ok(_) => {
+                                    trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone());
+                                    self.successful_sends_without_recv += 1;
+                                    if self.recv_if_neccessary(&mut server).await.is_err() {
+                                        error!("Failed to recv from mirror, Discarding message {:?}", address.clone());
                                     }
+                                    break;
                                 }
-                            }
-
-                            Some(MirrorOperation::Receive) => {
-                                /*
-                                    Receiving from the server is best effort.
-                                    We don't really care about the response but we do not want
-                                    to leave the data lingering in Postgres send buffer.
-
-                                    To avoid blocking on recv forever, we keep track of the number of
-                                    successful sends without a recv. If we have not sent anything
-                                    we shouldn't expect to receive anything. We also send a sync
-                                    message to gaurantee a response from the server.
-                                 */
-
-                                if self.successful_sends_without_recv >= 5 {
-                                    // We send a flush message to gaurantee a server response
-                                    if server.send(&flush()).await.is_err() {
-                                        error!("Failed to send flush to mirror, disconnecting {:?}", address.clone());
-                                        server_optional = None; // Force reconnect
+                                Err(err) => {
+                                    if retries > MAX_SEND_RETRIES {
+                                        error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone());
+                                            break;
+                                    } else {
+                                        error!("Failed to send to mirror, retrying {:?}, {:?}", err, address.clone());
+                                        retries += 1;
+                                        server_optional = self.connect_with_retries(server_id).await;
+                                        if server_optional.is_none() {
+                                            error!("Failed to connect to mirror, Discarding message {:?}", address.clone());
+                                            continue;
+                                        }
+                                        server = server_optional.unwrap();
                                         continue;
                                     }
-                                    match server.recv().await {
-                                        Ok(_) => {
-                                            trace!("Received from mirror: {:?}", address.clone());
-                                            self.successful_sends_without_recv = 0;
-                                        }
-                                        Err(_) => {
-                                            error!("Failed to receive from mirror, disconnecting {:?}", address.clone());
-                                        }
-                                    }
                                 }
-                            }
-                            None => {
-                                info!("Mirror channel closed, exiting {:?}", address.clone());
-                                break;
                             }
                         }
                         server_optional = Some(server);
@@ -194,7 +178,7 @@ impl MirroredClient {
     }
 }
 pub struct MirroringManager {
-    pub byte_senders: Vec<Sender<MirrorOperation>>,
+    pub byte_senders: Vec<Sender<Bytes>>,
     pub exit_senders: Vec<Sender<()>>,
 }
 impl MirroringManager {
@@ -203,11 +187,11 @@ impl MirroringManager {
         database: String,
         addresses: Vec<Address>,
     ) -> MirroringManager {
-        let mut byte_senders: Vec<Sender<MirrorOperation>> = vec![];
+        let mut byte_senders: Vec<Sender<Bytes>> = vec![];
         let mut exit_senders: Vec<Sender<()>> = vec![];
 
         addresses.iter().for_each(|mirror| {
-            let (bytes_tx, bytes_rx) = channel::<MirrorOperation>(500);
+            let (bytes_tx, bytes_rx) = channel::<Bytes>(500);
             let (exit_tx, exit_rx) = channel::<()>(1);
             let mut addr = mirror.clone();
             addr.role = Role::Mirror;
@@ -232,21 +216,12 @@ impl MirroringManager {
 
     pub fn send(self: &mut Self, bytes: &BytesMut) {
         let cpy = bytes.clone().freeze();
-        self.byte_senders.iter_mut().for_each(|sender| {
-            match sender.try_send(MirrorOperation::Send(cpy.clone())) {
+        self.byte_senders
+            .iter_mut()
+            .for_each(|sender| match sender.try_send(cpy.clone()) {
                 Ok(_) => {}
                 Err(_) => {}
-            }
-        });
-    }
-
-    pub fn receive(self: &mut Self) {
-        self.byte_senders.iter_mut().for_each(|sender| {
-            match sender.try_send(MirrorOperation::Receive) {
-                Ok(_) => {}
-                Err(_) => {}
-            }
-        });
+            });
     }
 
     pub fn exit(self: &mut Self) {
