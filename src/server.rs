@@ -696,7 +696,7 @@ impl Server {
 
     pub fn mirror_disconnect(&mut self) {
         match self.mirror_manager.as_mut() {
-            Some(manager) => manager.exit(),
+            Some(manager) => manager.disconnect(),
             None => (),
         }
     }

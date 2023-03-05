@@ -24,7 +24,7 @@ pub struct MirroredClient {
     user: User,
     database: String,
     bytes_rx: Receiver<Bytes>,
-    exit_rx: Receiver<()>,
+    disconnect_rx: Receiver<()>,
     successful_sends_without_recv: u32,
 }
 
@@ -110,7 +110,7 @@ impl MirroredClient {
             let mut server_optional: Option<Server> = None;
             loop {
                 tokio::select! {
-                    _ = self.exit_rx.recv() => {
+                    _ = self.disconnect_rx.recv() => {
                         info!("Got mirror exit signal, exiting {:?}", address.clone());
                         break;
                     }
@@ -179,7 +179,7 @@ impl MirroredClient {
 }
 pub struct MirroringManager {
     pub byte_senders: Vec<Sender<Bytes>>,
-    pub exit_senders: Vec<Sender<()>>,
+    pub disconnect_senders: Vec<Sender<()>>,
 }
 impl MirroringManager {
     pub fn from_addresses(
@@ -200,7 +200,7 @@ impl MirroringManager {
                 database: database.to_owned(),
                 address: addr,
                 bytes_rx,
-                exit_rx,
+                disconnect_rx: exit_rx,
                 successful_sends_without_recv: 0,
             };
             exit_senders.push(exit_tx.clone());
@@ -210,7 +210,7 @@ impl MirroringManager {
 
         Self {
             byte_senders: byte_senders,
-            exit_senders: exit_senders,
+            disconnect_senders: exit_senders,
         }
     }
 
@@ -224,8 +224,8 @@ impl MirroringManager {
             });
     }
 
-    pub fn exit(self: &mut Self) {
-        self.exit_senders
+    pub fn disconnect(self: &mut Self) {
+        self.disconnect_senders
             .iter_mut()
             .for_each(|sender| match sender.try_send(()) {
                 Ok(_) => {}
