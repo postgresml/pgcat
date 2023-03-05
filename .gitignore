@@ -2,7 +2,7 @@
 /target
 *.deb
 .vscode
-.profraw
+*.profraw
 cov/
 lcov.info
 

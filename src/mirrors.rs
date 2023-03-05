@@ -14,7 +14,7 @@ use crate::messages::flush;
 use crate::pool::ClientServerMap;
 use crate::server::Server;
 use crate::stats::get_reporter;
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 
 const MAX_CONNECT_RETRIES: u32 = 5;
 const MAX_SEND_RETRIES: u32 = 3;
@@ -221,7 +221,7 @@ impl MirroringManager {
             .for_each(|sender| match sender.try_send(cpy.clone()) {
                 Ok(_) => {}
                 Err(err) => {
-                    error!("Failed to send bytes to a mirror channel {}", err);
+                    warn!("Failed to send bytes to a mirror channel {}", err);
                 }
             });
     }
@@ -232,7 +232,7 @@ impl MirroringManager {
             .for_each(|sender| match sender.try_send(()) {
                 Ok(_) => {}
                 Err(err) => {
-                    error!(
+                    warn!(
                         "Failed to send disconnect signal to a mirror channel {}",
                         err
                     );
