@@ -1,13 +1,18 @@
+use std::cmp::{max, min};
+use std::time::Duration;
+
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
 use bytes::{Bytes, BytesMut};
 
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::time::sleep;
 
-use crate::config::{Address, User};
+use crate::config::{Address, Role, User};
 use crate::pool::ClientServerMap;
 use crate::server::Server;
 use crate::stats::get_reporter;
+use log::{error, info, trace};
 
 pub enum MirrorOperation {
     Send(Bytes),
@@ -22,33 +27,80 @@ pub struct MirrorUnit {
 }
 
 impl MirrorUnit {
+    async fn connect(&self, server_id: i32) -> Option<Server> {
+        let stats = get_reporter();
+        stats.server_register(
+            server_id,
+            self.address.id,
+            self.address.name(),
+            self.database.clone(),
+            self.address.username.clone(),
+        );
+        stats.server_login(server_id);
+
+        match Server::startup(
+            server_id,
+            &self.address.clone(),
+            &self.user.clone(),
+            self.database.as_str(),
+            ClientServerMap::default(),
+            get_reporter(),
+        )
+        .await
+        {
+            Ok(conn) => {
+                stats.server_idle(server_id);
+                Some(conn)
+            }
+            Err(_) => {
+                stats.server_disconnecting(server_id);
+                None
+            }
+        }
+    }
+
     pub fn begin(mut self, server_id: i32) {
         tokio::spawn(async move {
-            let mut server = Server::startup(
-                server_id,
-                &self.address.clone(),
-                &self.user.clone(),
-                self.database.as_str(),
-                ClientServerMap::default(),
-                get_reporter(),
-            )
-            .await
-            .unwrap();
+            let mut delay = Duration::from_secs(0);
+            let min_backoff = Duration::from_millis(100);
+            let max_backoff = Duration::from_secs(5);
 
             loop {
                 tokio::select! {
                     _ = self.exit_rx.recv() => {
+                        info!("Got mirror exit signal, exiting {:?}", self.address.clone());
                         break;
                     }
+
                     op = self.bytes_rx.recv() => {
+                        let mut server = loop {
+                            let server = self.connect(server_id).await;
+                            if server.is_some() {
+                                let tmp_server: Server = server.unwrap();
+                                if !tmp_server.is_bad() {
+                                    break tmp_server;
+                                }
+                            }
+                            delay = max(min_backoff, delay);
+                            delay = min(max_backoff, delay * 2);
+                            sleep(delay).await;
+                        };
+                        // Server is not None and is good at this point
                         match op {
                             Some(MirrorOperation::Send(bytes)) => {
-                                server.send(&BytesMut::from(&bytes[..])).await.unwrap();
+                                match server.send(&BytesMut::from(&bytes[..])).await {
+                                    Ok(_) => trace!("Sent to mirror: {}", String::from_utf8_lossy(&bytes[..])),
+                                    Err(err) => error!("Error sending to mirror: {:?}", err)
+                                }
                             }
                             Some(MirrorOperation::Receive) => {
-                                server.recv().await.unwrap();
+                                match server.recv().await {
+                                    Ok(_) => (),
+                                    Err(err) => error!("Error receiving from mirror: {:?}", err)
+                                }
                             }
                             None => {
+                                info!("Mirror channel closed, exiting {:?}", self.address.clone());
                                 break;
                             }
                         }
@@ -74,10 +126,12 @@ impl MirroringManager {
         addresses.iter().for_each(|mirror| {
             let (bytes_tx, bytes_rx) = channel::<MirrorOperation>(500);
             let (exit_tx, exit_rx) = channel::<()>(1);
+            let mut addr = mirror.clone();
+            addr.role = Role::Mirror;
             let mirror_unit = MirrorUnit {
                 user: user.clone(),
                 database: database.to_owned(),
-                address: mirror.clone(),
+                address: addr,
                 bytes_rx,
                 exit_rx,
             };

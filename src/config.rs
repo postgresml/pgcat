@@ -29,6 +29,8 @@ pub enum Role {
     Primary,
     #[serde(alias = "replica", alias = "Replica")]
     Replica,
+    #[serde(alias = "mirror", alias = "Mirror")]
+    Mirror,
 }
 
 impl ToString for Role {
@@ -36,6 +38,7 @@ impl ToString for Role {
         match *self {
             Role::Primary => "primary".to_string(),
             Role::Replica => "replica".to_string(),
+            Role::Mirror => "mirror".to_string(),
         }
     }
 }
@@ -118,9 +121,12 @@ impl Address {
     pub fn name(&self) -> String {
         match self.role {
             Role::Primary => format!("{}_shard_{}_primary", self.pool_name, self.shard),
-
             Role::Replica => format!(
                 "{}_shard_{}_replica_{}",
+                self.pool_name, self.shard, self.replica_number
+            ),
+            Role::Mirror => format!(
+                "{}_shard_{}_mirror_{}",
                 self.pool_name, self.shard, self.replica_number
             ),
         }
