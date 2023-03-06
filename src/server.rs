@@ -696,6 +696,106 @@ impl Server {
             None => (),
         }
     }
+
+    // This is so we can execute out of band queries to the server.
+    // The connection will be opened, the query executed and closed.
+    pub async fn exec_simple_query(
+        address: &Address,
+        user: &User,
+        query: &str,
+    ) -> Result<Vec<String>, Error> {
+        let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
+
+        debug!("Connecting to server to obtain auth hashes.");
+        let mut server = Server::startup(
+            0,
+            address,
+            user,
+            &address.database,
+            client_server_map,
+            None,
+            Arc::new(RwLock::new(None)),
+        )
+        .await?;
+        debug!("Connected!, sending query.");
+        server.send(&simple_query(query)).await?;
+        let mut message = server.recv().await?;
+
+        Ok(parse_query_message(&mut message).await?)
+    }
+}
+
+async fn parse_query_message(message: &mut BytesMut) -> Result<Vec<String>, Error> {
+    let mut pair = Vec::<String>::new();
+    match message::backend::Message::parse(message) {
+        Ok(Some(message::backend::Message::RowDescription(_description))) => {}
+        Ok(Some(message::backend::Message::ErrorResponse(err))) => {
+            return Err(Error::ProtocolSyncError(format!(
+                "Protocol error parsing response. Err: {:?}",
+                err.fields()
+                    .iterator()
+                    .fold(String::default(), |acc, element| acc
+                        + element.unwrap().value())
+            )))
+        }
+        Ok(_) => {
+            return Err(Error::ProtocolSyncError(
+                "Protocol error, expected Row Description.".to_string(),
+            ))
+        }
+        Err(err) => {
+            return Err(Error::ProtocolSyncError(format!(
+                "Protocol error parsing response. Err: {:?}",
+                err
+            )))
+        }
+    }
+
+    while !message.is_empty() {
+        match message::backend::Message::parse(message) {
+            Ok(postgres_message) => {
+                match postgres_message {
+                    Some(message::backend::Message::DataRow(data)) => {
+                        let buf = data.buffer();
+                        trace!("Data: {:?}", buf);
+
+                        for item in data.ranges().iterator() {
+                            match item.as_ref() {
+                            Ok(range) => match range {
+                                Some(range) => {
+                                    pair.push(String::from_utf8_lossy(&buf[range.clone()]).to_string());
+                                }
+                                None => return Err(Error::ProtocolSyncError(String::from(
+                                    "Data expected while receiving query auth data, found nothing.",
+                                ))),
+                            },
+                            Err(err) => {
+                                return Err(Error::ProtocolSyncError(format!(
+                                    "Data error, err: {:?}",
+                                    err
+                                )))
+                            }
+                            }
+                        }
+                    }
+                    Some(message::backend::Message::CommandComplete(_)) => {}
+                    Some(message::backend::Message::ReadyForQuery(_)) => {}
+                    _ => {
+                        return Err(Error::ProtocolSyncError(
+                            "Unexpected message while receiving auth query data.".to_string(),
+                        ))
+                    }
+                }
+            }
+            Err(err) => {
+                return Err(Error::ProtocolSyncError(format!(
+                    "Parse error, err: {:?}",
+                    err
+                )))
+            }
+        };
+    }
+    Ok(pair)
 }
 
 impl Drop for Server {
