@@ -1,9 +1,12 @@
+use crate::config::Role;
+use crate::pool::BanReason;
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 
 use crate::config::{get_config, reload_config, VERSION};
@@ -53,6 +56,14 @@ where
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
     match query_parts[0].to_ascii_uppercase().as_str() {
+        "BAN" => {
+            trace!("BAN");
+            ban(stream, query_parts).await
+        }
+        "UNBAN" => {
+            trace!("UNBAN");
+            unban(stream, query_parts).await
+        }
         "RELOAD" => {
             trace!("RELOAD");
             reload(stream, client_server_map).await
@@ -74,6 +85,10 @@ where
             shutdown(stream).await
         }
         "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
+            "BANS" => {
+                trace!("SHOW BANS");
+                show_bans(stream).await
+            }
             "CONFIG" => {
                 trace!("SHOW CONFIG");
                 show_config(stream).await
@@ -348,6 +363,163 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     custom_protocol_response_ok(stream, "SET").await
+}
+
+/// Bans a host from being used
+async fn ban<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let host = match tokens.get(1) {
+        Some(host) => host,
+        None => return error_response(stream, "usage: BAN hostname duration_seconds").await,
+    };
+
+    let duration_seconds = match tokens.get(2) {
+        Some(duration_seconds) => match duration_seconds.parse::<i64>() {
+            Ok(duration_seconds) => duration_seconds,
+            Err(_) => {
+                return error_response(stream, "duration_seconds must be an integer").await;
+            }
+        },
+        None => return error_response(stream, "usage: BAN hostname duration_seconds").await,
+    };
+
+    if duration_seconds <= 0 {
+        return error_response(stream, "duration_seconds must be >= 0").await;
+    }
+
+    let columns = vec![
+        ("db", DataType::Text),
+        ("user", DataType::Text),
+        ("role", DataType::Text),
+        ("host", DataType::Text),
+    ];
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    for (id, pool) in get_all_pools().iter() {
+        for address in pool.get_addresses_from_host(host) {
+            if !pool.is_banned(&address) {
+                pool.ban(&address, BanReason::AdminBan(duration_seconds), -1);
+                res.put(data_row(&vec![
+                    id.db.clone(),
+                    id.user.clone(),
+                    address.role.to_string(),
+                    address.host,
+                ]));
+            }
+        }
+    }
+
+    res.put(command_complete("BAN"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Clear a host for use
+async fn unban<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let host = match tokens.get(1) {
+        Some(host) => host,
+        None => return error_response(stream, "UNBAN command requires a hostname to unban").await,
+    };
+
+    let columns = vec![
+        ("db", DataType::Text),
+        ("user", DataType::Text),
+        ("role", DataType::Text),
+        ("host", DataType::Text),
+    ];
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    for (id, pool) in get_all_pools().iter() {
+        for address in pool.get_addresses_from_host(host) {
+            if pool.is_banned(&address) {
+                pool.unban(&address);
+                res.put(data_row(&vec![
+                    id.db.clone(),
+                    id.user.clone(),
+                    address.role.to_string(),
+                    address.host,
+                ]));
+            }
+        }
+    }
+
+    res.put(command_complete("UNBAN"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Shows all the bans
+async fn show_bans<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let columns = vec![
+        ("db", DataType::Text),
+        ("user", DataType::Text),
+        ("role", DataType::Text),
+        ("host", DataType::Text),
+        ("reason", DataType::Text),
+        ("ban_time", DataType::Text),
+        ("ban_duration_seconds", DataType::Text),
+        ("ban_remaining_seconds", DataType::Text),
+    ];
+    let mut res = BytesMut::new();
+    res.put(row_description(&columns));
+
+    // The block should be pretty quick so we cache the time outside
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs() as i64;
+
+    for (id, pool) in get_all_pools().iter() {
+        for (address, (ban_reason, ban_time)) in pool.get_bans().iter() {
+            let ban_duration = match ban_reason {
+                BanReason::AdminBan(duration) => *duration,
+                _ => pool.settings.ban_time,
+            };
+            let remaining = ban_duration - (now - ban_time.timestamp());
+            if remaining <= 0 {
+                continue;
+            }
+            res.put(data_row(&vec![
+                id.db.clone(),
+                id.user.clone(),
+                address.role.to_string(),
+                address.host.clone(),
+                format!("{:?}", ban_reason),
+                ban_time.to_string(),
+                ban_duration.to_string(),
+                remaining.to_string(),
+            ]));
+        }
+    }
+
+    res.put(command_complete("SHOW BANS"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
 }
 
 /// Reload the configuration file without restarting the process.
