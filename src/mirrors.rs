@@ -54,7 +54,7 @@ impl MirroredClient {
         let mut retries = 0;
 
         loop {
-            if let Some(tmp_server) = self.connect(server_id).await;
+            if let Some(tmp_server) = self.connect(server_id).await {
                 if !tmp_server.is_bad() {
                     break Some(tmp_server);
                 }
