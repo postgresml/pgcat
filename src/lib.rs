@@ -1,3 +1,4 @@
+pub mod auth_passthrough;
 pub mod config;
 pub mod constants;
 pub mod errors;

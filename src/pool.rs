@@ -20,6 +20,7 @@ use tokio::sync::Notify;
 use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, Role, User};
 use crate::errors::Error;
 
+use crate::auth_passthrough::AuthPassthrough;
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
 use crate::stats::{AddressStats, ClientStats, PoolStats, ServerStats};
@@ -123,6 +124,11 @@ pub struct PoolSettings {
 
     // Limit how much of each query is searched for a potential shard regex match
     pub regex_search_limit: usize,
+
+    // Auth query parameters
+    pub auth_query: Option<String>,
+    pub auth_query_user: Option<String>,
+    pub auth_query_password: Option<String>,
 }
 
 impl Default for PoolSettings {
@@ -143,6 +149,9 @@ impl Default for PoolSettings {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: 1000,
+            auth_query: None,
+            auth_query_user: None,
+            auth_query_password: None,
         }
     }
 }
@@ -183,6 +192,9 @@ pub struct ConnectionPool {
     paused_waiter: Arc<Notify>,
 
     pub stats: Arc<PoolStats>,
+
+    /// AuthInfo
+    pub auth_hash: Arc<RwLock<Option<String>>>,
 }
 
 impl ConnectionPool {
@@ -237,6 +249,7 @@ impl ConnectionPool {
 
                 // Sort by shard number to ensure consistency.
                 shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
+                let pool_auth_hash: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
                 for shard_idx in &shard_ids {
                     let shard = &pool_config.shards[shard_idx];
@@ -293,12 +306,35 @@ impl ConnectionPool {
                             replica_number += 1;
                         }
 
+                        // We assume every server in the pool share user/passwords
+                        let auth_passthrough = AuthPassthrough::from_pool_config(pool_config);
+
+                        if let Some(apt) = &auth_passthrough {
+                            match apt.fetch_hash(&address).await {
+				Ok(ok) => {
+				    if let Some(ref pool_auth_hash_value) = *(pool_auth_hash.read()) {
+					if ok != *pool_auth_hash_value {
+					    warn!("Hash is not the same across shards of the same pool, client auth will \
+						   be done using last obtained hash. Server: {}:{}, Database: {}", server.host, server.port, shard.database);
+					}
+				    }
+				    debug!("Hash obtained for {:?}", address);
+				    {
+					let mut pool_auth_hash = pool_auth_hash.write();
+					*pool_auth_hash = Some(ok.clone());
+				    }
+				},
+				Err(err) => warn!("Could not obtain password hashes using auth_query config, ignoring. Error: {:?}", err),
+			    }
+                        }
+
                         let manager = ServerPool::new(
                             address.clone(),
                             user.clone(),
                             &shard.database,
                             client_server_map.clone(),
                             pool_stats.clone(),
+                            pool_auth_hash.clone(),
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -330,6 +366,12 @@ impl ConnectionPool {
                 }
 
                 assert_eq!(shards.len(), addresses.len());
+                if let Some(ref _auth_hash) = *(pool_auth_hash.clone().read()) {
+                    info!(
+                        "Auth hash obtained from query_auth for pool {{ name: {}, user: {} }}",
+                        pool_name, user.username
+                    );
+                }
 
                 let pool = ConnectionPool {
                     databases: shards,
@@ -338,6 +380,7 @@ impl ConnectionPool {
                     banlist: Arc::new(RwLock::new(banlist)),
                     config_hash: new_pool_hash_value,
                     server_info: Arc::new(RwLock::new(BytesMut::new())),
+                    auth_hash: pool_auth_hash,
                     settings: PoolSettings {
                         pool_mode: pool_config.pool_mode,
                         load_balancing_mode: pool_config.load_balancing_mode,
@@ -366,6 +409,9 @@ impl ConnectionPool {
                             .clone()
                             .map(|regex| Regex::new(regex.as_str()).unwrap()),
                         regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
+                        auth_query: pool_config.auth_query.clone(),
+                        auth_query_user: pool_config.auth_query_user.clone(),
+                        auth_query_password: pool_config.auth_query_password.clone(),
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
@@ -389,7 +435,8 @@ impl ConnectionPool {
         Ok(())
     }
 
-    /// Connect to all shards and grab server information.
+    /// Connect to all shards, grab server information, and possibly
+    /// passwords to use in client auth.
     /// Return server information we will pass to the clients
     /// when they connect.
     /// This also warms up the pool for clients that connect when
@@ -803,6 +850,7 @@ pub struct ServerPool {
     database: String,
     client_server_map: ClientServerMap,
     stats: Arc<PoolStats>,
+    auth_hash: Arc<RwLock<Option<String>>>,
 }
 
 impl ServerPool {
@@ -812,6 +860,7 @@ impl ServerPool {
         database: &str,
         client_server_map: ClientServerMap,
         stats: Arc<PoolStats>,
+        auth_hash: Arc<RwLock<Option<String>>>,
     ) -> ServerPool {
         ServerPool {
             address,
@@ -819,6 +868,7 @@ impl ServerPool {
             database: database.to_string(),
             client_server_map,
             stats,
+            auth_hash,
         }
     }
 }
@@ -847,6 +897,7 @@ impl ManageConnection for ServerPool {
             &self.database,
             self.client_server_map.clone(),
             stats.clone(),
+            self.auth_hash.clone(),
         )
         .await
         {

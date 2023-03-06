@@ -1110,6 +1110,9 @@ mod test {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: 1000,
+            auth_query: None,
+            auth_query_password: None,
+            auth_query_user: None,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -1171,6 +1174,9 @@ mod test {
             sharding_key_regex: Some(Regex::new(r"/\* sharding_key: (\d+) \*/").unwrap()),
             shard_id_regex: Some(Regex::new(r"/\* shard_id: (\d+) \*/").unwrap()),
             regex_search_limit: 1000,
+            auth_query: None,
+            auth_query_password: None,
+            auth_query_user: None,
         };
         let mut qr = QueryRouter::new();
         qr.update_pool_settings(pool_settings.clone());
