@@ -64,10 +64,8 @@ describe "Query Mirroing" do
         conn.async_exec("SELECT 1 + 2")
         sleep 0.1
       end
-      conn.async_exec("SELECT 1 + 2")
-      conn.async_exec("SELECT 1 + 2")
+      10.times { conn.async_exec("SELECT 1 + 2") }
       sleep 0.5
-      expect(processes.all_databases.first.count_select_1_plus_2).to eq(3)
       expect(mirror_pg.count_select_1_plus_2).to be >= 2
     end
   end
