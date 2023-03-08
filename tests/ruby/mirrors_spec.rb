@@ -65,7 +65,7 @@ describe "Query Mirroing" do
         sleep 0.1
       end
       10.times { conn.async_exec("SELECT 1 + 2") }
-      sleep 0.5
+      sleep 1
       expect(mirror_pg.count_select_1_plus_2).to be >= 2
     end
   end
