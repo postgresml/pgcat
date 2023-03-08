@@ -64,10 +64,7 @@ impl MirroredClient {
                     // Incoming data from server (we read to clear the socket buffer and discard the data)
                     recv_result = server.recv() => {
                         match recv_result {
-                            Ok(message) => {
-                                trace!("Received from mirror: {} {:?}", String::from_utf8_lossy(&message[..]), address.clone());
-                                continue;
-                            }
+                            Ok(message) => trace!("Received from mirror: {} {:?}", String::from_utf8_lossy(&message[..]), address.clone()),
                             Err(err) => error!("Failed to receive from mirror {:?} {:?}", err, address.clone())
                         }
                     }
