@@ -18,7 +18,7 @@ pub struct MirroredClient {
 }
 
 impl MirroredClient {
-    async fn create_pool_with_one_connection(&self) -> Pool<ServerPool> {
+    async fn create_pool(&self) -> Pool<ServerPool> {
         let manager = ServerPool::new(
             self.address.clone(),
             self.user.clone(),
@@ -39,7 +39,7 @@ impl MirroredClient {
 
     pub fn start(mut self) {
         tokio::spawn(async move {
-            let pool = self.create_pool_with_one_connection().await;
+            let pool = self.create_pool().await;
             let address = self.address.clone();
             loop {
                 let mut server = match pool.get().await {
