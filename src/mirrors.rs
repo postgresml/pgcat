@@ -1,23 +1,13 @@
 /// A mirrored PostgreSQL client.
 /// Packets arrive to us through a channel from the main client and we send them to the server.
-use std::cmp::{max, min};
-use std::time::Duration;
-
+use bb8::Pool;
 use bytes::{Bytes, BytesMut};
 
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::time::sleep;
-
 use crate::config::{Address, Role, User};
-use crate::errors::Error;
-use crate::messages::flush;
-use crate::pool::ClientServerMap;
-use crate::server::Server;
+use crate::pool::{ClientServerMap, ServerPool};
 use crate::stats::get_reporter;
 use log::{error, info, trace, warn};
-
-const MAX_CONNECT_RETRIES: u32 = 5;
-const MAX_SEND_RETRIES: u32 = 3;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 pub struct MirroredClient {
     address: Address,
@@ -25,150 +15,77 @@ pub struct MirroredClient {
     database: String,
     bytes_rx: Receiver<Bytes>,
     disconnect_rx: Receiver<()>,
-    successful_sends_without_recv: u32,
 }
 
 impl MirroredClient {
-    async fn recv_if_neccessary(&mut self, server: &mut Server) -> Result<(), Error> {
-        /* We only receive a response from the server if we have successfully sent
-          5 messages on the current connection. We also send a flush message to gaurantee
-          a server response.
-        */
-        if self.successful_sends_without_recv >= 5 {
-            // We send a flush message to gaurantee a server response
-            server.send(&flush()).await?;
-            server.recv().await?;
-            self.successful_sends_without_recv = 0;
-            trace!(
-                "Received a response from mirror server {:?}",
-                server.address()
-            );
-        }
-        Ok(())
-    }
-
-    async fn connect_with_retries(&mut self, server_id: i32) -> Option<Server> {
-        let mut delay = Duration::from_secs(0);
-        let min_backoff = Duration::from_millis(100);
-        let max_backoff = Duration::from_secs(5);
-        let mut retries = 0;
-
-        loop {
-            if let Some(tmp_server) = self.connect(server_id).await {
-                if !tmp_server.is_bad() {
-                    break Some(tmp_server);
-                }
-            }
-            delay = max(min_backoff, delay);
-            delay = min(max_backoff, delay * 2);
-            retries += 1;
-            if retries > MAX_CONNECT_RETRIES {
-                break None;
-            }
-            sleep(delay).await;
-        }
-    }
-
-    async fn connect(&mut self, server_id: i32) -> Option<Server> {
-        self.successful_sends_without_recv = 0;
-        let stats = get_reporter();
-        stats.server_register(
-            server_id,
-            self.address.id,
-            self.address.name(),
-            self.database.clone(),
-            self.address.username.clone(),
-        );
-        stats.server_login(server_id);
-
-        match Server::startup(
-            server_id,
-            &self.address.clone(),
-            &self.user.clone(),
+    async fn create_pool_with_one_connection(&self) -> Pool<ServerPool> {
+        let manager = ServerPool::new(
+            self.address.clone(),
+            self.user.clone(),
             self.database.as_str(),
             ClientServerMap::default(),
             get_reporter(),
-        )
-        .await
-        {
-            Ok(conn) => {
-                stats.server_idle(server_id);
-                Some(conn)
-            }
-            Err(_) => {
-                stats.server_disconnecting(server_id);
-                None
-            }
-        }
+        );
+
+        Pool::builder()
+            .max_size(1)
+            .connection_timeout(std::time::Duration::from_millis(10_000))
+            .idle_timeout(Some(std::time::Duration::from_millis(10_000)))
+            .test_on_check_out(false)
+            .build(manager)
+            .await
+            .unwrap()
     }
 
-    pub fn start(mut self, server_id: i32) {
+    pub fn start(mut self) {
         tokio::spawn(async move {
+            let pool = self.create_pool_with_one_connection().await;
             let address = self.address.clone();
-            let mut server_optional: Option<Server> = None;
             loop {
+                let mut server = match pool.get().await {
+                    Ok(server) => server,
+                    Err(err) => {
+                        error!(
+                            "Failed to get connection from pool, Discarding message {:?}, {:?}",
+                            err,
+                            address.clone()
+                        );
+                        continue;
+                    }
+                };
+
                 tokio::select! {
+                    // Exit channel events
                     _ = self.disconnect_rx.recv() => {
                         info!("Got mirror exit signal, exiting {:?}", address.clone());
                         break;
                     }
 
+                    // Incoming data from server (we read to clear the socket buffer and discard the data)
+                    recv_result = server.recv() => {
+                        match recv_result {
+                            Ok(message) => {
+                                trace!("Received from mirror: {} {:?}", String::from_utf8_lossy(&message[..]), address.clone());
+                                continue;
+                            }
+                            Err(err) => error!("Failed to receive from mirror {:?} {:?}", err, address.clone())
+                        }
+                    }
+
+                    // Messages to send to the server
                     message = self.bytes_rx.recv() => {
-                        if message.is_none() {
-                            info!("Mirror channel closed, exiting {:?}", address.clone());
-                            break;
-                        }
-
-                        let bytes = message.unwrap();
-                        if server_optional.is_none() {
-                            server_optional = self.connect_with_retries(server_id).await;
-                            if server_optional.is_none() {
-                                error!("Failed to connect to mirror, Discarding message {:?}", address.clone());
-                                continue;
-                            }
-                        }
-
-                        let mut server = server_optional.unwrap();
-                        if server.is_bad() {
-                            server_optional = self.connect_with_retries(server_id).await;
-                            if server_optional.is_none() {
-                                error!("Failed to connect to mirror, Discarding message {:?}", address.clone());
-                                continue;
-                            }
-                            server = server_optional.unwrap();
-                        }
-
-                        // Retry sending up to MAX_SEND_RETRIES times
-                        let mut retries = 0;
-                        loop {
-                            match server.send(&BytesMut::from(&bytes[..])).await {
-                                Ok(_) => {
-                                    trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone());
-                                    self.successful_sends_without_recv += 1;
-                                    if self.recv_if_neccessary(&mut server).await.is_err() {
-                                        error!("Failed to recv from mirror, Discarding message {:?}", address.clone());
-                                    }
-                                    break;
-                                }
-                                Err(err) => {
-                                    if retries > MAX_SEND_RETRIES {
-                                        error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone());
-                                            break;
-                                    } else {
-                                        error!("Failed to send to mirror, retrying {:?}, {:?}", err, address.clone());
-                                        retries += 1;
-                                        server_optional = self.connect_with_retries(server_id).await;
-                                        if server_optional.is_none() {
-                                            error!("Failed to connect to mirror, Discarding message {:?}", address.clone());
-                                            continue;
-                                        }
-                                        server = server_optional.unwrap();
-                                        continue;
-                                    }
+                        match message {
+                            Some(bytes) => {
+                                match server.send(&BytesMut::from(&bytes[..])).await {
+                                    Ok(_) => trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone()),
+                                    Err(err) => error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone())
                                 }
                             }
+                            None => {
+                                info!("Mirror channel closed, exiting {:?}", address.clone());
+                                break;
+                            },
                         }
-                        server_optional = Some(server);
                     }
                 }
             }
@@ -199,11 +116,10 @@ impl MirroringManager {
                 address: addr,
                 bytes_rx,
                 disconnect_rx: exit_rx,
-                successful_sends_without_recv: 0,
             };
             exit_senders.push(exit_tx.clone());
             byte_senders.push(bytes_tx.clone());
-            client.start(rand::random::<i32>());
+            client.start();
         });
 
         Self {
