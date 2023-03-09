@@ -194,7 +194,6 @@ impl ConnectionPool {
 
         let mut new_pools = HashMap::new();
         let mut address_id: usize = 0;
-        let mut mirror_address_id: usize = Address::mirror_address_id_offset();
 
         for (pool_name, pool_config) in &config.pools {
             let new_pool_hash_value = pool_config.hash_value();
@@ -254,7 +253,7 @@ impl ConnectionPool {
                                     continue;
                                 }
                                 mirror_addresses.push(Address {
-                                    id: mirror_address_id,
+                                    id: address_id,
                                     database: shard.database.clone(),
                                     host: mirror_settings.host.clone(),
                                     port: mirror_settings.port,
@@ -266,7 +265,7 @@ impl ConnectionPool {
                                     pool_name: pool_name.clone(),
                                     mirrors: vec![],
                                 });
-                                mirror_address_id += 1;
+                                address_id += 1;
                             }
                         }
 

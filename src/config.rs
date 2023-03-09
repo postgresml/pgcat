@@ -117,11 +117,6 @@ impl Default for Address {
 }
 
 impl Address {
-    /// The offset of mirror address ids
-    pub fn mirror_address_id_offset() -> usize {
-        usize::MAX / 2
-    }
-
     /// Address name (aka database) used in `SHOW STATS`, `SHOW DATABASES`, and `SHOW POOLS`.
     pub fn name(&self) -> String {
         match self.role {
