@@ -193,7 +193,8 @@ impl ConnectionPool {
         let config = get_config();
 
         let mut new_pools = HashMap::new();
-        let mut address_id = 0;
+        let mut address_id: usize = 0;
+        let mut mirror_address_id: usize = Address::mirror_address_id_offset();
 
         for (pool_name, pool_config) in &config.pools {
             let new_pool_hash_value = pool_config.hash_value();
@@ -247,30 +248,28 @@ impl ConnectionPool {
                     // Load Mirror settings
                     for (address_index, server) in shard.servers.iter().enumerate() {
                         let mut mirror_addresses: Vec<Address> = vec![];
-
                         if let Some(mirror_settings_vec) = &shard.mirrors {
-                            for (mirror_idx, mirror_settings) in
-                                mirror_settings_vec.iter().enumerate()
-                            {
-                                if mirror_settings.mirroring_target_index == address_index {
-                                    let mirror_address_id =
-                                        Address::mirror_address_id_offset() + mirror_idx;
-                                    mirror_addresses.push(Address {
-                                        id: mirror_address_id,
-                                        database: shard.database.clone(),
-                                        host: mirror_settings.host.clone(),
-                                        port: mirror_settings.port,
-                                        role: server.role,
-                                        address_index: mirror_idx,
-                                        replica_number,
-                                        shard: shard_idx.parse::<usize>().unwrap(),
-                                        username: user.username.clone(),
-                                        pool_name: pool_name.clone(),
-                                        mirrors: vec![],
-                                    });
+                            for mirror_settings in mirror_settings_vec {
+                                if mirror_settings.mirroring_target_index != address_index {
+                                    continue;
                                 }
+                                mirror_addresses.push(Address {
+                                    id: mirror_address_id,
+                                    database: shard.database.clone(),
+                                    host: mirror_settings.host.clone(),
+                                    port: mirror_settings.port,
+                                    role: server.role,
+                                    address_index: 0,
+                                    replica_number,
+                                    shard: shard_idx.parse::<usize>().unwrap(),
+                                    username: user.username.clone(),
+                                    pool_name: pool_name.clone(),
+                                    mirrors: vec![],
+                                });
+                                mirror_address_id += 1;
                             }
                         }
+
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
