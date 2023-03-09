@@ -1258,7 +1258,7 @@ mod test {
         payload.put(&b"5"[..]);
         payload.put_i16(0);
 
-        bind.put_i32(payload.len() as i32);
+        bind.put_i32(payload.len() as i32 + 4);
         bind.put(payload);
 
         let mut qr = QueryRouter::new();
