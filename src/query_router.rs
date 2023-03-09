@@ -359,7 +359,7 @@ impl QueryRouter {
             Ok(ast) => ast,
             Err(err) => {
                 // SELECT ... FOR UPDATE won't get parsed correctly.
-                error!("{}: {}", err, query);
+                debug!("{}: {}", err, query);
                 self.active_role = Some(Role::Primary);
                 return false;
             }
