@@ -134,11 +134,6 @@ servers = [
 ]
 # Database name (e.g. "postgres")
 database = "shard0"
-mirrors = [
-    [ "localhost", 5432, 0 ],
-    [ "localhost", 5432, 0 ],
-    [ "localhost", 5432, 0 ]
-]
 
 [pools.sharded_db.shards.1]
 servers = [
