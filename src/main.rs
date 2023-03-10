@@ -66,6 +66,7 @@ mod config;
 mod constants;
 mod errors;
 mod messages;
+mod mirrors;
 mod multi_logger;
 mod pool;
 mod prometheus;

@@ -38,6 +38,8 @@ class PgInstance
   def reset
     reset_toxics
     reset_stats
+    drop_connections
+    sleep 0.1
   end
 
   def toxiproxy
@@ -66,10 +68,20 @@ class PgInstance
 
   def reset_toxics
     Toxiproxy[@toxiproxy_name].toxics.each(&:destroy)
+    sleep 0.1
   end
 
   def reset_stats
     with_connection { |c| c.async_exec("SELECT pg_stat_statements_reset()") }
+  end
+
+  def drop_connections
+    username = with_connection { |c| c.async_exec("SELECT current_user")[0]["current_user"] }
+    with_connection { |c| c.async_exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND usename='#{username}'") }
+  end
+
+  def count_connections
+    with_connection { |c| c.async_exec("SELECT COUNT(*) as count FROM pg_stat_activity")[0]["count"].to_i }
   end
 
   def count_query(query)

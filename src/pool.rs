@@ -193,7 +193,7 @@ impl ConnectionPool {
         let config = get_config();
 
         let mut new_pools = HashMap::new();
-        let mut address_id = 0;
+        let mut address_id: usize = 0;
 
         for (pool_name, pool_config) in &config.pools {
             let new_pool_hash_value = pool_config.hash_value();
@@ -244,7 +244,33 @@ impl ConnectionPool {
                     let mut servers = Vec::new();
                     let mut replica_number = 0;
 
+                    // Load Mirror settings
                     for (address_index, server) in shard.servers.iter().enumerate() {
+                        let mut mirror_addresses = vec![];
+                        if let Some(mirror_settings_vec) = &shard.mirrors {
+                            for (mirror_idx, mirror_settings) in
+                                mirror_settings_vec.iter().enumerate()
+                            {
+                                if mirror_settings.mirroring_target_index != address_index {
+                                    continue;
+                                }
+                                mirror_addresses.push(Address {
+                                    id: address_id,
+                                    database: shard.database.clone(),
+                                    host: mirror_settings.host.clone(),
+                                    port: mirror_settings.port,
+                                    role: server.role,
+                                    address_index: mirror_idx,
+                                    replica_number,
+                                    shard: shard_idx.parse::<usize>().unwrap(),
+                                    username: user.username.clone(),
+                                    pool_name: pool_name.clone(),
+                                    mirrors: vec![],
+                                });
+                                address_id += 1;
+                            }
+                        }
+
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
@@ -256,6 +282,7 @@ impl ConnectionPool {
                             shard: shard_idx.parse::<usize>().unwrap(),
                             username: user.username.clone(),
                             pool_name: pool_name.clone(),
+                            mirrors: mirror_addresses,
                         };
 
                         address_id += 1;

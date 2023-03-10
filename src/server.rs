@@ -14,6 +14,7 @@ use crate::config::{Address, User};
 use crate::constants::*;
 use crate::errors::Error;
 use crate::messages::*;
+use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::Reporter;
@@ -68,6 +69,8 @@ pub struct Server {
 
     // Last time that a successful server send or response happened
     last_activity: SystemTime,
+
+    mirror_manager: Option<MirroringManager>,
 }
 
 impl Server {
@@ -334,6 +337,14 @@ impl Server {
                         stats,
                         application_name: String::new(),
                         last_activity: SystemTime::now(),
+                        mirror_manager: match address.mirrors.len() {
+                            0 => None,
+                            _ => Some(MirroringManager::from_addresses(
+                                user.clone(),
+                                database.to_owned(),
+                                address.mirrors.clone(),
+                            )),
+                        },
                     };
 
                     server.set_name("pgcat").await?;
@@ -384,6 +395,7 @@ impl Server {
 
     /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: &BytesMut) -> Result<(), Error> {
+        self.mirror_send(messages);
         self.stats.data_sent(messages.len(), self.server_id);
 
         match write_all_half(&mut self.write, messages).await {
@@ -674,6 +686,20 @@ impl Server {
     pub fn mark_dirty(&mut self) {
         self.needs_cleanup = true;
     }
+
+    pub fn mirror_send(&mut self, bytes: &BytesMut) {
+        match self.mirror_manager.as_mut() {
+            Some(manager) => manager.send(bytes),
+            None => (),
+        }
+    }
+
+    pub fn mirror_disconnect(&mut self) {
+        match self.mirror_manager.as_mut() {
+            Some(manager) => manager.disconnect(),
+            None => (),
+        }
+    }
 }
 
 impl Drop for Server {
@@ -681,6 +707,7 @@ impl Drop for Server {
     /// the socket is in non-blocking mode, so it may not be ready
     /// for a write.
     fn drop(&mut self) {
+        self.mirror_disconnect();
         self.stats.server_disconnecting(self.server_id);
 
         let mut bytes = BytesMut::with_capacity(4);

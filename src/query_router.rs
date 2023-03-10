@@ -223,6 +223,7 @@ impl QueryRouter {
             Command::ShowServerRole => match self.active_role {
                 Some(Role::Primary) => Role::Primary.to_string(),
                 Some(Role::Replica) => Role::Replica.to_string(),
+                Some(Role::Mirror) => Role::Mirror.to_string(),
                 None => {
                     if self.query_parser_enabled() {
                         String::from("auto")

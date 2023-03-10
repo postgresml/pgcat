@@ -1,4 +1,3 @@
-use crate::config::Role;
 use crate::pool::BanReason;
 /// Admin database.
 use bytes::{Buf, BufMut, BytesMut};

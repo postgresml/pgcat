@@ -92,12 +92,12 @@ sed -i 's/statement_timeout = 100/statement_timeout = 0/' .circleci/pgcat.toml
 kill -SIGHUP $(pgrep pgcat) # Reload config again
 
 #
-# ActiveRecord tests
+# Integration tests and ActiveRecord tests
 #
 cd tests/ruby
 sudo bundle install
-bundle exec ruby tests.rb || exit 1
-bundle exec rspec *_spec.rb || exit 1
+bundle exec ruby tests.rb --format documentation || exit 1
+bundle exec rspec *_spec.rb --format documentation || exit 1
 cd ../..
 
 #
