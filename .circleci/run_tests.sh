@@ -31,6 +31,16 @@ sleep 1
 # Create a database at port 5433, forward it to Postgres
 toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 
+#
+# Ruby integration tests
+# These tests create their own PgCat servers so we want to run them after starting toxiproxy
+# and before starting PgCat
+#
+cd tests/ruby
+sudo bundle install
+bundle exec rspec *_spec.rb --format documentation || exit 1
+cd ../..
+
 start_pgcat "info"
 
 # Check that prometheus is running
@@ -95,9 +105,7 @@ kill -SIGHUP $(pgrep pgcat) # Reload config again
 # ActiveRecord tests
 #
 cd tests/ruby
-sudo bundle install
-bundle exec ruby tests.rb || exit 1
-bundle exec rspec *_spec.rb || exit 1
+bundle exec ruby tests.rb --format documentation || exit 1
 cd ../..
 
 #
