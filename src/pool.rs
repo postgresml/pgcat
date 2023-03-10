@@ -246,7 +246,7 @@ impl ConnectionPool {
 
                     // Load Mirror settings
                     for (address_index, server) in shard.servers.iter().enumerate() {
-                        let mut mirror_addresses: Vec<Address> = vec![];
+                        let mut mirror_addresses = vec![];
                         if let Some(mirror_settings_vec) = &shard.mirrors {
                             for mirror_settings in mirror_settings_vec {
                                 if mirror_settings.mirroring_target_index != address_index {

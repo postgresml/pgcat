@@ -3,7 +3,7 @@
 use bb8::Pool;
 use bytes::{Bytes, BytesMut};
 
-use crate::config::{Address, Role, User};
+use crate::config::{get_config, Address, Role, User};
 use crate::pool::{ClientServerMap, ServerPool};
 use crate::stats::get_reporter;
 use log::{error, info, trace, warn};
@@ -19,6 +19,16 @@ pub struct MirroredClient {
 
 impl MirroredClient {
     async fn create_pool(&self) -> Pool<ServerPool> {
+        let config = get_config();
+        let default = std::time::Duration::from_millis(10_000).as_millis() as u64;
+        let (connection_timeout, idle_timeout) = match config.pools.get(&self.address.pool_name) {
+            Some(cfg) => (
+                cfg.connect_timeout.unwrap_or(default),
+                cfg.idle_timeout.unwrap_or(default),
+            ),
+            None => (default, default),
+        };
+
         let manager = ServerPool::new(
             self.address.clone(),
             self.user.clone(),
@@ -29,8 +39,8 @@ impl MirroredClient {
 
         Pool::builder()
             .max_size(1)
-            .connection_timeout(std::time::Duration::from_millis(10_000))
-            .idle_timeout(Some(std::time::Duration::from_millis(10_000)))
+            .connection_timeout(std::time::Duration::from_millis(connection_timeout))
+            .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
             .test_on_check_out(false)
             .build(manager)
             .await
@@ -65,7 +75,10 @@ impl MirroredClient {
                     recv_result = server.recv() => {
                         match recv_result {
                             Ok(message) => trace!("Received from mirror: {} {:?}", String::from_utf8_lossy(&message[..]), address.clone()),
-                            Err(err) => error!("Failed to receive from mirror {:?} {:?}", err, address.clone())
+                            Err(err) => {
+                                server.mark_bad();
+                                error!("Failed to receive from mirror {:?} {:?}", err, address.clone());
+                            }
                         }
                     }
 
@@ -75,7 +88,10 @@ impl MirroredClient {
                             Some(bytes) => {
                                 match server.send(&BytesMut::from(&bytes[..])).await {
                                     Ok(_) => trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone()),
-                                    Err(err) => error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone())
+                                    Err(err) => {
+                                        server.mark_bad();
+                                        error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone())
+                                    }
                                 }
                             }
                             None => {
