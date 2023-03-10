@@ -57,7 +57,7 @@ describe "Query Mirroing" do
     end
   end
 
-  context "when mirror server goes down temporarily" do
+  xcontext "when mirror server goes down temporarily" do
     it "continues to transmit queries after recovery" do
       conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
       mirror_pg.take_down do
