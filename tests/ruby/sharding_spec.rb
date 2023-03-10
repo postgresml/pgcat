@@ -22,7 +22,6 @@ describe "Sharding" do
   end
 
   after do
-    conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
 
     processes.all_databases.map(&:reset)
     processes.pgcat.shutdown
