@@ -675,14 +675,42 @@ where
                 // allocate a connection, we wouldn't be able to send back an error message
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
-                'P' | 'B' | 'D' | 'E' => {
+                'D' | 'E' => {
                     self.buffer.put(&message[..]);
                     continue;
                 }
+
+                'Q' => {
+                    if query_router.query_parser_enabled() {
+                        query_router.infer(&message);
+                    }
+                }
+
+                'P' => {
+                    self.buffer.put(&message[..]);
+
+                    if query_router.query_parser_enabled() {
+                        query_router.infer(&message);
+                    }
+
+                    continue;
+                }
+
+                'B' => {
+                    self.buffer.put(&message[..]);
+
+                    if query_router.query_parser_enabled() {
+                        query_router.infer_shard_from_bind(&message);
+                    }
+
+                    continue;
+                }
+
                 'X' => {
                     debug!("Client disconnecting");
                     return Ok(());
                 }
+
                 _ => (),
             }
 
@@ -711,11 +739,7 @@ where
             // Handle all custom protocol commands, if any.
             match query_router.try_execute_command(&message) {
                 // Normal query, not a custom command.
-                None => {
-                    if query_router.query_parser_enabled() {
-                        query_router.infer(&message);
-                    }
-                }
+                None => (),
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
@@ -727,7 +751,7 @@ where
                         error_response(
                             &mut self.write,
                             &format!(
-                                "shard {} is more than configured {}, staying on shard {}",
+                                "shard {} is more than configured {}, staying on shard {} (shard numbers start at 0)",
                                 query_router.shard(),
                                 pool.shards(),
                                 current_shard,

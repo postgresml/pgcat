@@ -2,3 +2,5 @@ target/
 tests/
 tracing/
 .circleci/
+.git/
+dev/
