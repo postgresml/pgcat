@@ -248,7 +248,9 @@ impl ConnectionPool {
                     for (address_index, server) in shard.servers.iter().enumerate() {
                         let mut mirror_addresses = vec![];
                         if let Some(mirror_settings_vec) = &shard.mirrors {
-                            for mirror_settings in mirror_settings_vec {
+                            for (mirror_idx, mirror_settings) in
+                                mirror_settings_vec.iter().enumerate()
+                            {
                                 if mirror_settings.mirroring_target_index != address_index {
                                     continue;
                                 }
@@ -258,7 +260,7 @@ impl ConnectionPool {
                                     host: mirror_settings.host.clone(),
                                     port: mirror_settings.port,
                                     role: server.role,
-                                    address_index: 0,
+                                    address_index: mirror_idx,
                                     replica_number,
                                     shard: shard_idx.parse::<usize>().unwrap(),
                                     username: user.username.clone(),
