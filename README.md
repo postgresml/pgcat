@@ -7,7 +7,7 @@
 
 PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover support.
 
-Status: **In Production**.
+Status: **in production**.
 
 ## Features
 
@@ -77,7 +77,8 @@ See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
 Run `cargo test` to run Rust tests.
 
-Run the following commands to run Integration tests locally.
+Run the following commands to run integration tests locally:
+
 ```
 cd tests/docker/
 docker compose up --exit-code-from main # This will also produce coverage report under ./cov/
