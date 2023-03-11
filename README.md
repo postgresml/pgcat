@@ -13,17 +13,17 @@ Status: **In Production**.
 
 | **Feature** | **Status** |
 |-------------|------------|
-| Transaction pooling | Stable |
-| Statistics | Stable |
-| Live configuration reloading | Stable |
-| Authentication | Stable |
-| Load balancing of read queries | Stable |
-| Failover | Stable |
-| Read and write queries isolation with SQL parser | Experimental |
-| Sharding with extended SQL syntax | Experimental |
-| Sharding with SQL comments | Experimental |
-| Sharding with SQL parser | Experimental |
-| Traffic mirroring | Experimental |
+| Transaction pooling | :white_check_mark: |
+| Statistics | :white_check_mark: |
+| Live configuration reloading | :white_check_mark: |
+| Authentication | :white_check_mark: |
+| Load balancing of read queries | :white_check_mark: |
+| Failover | :white_check_mark: |
+| Read and write queries isolation with SQL parser | :wrench: |
+| Sharding with extended SQL syntax | :wrench: |
+| Sharding with SQL comments | :wrench: |
+| Sharding with SQL parser | :wrench: |
+| Traffic mirroring | :wrench: |
 
 ## Deployment
 
