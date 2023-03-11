@@ -41,11 +41,18 @@ log_client_connections = false
 # If we should log client disconnections
 log_client_disconnections = false
 
-# Reload config automatically if it changes.
+# When set to true, PgCat reloads configs if it detects a change in the config file.
 autoreload = false
 
 # Number of worker threads the Runtime will use (4 by default).
 worker_threads = 5
+
+# Number of seconds of connection idleness to wait before sending a keepalive packet to the server.
+tcp_keepalives_idle = 5
+# Number of unacknowledged keepalive packets allowed before giving up and closing the connection.
+tcp_keepalives_count = 5
+# Number of seconds between keepalive packets.
+tcp_keepalives_interval = 5
 
 # Path to TLS Certficate file to use for TLS connections
 # tls_certificate = "server.cert"
@@ -67,6 +74,11 @@ admin_password = "admin_pass"
 # `session` one server connection per connected client
 # `transaction` one server connection per client transaction
 pool_mode = "transaction"
+
+# Load balancing mode
+# `random` selects the server at random
+# `loc` selects the server with the least outstanding busy conncetions
+load_balancing_mode = "random"
 
 # If the client doesn't specify, PgCat routes traffic to this role by default.
 # `any` round-robin between primary and replicas,
@@ -99,7 +111,7 @@ primary_reads_enabled = true
 sharding_function = "pg_bigint_hash"
 
 # Automatically parse this from queries and route queries to the right shard!
-automatic_sharding_key = "data.id"
+# automatic_sharding_key = "data.id"
 
 # Idle timeout can be overwritten in the pool
 idle_timeout = 40000
@@ -107,11 +119,12 @@ idle_timeout = 40000
 # Connect timeout can be overwritten in the pool
 connect_timeout = 3000
 
-# Credentials for users that may connect to this cluster
+# User configs are structured as pool.<pool_name>.users.<user_index>
+# This secion holds the credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
 # Postgresql username
 username = "sharding_user"
-# Postgresql user password
+# Postgresql password
 password = "sharding_user"
 # Maximum number of server connections that can be established for this user
 # The maximum number of connection from a single Pgcat process to any database in the cluster
@@ -132,26 +145,22 @@ statement_timeout = 15000
 # Each shard config contains a list of servers that make up the shard
 # and the database name to use.
 [pools.sharded_db.shards.0]
-# Array of servers in the shard, each server entry is an array of [host, port, role]
-servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ]
-]
+# Array of servers in the shard, each server entry is an array of `[host, port, role]`
+servers = [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
+
+# Array of mirrors for the shard, each mirror entry is an array of `[host, port, index of server in servers array]`
+# Traffic hitting the server identified by the index will be sent to the mirror.
+# mirrors = [["1.2.3.4", 5432, 0], ["1.2.3.4", 5432, 1]]
+
 # Database name (e.g. "postgres")
 database = "shard0"
 
 [pools.sharded_db.shards.1]
-servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
-]
+servers = [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
 database = "shard1"
 
 [pools.sharded_db.shards.2]
-servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ],
-]
+servers = [["127.0.0.1", 5432, "primary" ], ["localhost", 5432, "replica" ]]
 database = "shard2"
 
 

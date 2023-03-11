@@ -12,19 +12,23 @@ class DocGenerator:
         self.filename = filename
 
     def write(self):
-        for entry in self.doc:
-            if entry["name"] == "__section__":
-                print("# `" + entry["section"] + "` Section")
-                print()
-                continue
-            print("### " + entry["name"])
-            print("```")
-            print("path: " + entry["fqdn"])
-            print("default: " + entry["defaults"].strip())
-            print("```")
-            print()
-            print(entry["comment"])
-            print()
+        with open("../CONFIG.md", "w") as text_file:
+            text_file.write("# PgCat Configurations \n")
+            for entry in self.doc:
+                if entry["name"] == "__section__":
+                    text_file.write("## `" + entry["section"] + "` Section" + "\n")
+                    text_file.write("\n")
+                    continue
+                text_file.write("### " + entry["name"]+ "\n")
+                text_file.write("```"+ "\n")
+                text_file.write("path: " + entry["fqdn"]+ "\n")
+                text_file.write("default: " + entry["defaults"].strip()+ "\n")
+                if entry["example"] is not None:
+                    text_file.write("example: " + entry["example"].strip()+ "\n")
+                text_file.write("```"+ "\n")
+                text_file.write("\n")
+                text_file.write(entry["comment"]+ "\n")
+                text_file.write("\n")
 
     def save_entry(self):
         if len(self.current_field_name) == 0:
@@ -44,7 +48,7 @@ class DocGenerator:
                 "section": self.current_section,
                 "comment": "\n".join(self.current_comment),
                 "defaults": self.current_field_value if not self.current_field_unset else "<UNSET>",
-                "example": self.current_field_value
+                "example": self.current_field_value  if self.current_field_unset  else None
             }
         )
         self.current_comment = []
