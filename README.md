@@ -12,7 +12,7 @@ Status: **In Production**.
 ## Features
 
 | **Feature** | **Status** |
-----------------------------
+|-------------|------------|
 | Transaction pooling | Stable |
 | Statistics | Stable |
 | Live configuration reloading | Stable |
