@@ -13,17 +13,17 @@ Status: **in production**.
 
 | **Feature** | **Status** |
 |-------------|------------|
-| Transaction pooling | :white_check_mark: |
-| Statistics | :white_check_mark: |
-| Live configuration reloading | :white_check_mark: |
-| Authentication | :white_check_mark: |
-| Load balancing of read queries | :white_check_mark: |
-| Failover | :white_check_mark: |
-| Read and write queries isolation with SQL parser | :wrench: |
-| Sharding with extended SQL syntax | :wrench: |
-| Sharding with SQL comments | :wrench: |
-| Sharding with SQL parser | :wrench: |
-| Traffic mirroring | :wrench: |
+| Transaction pooling | :white_check_mark: Stable |
+| Statistics | :white_check_mark: Stable |
+| Live configuration reloading | :white_check_mark: Stable |
+| Authentication | :white_check_mark: Stable |
+| Load balancing of read queries | :white_check_mark: Stable |
+| Failover | :white_check_mark: Stable |
+| Read and write queries isolation with SQL parser | :wrench: Experimental |
+| Sharding with extended SQL syntax | :wrench: Experimental |
+| Sharding with SQL comments | :wrench: Experimental |
+| Sharding with SQL parser | :wrench: Experimental |
+| Traffic mirroring | :wrench: Experimental |
 
 ## Deployment
 
@@ -41,50 +41,6 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 6432 -U postgres -c 'SELECT 1'
 ### Config
 
 See **[Configuration](https://github.com/levkk/pgcat/blob/main/CONFIG.md)**
-
-## Development
-
-1. Install Rust (latest stable will work great).
-2. `cargo build --release` (to get better benchmarks).
-3. Change the config in `pgcat.toml` to fit your setup (optional given next step).
-4. Install Postgres and run `psql -f tests/sharding/query_routing_setup.sql` (user/password may be required depending on your setup)
-5. `RUST_LOG=info cargo run --release` You're ready to go!
-
-### Using Docker
-
-A Docker-based development environment is available as well, where you can debug integration tests.
-
-To start the development environment, run:
-
-```bash
-./dev/script/console
-```
-
-This will open a terminal in an environment similar to that used in tests. In there you can compile, run tests, do some debugging with the test environment, etc. Objects
-compiled inside the contaner (and bundled gems) will be placed in `dev/cache` so they don't interfere with what you have on your machine.
-
-### Tests
-
-Quickest way to test your changes is to use pgbench:
-
-```
-pgbench -i -h 127.0.0.1 -p 6432 && \
-pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && \
-pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
-```
-
-See [sharding README](./tests/sharding/README.md) for sharding logic testing.
-
-Run `cargo test` to run Rust tests.
-
-Run the following commands to run integration tests locally:
-
-```
-cd tests/docker/
-docker compose up --exit-code-from main # This will also produce coverage report under ./cov/
-```
-
-We strive for high code coverage and all features are tested with integration tests.
 
 
 ## Usage
@@ -194,8 +150,8 @@ Comment-based sharding is currently experimental.
 
 #### Automatic sharding
 
-The pooler can also automatically route queries to the correct shard by parsing the queries and figuring out the right sharding key. This is done with the `sqlparser` crate and can be configured with the `automatic_sharding_key` setting. The key refers to a table and a column, which should be fully qualified, e.g. `table_name.column_name`, to avoid ambiguities. If a column name is unique enough, the notation `*.column_name` 
-can be used to match against all tables that have the column `column_name`.
+The pooler can also automatically route queries to the correct shard by parsing the queries and figuring out the right sharding key. This is done with the `sqlparser` crate and can be configured with 
+the `automatic_sharding_key` setting. The key refers to a table and a column, which should be fully qualified, e.g. `table_name.column_name`, to avoid ambiguities. If a column name is unique enough, the notation `*.column_name` can be used to match against all tables that have the column `column_name`.
 
 Automatic sharding is currently experimental.
 
@@ -209,22 +165,25 @@ end
 ActiveRecord::Base.establish_connection
 
 # Grab a bunch of users from shard 1
-User.connection.execute "SET SHARD TO '1'"
+User.connection.execute "SET SHARD TO 1"
 User.take(10)
 
 # Using id as the sharding key
-User.connection.execute "SET SHARDING KEY TO '1234'"
+User.connection.execute "SET SHARDING KEY TO 1234"
 User.find_by_id(1234)
 
 # Using geographical sharding
 User.connection.execute "SET SERVER ROLE TO 'primary'"
-User.connection.execute "SET SHARDING KEY TO '85'"
+User.connection.execute "SET SHARDING KEY TO 85"
 User.create(name: "test user", email: "test@example.com", zone_id: 85)
 
 # Let the query parser figure out where the query should go.
 # We are still on shard = hash(85) % shards.
 User.connection.execute "SET SERVER ROLE TO 'auto'"
 User.find_by_email("test@example.com")
+
+# Will automatically determine the right shard because "users"."id" is the sharding key
+User.find_by_id(1234)
 ```
 
 #### Raw SQL example
@@ -235,16 +194,18 @@ SET SHARD TO '1';
 SELECT * FROM users LIMT 10;
 
 -- Find by id
-SET SHARDING KEY TO '1234';
-SELECT * FROM USERS WHERE id = 1234;
+SET SHARDING KEY TO 1234;
+SELECT * FROM users WHERE id = 1234;
 
 -- Writing in a primary/replicas configuration.
 SET SHARDING ROLE TO 'primary';
-SET SHARDING KEY TO '85';
+SET SHARDING KEY TO 85;
 INSERT INTO users (name, email, zome_id) VALUES ('test user', 'test@example.com', 85);
 
 SET SERVER ROLE TO 'auto'; -- let the query router figure out where the query should go
 SELECT * FROM users WHERE email = 'test@example.com'; -- shard setting lasts until set again; we are reading from the primary
+
+SELECT * FROM users WHERE id = 1234;
 ```
 
 ### Statistics
@@ -266,6 +227,49 @@ Traffic mirroring allows the pooler to send queries it normally routes to other 
 
 This feature is currently experimental.
 
+## Development
+
+1. Install Rust (latest stable will work great).
+2. `cargo build --release` (to get better benchmarks).
+3. Change the config in `pgcat.toml` to fit your setup (optional given next step).
+4. Install Postgres and run `psql -f tests/sharding/query_routing_setup.sql` (user/password may be required depending on your setup)
+5. `RUST_LOG=info cargo run --release` You're ready to go!
+
+### Using Docker
+
+A Docker-based development environment is available as well, where you can debug integration tests.
+
+To start the development environment, run:
+
+```bash
+./dev/script/console
+```
+
+This will open a terminal in an environment similar to that used in tests. In there you can compile, run tests, do some debugging with the test environment, etc. Objects
+compiled inside the contaner (and bundled gems) will be placed in `dev/cache` so they don't interfere with what you have on your machine.
+
+### Tests
+
+Quickest way to test your changes is to use pgbench:
+
+```
+pgbench -i -h 127.0.0.1 -p 6432 && \
+pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol simple && \
+pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
+```
+
+See [sharding README](./tests/sharding/README.md) for sharding logic testing.
+
+Run `cargo test` to run Rust tests.
+
+Run the following commands to run integration tests locally:
+
+```
+cd tests/docker/
+docker compose up --exit-code-from main # This will also produce coverage report under ./cov/
+```
+
+We strive for high code coverage and all features are tested with integration tests.
 
 ## Benchmarks
 
