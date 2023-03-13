@@ -413,12 +413,12 @@ pub struct Pool {
     pub shard_id_regex: Option<String>,
     pub regex_search_limit: Option<usize>,
 
-    pub shards: BTreeMap<String, Shard>,
-    pub users: BTreeMap<String, User>,
-
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    pub shards: BTreeMap<String, Shard>,
+    pub users: BTreeMap<String, User>,
     // Note, don't put simple fields below these configs. There's a compatability issue with TOML that makes it
     // incompatible to have simple fields in TOML after complex objects. See
     // https://users.rust-lang.org/t/why-toml-to-string-get-error-valueaftertable/85903

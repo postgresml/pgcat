@@ -175,10 +175,40 @@ Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DAT
 ### admin_password
 ```
 path: general.admin_password
-default: "admin_pass"
+default: <UNSET>
 ```
 
 Password to access the virtual administrative database
+
+### auth_query (experimental)
+```
+path: general.auth_query
+default: <UNSET>
+```
+
+Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
+established using the database configured in the pool. This parameter is inherited by every pool
+and can be redefined in pool configuration.
+
+### auth_query_user (experimental)
+```
+path: general.auth_query_user
+default: <UNSET>
+```
+
+User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
+
+### auth_query_password (experimental)
+```
+path: general.auth_query_password
+default: <UNSET>
+```
+
+Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
 
 ## `pools.<pool_name>` Section
 
@@ -280,6 +310,30 @@ default: 3000
 ```
 
 Connect timeout can be overwritten in the pool
+
+### auth_query (experimental)
+```
+path: general.auth_query
+default: <UNSET>
+```
+
+Auth query can be overwritten in the pool
+
+### auth_query_user (experimental)
+```
+path: general.auth_query_user
+default: <UNSET>
+```
+
+Auth query user can be overwritten in the pool
+
+### auth_query_password (experimental)
+```
+path: general.auth_query_password
+default: <UNSET>
+```
+
+Auth query password can be overwritten in the pool
 
 ## `pools.<pool_name>.users.<user_index>` Section
 
