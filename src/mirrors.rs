@@ -119,7 +119,7 @@ impl MirroringManager {
         let mut exit_senders: Vec<Sender<()>> = vec![];
 
         addresses.iter().for_each(|mirror| {
-            let (bytes_tx, bytes_rx) = channel::<Bytes>(500);
+            let (bytes_tx, bytes_rx) = channel::<Bytes>(10);
             let (exit_tx, exit_rx) = channel::<()>(1);
             let mut addr = mirror.clone();
             addr.role = Role::Mirror;
@@ -142,15 +142,25 @@ impl MirroringManager {
     }
 
     pub fn send(self: &mut Self, bytes: &BytesMut) {
-        let cpy = bytes.clone().freeze();
-        self.byte_senders
-            .iter_mut()
-            .for_each(|sender| match sender.try_send(cpy.clone()) {
+        // We want to avoid performing an allocation if we won't be able to send the message
+        // There is a possibility of a race here where we check the capacity and then the channel is
+        // closed or the capacity is reduced to 0, but mirroring is best effort anyway
+        if self
+            .byte_senders
+            .iter()
+            .all(|sender| sender.capacity() == 0 || sender.is_closed())
+        {
+            return;
+        }
+        let immutable_bytes = bytes.clone().freeze();
+        self.byte_senders.iter_mut().for_each(|sender| {
+            match sender.try_send(immutable_bytes.clone()) {
                 Ok(_) => {}
                 Err(err) => {
                     warn!("Failed to send bytes to a mirror channel {}", err);
                 }
-            });
+            }
+        });
     }
 
     pub fn disconnect(self: &mut Self) {
