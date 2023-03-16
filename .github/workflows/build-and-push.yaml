@@ -26,7 +26,7 @@ jobs:
         with:
           images: ${{ env.image-name }}
           tags: |
-            type=sha,prefix=,format=short
+            type=sha,prefix=,format=long
             type=schedule
             type=ref,event=branch
             type=ref,event=pr
@@ -42,4 +42,9 @@ jobs:
       - name: Build and push ${{ env.image-name }}
         uses: docker/build-push-action@v3
         with:
+          context: .
+          file: ./Dockerfile
+          push: true
           tags: ${{ steps.docker-metadata.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
