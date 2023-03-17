@@ -517,14 +517,18 @@ where
 
     bytes.resize(bytes.len() + len as usize - mem::size_of::<i32>(), b'0');
 
-    match stream
-        .read_exact(
-            &mut bytes[mem::size_of::<u8>() + mem::size_of::<i32>()
-                ..mem::size_of::<u8>() + mem::size_of::<i32>() + len as usize
-                    - mem::size_of::<i32>()],
-        )
-        .await
-    {
+    let slice_start = mem::size_of::<u8>() + mem::size_of::<i32>();
+    let slice_end = slice_start + len as usize - mem::size_of::<i32>();
+
+    // Avoids a panic
+    if slice_end < slice_start {
+        return Err(Error::SocketError(format!(
+            "Error reading message from socket - Code: {:?} - Length {:?}, Error: {:?}",
+            code, len, "Unexpected length value for message"
+        )));
+    }
+
+    match stream.read_exact(&mut bytes[slice_start..slice_end]).await {
         Ok(_) => (),
         Err(err) => {
             return Err(Error::SocketError(format!(
