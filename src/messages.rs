@@ -528,10 +528,7 @@ where
         )));
     }
 
-    match stream
-        .read_exact(&mut bytes[slice_start..slice_end])
-        .await
-    {
+    match stream.read_exact(&mut bytes[slice_start..slice_end]).await {
         Ok(_) => (),
         Err(err) => {
             return Err(Error::SocketError(format!(
