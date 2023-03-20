@@ -37,6 +37,7 @@ exitcode = "1.1.2"
 futures = "0.3"
 socket2 = { version = "0.4.7", features = ["all"] }
 nix = "0.26.2"
+atomic_enum = "0.2.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"

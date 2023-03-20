@@ -3,6 +3,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use std::io::Read;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{
@@ -17,12 +18,10 @@ use crate::messages::*;
 use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
-use crate::stats::Reporter;
+use crate::stats::ServerStats;
 
 /// Server state.
 pub struct Server {
-    server_id: i32,
-
     /// Server host, e.g. localhost,
     /// port, e.g. 5432, and role, e.g. primary or replica.
     address: Address,
@@ -62,7 +61,7 @@ pub struct Server {
     connected_at: chrono::naive::NaiveDateTime,
 
     /// Reports various metrics, e.g. data sent & received.
-    stats: Reporter,
+    stats: Arc<ServerStats>,
 
     /// Application name using the server at the moment.
     application_name: String,
@@ -77,12 +76,11 @@ impl Server {
     /// Pretend to be the Postgres client and connect to the server given host, port and credentials.
     /// Perform the authentication and return the server in a ready for query state.
     pub async fn startup(
-        server_id: i32,
         address: &Address,
         user: &User,
         database: &str,
         client_server_map: ClientServerMap,
-        stats: Reporter,
+        stats: Arc<ServerStats>,
     ) -> Result<Server, Error> {
         let mut stream =
             match TcpStream::connect(&format!("{}:{}", &address.host, address.port)).await {
@@ -325,7 +323,6 @@ impl Server {
                         write,
                         buffer: BytesMut::with_capacity(8196),
                         server_info,
-                        server_id,
                         process_id,
                         secret_key,
                         in_transaction: false,
@@ -396,7 +393,7 @@ impl Server {
     /// Send messages to the server from the client.
     pub async fn send(&mut self, messages: &BytesMut) -> Result<(), Error> {
         self.mirror_send(messages);
-        self.stats.data_sent(messages.len(), self.server_id);
+        self.stats().data_sent(messages.len());
 
         match write_all_half(&mut self.write, messages).await {
             Ok(_) => {
@@ -545,7 +542,7 @@ impl Server {
         let bytes = self.buffer.clone();
 
         // Keep track of how much data we got from the server for stats.
-        self.stats.data_received(bytes.len(), self.server_id);
+        self.stats().data_received(bytes.len());
 
         // Clear the buffer for next query.
         self.buffer.clear();
@@ -665,16 +662,15 @@ impl Server {
         }
     }
 
+    /// get Server stats
+    pub fn stats(&self) -> Arc<ServerStats> {
+        self.stats.clone()
+    }
+
     /// Get the servers address.
     #[allow(dead_code)]
     pub fn address(&self) -> Address {
         self.address.clone()
-    }
-
-    /// Get the server connection identifier
-    /// Used to uniquely identify connection in statistics
-    pub fn server_id(&self) -> i32 {
-        self.server_id
     }
 
     // Get server's latest response timestamp
@@ -708,7 +704,9 @@ impl Drop for Server {
     /// for a write.
     fn drop(&mut self) {
         self.mirror_disconnect();
-        self.stats.server_disconnecting(self.server_id);
+
+        // Update statistics
+        self.stats.disconnect();
 
         let mut bytes = BytesMut::with_capacity(4);
         bytes.put_u8(b'X');

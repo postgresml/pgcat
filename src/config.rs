@@ -15,6 +15,7 @@ use tokio::io::AsyncReadExt;
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
+use crate::stats::AddressStats;
 use crate::tls::{load_certs, load_keys};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -96,6 +97,9 @@ pub struct Address {
 
     /// List of addresses to receive mirrored traffic.
     pub mirrors: Vec<Address>,
+
+    /// Address stats
+    pub stats: Arc<AddressStats>,
 }
 
 impl Default for Address {
@@ -112,6 +116,7 @@ impl Default for Address {
             username: String::from("username"),
             pool_name: String::from("pool_name"),
             mirrors: Vec::new(),
+            stats: Arc::new(AddressStats::default()),
         }
     }
 }

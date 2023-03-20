@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 /// A mirrored PostgreSQL client.
 /// Packets arrive to us through a channel from the main client and we send them to the server.
 use bb8::Pool;
 use bytes::{Bytes, BytesMut};
 
 use crate::config::{get_config, Address, Role, User};
-use crate::pool::{ClientServerMap, ServerPool};
-use crate::stats::get_reporter;
+use crate::pool::{ClientServerMap, PoolIdentifier, ServerPool};
+use crate::stats::PoolStats;
 use log::{error, info, trace, warn};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -21,20 +23,24 @@ impl MirroredClient {
     async fn create_pool(&self) -> Pool<ServerPool> {
         let config = get_config();
         let default = std::time::Duration::from_millis(10_000).as_millis() as u64;
-        let (connection_timeout, idle_timeout) = match config.pools.get(&self.address.pool_name) {
-            Some(cfg) => (
-                cfg.connect_timeout.unwrap_or(default),
-                cfg.idle_timeout.unwrap_or(default),
-            ),
-            None => (default, default),
-        };
+        let (connection_timeout, idle_timeout, cfg) =
+            match config.pools.get(&self.address.pool_name) {
+                Some(cfg) => (
+                    cfg.connect_timeout.unwrap_or(default),
+                    cfg.idle_timeout.unwrap_or(default),
+                    cfg.clone(),
+                ),
+                None => (default, default, crate::config::Pool::default()),
+            };
+
+        let identifier = PoolIdentifier::new(&self.database, &self.user.username);
 
         let manager = ServerPool::new(
             self.address.clone(),
             self.user.clone(),
             self.database.as_str(),
             ClientServerMap::default(),
-            get_reporter(),
+            Arc::new(PoolStats::new(identifier, cfg.clone())),
         );
 
         Pool::builder()

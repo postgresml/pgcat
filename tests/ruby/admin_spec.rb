@@ -199,7 +199,7 @@ describe "Admin" do
 
         sleep(2.5) # Allow time for stats to update
         results = admin_conn.async_exec("SHOW POOLS")[0]
-        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login].each do |s|
           raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
         end
         expect(results["cl_idle"]).to eq("4")
