@@ -1,7 +1,4 @@
 use log::warn;
-use std::hash::Hash;
-use std::hash::Hasher;
-
 use std::sync::atomic::*;
 use std::sync::Arc;
 
@@ -149,16 +146,4 @@ impl AddressStats {
 
         (totals, averages)
     }
-}
-
-impl PartialEq for AddressStats {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl Eq for AddressStats {}
-
-impl Hash for AddressStats {
-    fn hash<H: Hasher>(&self, _state: &mut H) {}
 }
