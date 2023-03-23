@@ -119,14 +119,7 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(
-                    stream,
-                    client_server_map,
-                    shutdown,
-                    admin_only,
-                )
-                .await
-                {
+                match startup_tls(stream, client_server_map, shutdown, admin_only).await {
                     Ok(mut client) => {
                         if log_client_connections {
                             info!("Client {:?} connected (TLS)", addr);
