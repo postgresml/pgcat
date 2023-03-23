@@ -92,6 +92,9 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
+
+    /// Idle in transaction timeout in ms
+    idle_client_in_transaction_timeout: u64,
 }
 
 /// Client entrypoint.
@@ -103,6 +106,7 @@ pub async fn client_entrypoint(
     admin_only: bool,
     tls_certificate: Option<String>,
     log_client_connections: bool,
+    idle_client_in_transaction_timeout: u64,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -119,7 +123,15 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown, admin_only).await {
+                match startup_tls(
+                    stream,
+                    client_server_map,
+                    shutdown,
+                    admin_only,
+                    idle_client_in_transaction_timeout,
+                )
+                .await
+                {
                     Ok(mut client) => {
                         if log_client_connections {
                             info!("Client {:?} connected (TLS)", addr);
@@ -165,6 +177,7 @@ pub async fn client_entrypoint(
                             client_server_map,
                             shutdown,
                             admin_only,
+                            idle_client_in_transaction_timeout,
                         )
                         .await
                         {
@@ -215,6 +228,7 @@ pub async fn client_entrypoint(
                 client_server_map,
                 shutdown,
                 admin_only,
+                idle_client_in_transaction_timeout,
             )
             .await
             {
@@ -318,6 +332,7 @@ pub async fn startup_tls(
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
     admin_only: bool,
+    idle_client_in_transaction_timeout: u64,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -349,6 +364,7 @@ pub async fn startup_tls(
                 client_server_map,
                 shutdown,
                 admin_only,
+                idle_client_in_transaction_timeout,
             )
             .await
         }
@@ -381,6 +397,7 @@ where
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
         admin_only: bool,
+        idle_client_in_transaction_timeout: u64,
     ) -> Result<Client<S, T>, Error> {
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
@@ -558,6 +575,7 @@ where
             application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
+            idle_client_in_transaction_timeout,
         })
     }
 
@@ -592,6 +610,7 @@ where
             application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
+            idle_client_in_transaction_timeout: 0, // Not used in cancel mode
         })
     }
 
@@ -859,6 +878,11 @@ where
 
             let mut initial_message = Some(message);
 
+            let idle_client_timeout_duration = match self.idle_client_in_transaction_timeout {
+                0 => tokio::time::Duration::MAX,
+                _ => tokio::time::Duration::from_millis(self.idle_client_in_transaction_timeout),
+            };
+
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
             // or until the client disconnects if we are in session mode.
@@ -870,14 +894,26 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
-                        match read_message(&mut self.read).await {
-                            Ok(message) => message,
-                            Err(err) => {
+                        match tokio::time::timeout(
+                            idle_client_timeout_duration,
+                            read_message(&mut self.read),
+                        )
+                        .await
+                        {
+                            Ok(Ok(message)) => message,
+                            Ok(Err(err)) => {
                                 // Client disconnected inside a transaction.
                                 // Clean up the server and re-use it.
                                 server.checkin_cleanup().await?;
 
                                 return Err(err);
+                            }
+                            Err(_) => {
+                                // Client disconnected inside a transaction.
+                                // Clean up the server and re-use it.
+                                server.checkin_cleanup().await?;
+
+                                return Err(Error::ClientIdleTransactionTimeout);
                             }
                         }
                     }

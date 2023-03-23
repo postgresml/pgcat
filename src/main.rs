@@ -295,6 +295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             admin_only,
                             tls_certificate.clone(),
                             config.general.log_client_connections,
+                            config.general.idle_client_in_transaction_timeout,
                         )
                         .await
                         {
