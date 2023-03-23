@@ -838,6 +838,12 @@ pub fn get_config() -> Config {
     (*(*CONFIG.load())).clone()
 }
 
+pub fn get_idle_client_in_transaction_timeout() -> u64 {
+    (*(*CONFIG.load()))
+        .general
+        .idle_client_in_transaction_timeout
+}
+
 /// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();

@@ -12,7 +12,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
-use crate::config::{get_config, Address, PoolMode};
+use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
 
 use crate::messages::*;
@@ -92,9 +92,6 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
-
-    /// Idle in transaction timeout in ms
-    idle_client_in_transaction_timeout: u64,
 }
 
 /// Client entrypoint.
@@ -106,7 +103,6 @@ pub async fn client_entrypoint(
     admin_only: bool,
     tls_certificate: Option<String>,
     log_client_connections: bool,
-    idle_client_in_transaction_timeout: u64,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
@@ -128,7 +124,6 @@ pub async fn client_entrypoint(
                     client_server_map,
                     shutdown,
                     admin_only,
-                    idle_client_in_transaction_timeout,
                 )
                 .await
                 {
@@ -177,7 +172,6 @@ pub async fn client_entrypoint(
                             client_server_map,
                             shutdown,
                             admin_only,
-                            idle_client_in_transaction_timeout,
                         )
                         .await
                         {
@@ -228,7 +222,6 @@ pub async fn client_entrypoint(
                 client_server_map,
                 shutdown,
                 admin_only,
-                idle_client_in_transaction_timeout,
             )
             .await
             {
@@ -332,7 +325,6 @@ pub async fn startup_tls(
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
     admin_only: bool,
-    idle_client_in_transaction_timeout: u64,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -364,7 +356,6 @@ pub async fn startup_tls(
                 client_server_map,
                 shutdown,
                 admin_only,
-                idle_client_in_transaction_timeout,
             )
             .await
         }
@@ -397,7 +388,6 @@ where
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
         admin_only: bool,
-        idle_client_in_transaction_timeout: u64,
     ) -> Result<Client<S, T>, Error> {
         let stats = get_reporter();
         let parameters = parse_startup(bytes.clone())?;
@@ -575,7 +565,6 @@ where
             application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
-            idle_client_in_transaction_timeout,
         })
     }
 
@@ -610,7 +599,6 @@ where
             application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
-            idle_client_in_transaction_timeout: 0, // Not used in cancel mode
         })
     }
 
@@ -878,9 +866,9 @@ where
 
             let mut initial_message = Some(message);
 
-            let idle_client_timeout_duration = match self.idle_client_in_transaction_timeout {
+            let idle_client_timeout_duration = match get_idle_client_in_transaction_timeout() {
                 0 => tokio::time::Duration::MAX,
-                _ => tokio::time::Duration::from_millis(self.idle_client_in_transaction_timeout),
+                timeout => tokio::time::Duration::from_millis(timeout),
             };
 
             // Transaction loop. Multiple queries can be issued by the client here.
@@ -909,11 +897,10 @@ where
                                 return Err(err);
                             }
                             Err(_) => {
-                                // Client disconnected inside a transaction.
-                                // Clean up the server and re-use it.
-                                server.checkin_cleanup().await?;
-
-                                return Err(Error::ClientIdleTransactionTimeout);
+                                // Client idle in transaction timeout
+                                error_response(&mut self.write, "idle transaction timeout").await?;
+                                error!("Client idle in transaction timeout: {{ pool_name: {:?}, username: {:?}, shard: {:?}, role: \"{:?}\"}}", self.pool_name.clone(), self.username.clone(), query_router.shard(), query_router.role());
+                                break;
                             }
                         }
                     }
