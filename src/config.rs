@@ -663,7 +663,13 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 config.general.healthcheck_delay.to_string(),
             ),
             ("ban_time".to_string(), config.general.ban_time.to_string()),
-            ("idle_client_in_transaction_timeout".to_string(), config.general.idle_client_in_transaction_timeout.to_string()),
+            (
+                "idle_client_in_transaction_timeout".to_string(),
+                config
+                    .general
+                    .idle_client_in_transaction_timeout
+                    .to_string(),
+            ),
         ];
 
         r.append(&mut static_settings);
@@ -675,7 +681,10 @@ impl Config {
     /// Print current configuration.
     pub fn show(&self) {
         info!("Ban time: {}s", self.general.ban_time);
-        info!("Idle client in transaction timeout: {}ms", self.general.idle_client_in_transaction_timeout);
+        info!(
+            "Idle client in transaction timeout: {}ms",
+            self.general.idle_client_in_transaction_timeout
+        );
         info!("Worker threads: {}", self.general.worker_threads);
         info!(
             "Healthcheck timeout: {}ms",
