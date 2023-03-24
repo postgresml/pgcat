@@ -28,8 +28,8 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 
 ## Deployments
 
-[![Instacart](./images/instacart.webp)](https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f)
-[![PostgresML](./images/postgresml.webp)](https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second)
+[![Instacart](./images/instacart.webp)](https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f | height=140)
+[![PostgresML](./images/postgresml.webp)](https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second | height=140)
 
 
 
