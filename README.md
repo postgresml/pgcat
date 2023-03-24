@@ -28,12 +28,12 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 
 ## Deployments
 
-<a href="https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f">
-    <img src="./images/instacart.webp" height="140" width="auto">
+<a href="https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f" style="margin-right: 2rem;">
+    <img src="./images/instacart.webp" height="70" width="auto">
 </a>
 
 <a href="https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second">
-    <img src="./images/postgresml.webp" height="140" width="auto">
+    <img src="./images/postgresml.webp" height="70" width="auto">
 </a>
 
 **Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
