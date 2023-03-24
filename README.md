@@ -1,4 +1,4 @@
-## PgCat: Nextgen PostgreSQL pooler
+## PgCat: Nextgen PostgreSQL Pooler
 
 [![CircleCI](https://circleci.com/gh/postgresml/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/postgresml/pgcat/tree/main)
 <a href="https://discord.gg/DmyJP3qJ7U" target="_blank">
