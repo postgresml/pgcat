@@ -20,6 +20,7 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 | Prometheus statistics | **Stable** | Statistics are reported via a HTTP endpoint for Prometheus. |
 | Client TLS | **Stable** | Clients can connect to the pooler using TLS/SSL. |
 | Client/Server authentication | **Stable** | Clients can connect using MD5 authentication, supported by `libpq` and all Postgres client drivers. PgCat can connect to Postgres using MD5 and SCRAM-SHA-256. |
+| Live configuration reloading | **Stable** | Identical to Pgbouncer; all settings can be reloaded dynamically (except `host` and `port`). |
 | Sharding using extended SQL syntax | **Experimental** | Clients can dynamically configure the pooler to route queries to specific shards. |
 | Sharding using comments parsing/Regex | **Experimental** | Clients can include shard information (sharding key, shard ID) in the query comments. |
 | Automatic sharding | **Experimental** | PgCat can parse SQL and detect sharding keys automatically from the query. |
@@ -52,7 +53,7 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 6432 -U postgres -c 'SELECT 1'
 
 ### Config
 
-See [Configurations page](https://github.com/levkk/pgcat/blob/main/CONFIG.md)
+See **[Configuration](https://github.com/levkk/pgcat/blob/main/CONFIG.md)**.
 
 ## Contributing
 
@@ -68,7 +69,7 @@ The project is being actively developed and looking for additional contributors 
 
 ### Tests
 
-When making substantial modifications to the protocol implementation, make sure to test them with pgBench:
+When making substantial modifications to the protocol implementation, make sure to test them with pgbench:
 
 ```
 pgbench -i -h 127.0.0.1 -p 6432 && \
@@ -114,7 +115,7 @@ This mode is enabled by default.
 ### Load balancing of read queries
 All queries are load balanced against the configured servers using either the random or least open connections algorithms. The most straight forward configuration example would be to put this pooler in front of several replicas and let it load balance all queries.
 
-If the configuration includes a primary and replicas, the queries can be separated with the built-in query parser. The query parser will interpret the query and route all `SELECT` queries to a replica, while all other queries including explicit transactions will be routed to the primary.
+If the configuration includes a primary and replicas, the queries can be separated with the built-in query parser. The query parser, implemented with the `sqlparser` crate, will interpret the query and route all `SELECT` queries to a replica, while all other queries including explicit transactions will be routed to the primary.
 
 #### Query parser
 The query parser will do its best to determine where the query should go, but sometimes that's not possible. In that case, the client can select which server it wants using this custom SQL syntax:
@@ -141,13 +142,14 @@ The setting will persist until it's changed again or the client disconnects.
 By default, all queries are routed to the first available server; `default_role` setting controls this behavior.
 
 ### Failover
-All servers are checked with a `;` (very fast) query before being given to a client. If the server is not reachable, it will be banned and cannot serve any more transactions for the duration of the ban. The queries are routed to the remaining servers. If all servers become banned, the ban list is cleared: this is a safety precaution against false positives. The primary can never be banned.
+All servers are checked with a `;` (very fast) query before being given to a client. Additionally, the server health is monitored with every client query that it processes. If the server is not reachable, it will be banned and cannot serve any more transactions for the duration of the ban. The queries are routed to the remaining servers. If all servers become banned, the ban list is cleared: this is a safety precaution against false positives. The primary can never be banned.
 
 The ban time can be changed with `ban_time`. The default is 60 seconds.
 
 ### Sharding
 We use the `PARTITION BY HASH` hashing function, the same as used by Postgres for declarative partitioning. This allows to shard the database using Postgres partitions and place the partitions on different servers (shards). Both read and write queries can be routed to the shards using this pooler.
 
+#### Extended syntax
 To route queries to a particular shard, we use this custom SQL syntax:
 
 ```sql
@@ -162,9 +164,8 @@ The active shard will last until it's changed again or the client disconnects. B
 
 For hash function implementation, see `src/sharding.rs` and `tests/sharding/partition_hash_test_setup.sql`.
 
-This feature is currently experimental.
 
-#### ActiveRecord/Rails
+##### ActiveRecord/Rails
 
 ```ruby
 class User < ActiveRecord::Base
@@ -192,7 +193,7 @@ User.connection.execute "SET SERVER ROLE TO 'auto'"
 User.find_by_email("test@example.com")
 ```
 
-#### Raw SQL
+##### Raw SQL
 
 ```sql
 -- Grab a bunch of users from shard 1
@@ -212,6 +213,18 @@ SET SERVER ROLE TO 'auto'; -- let the query router figure out where the query sh
 SELECT * FROM users WHERE email = 'test@example.com'; -- shard setting lasts until set again; we are reading from the primary
 ```
 
+#### With comments
+Issuing queries to the pooler can cause additional latency. To reduce its impact, it's possible to include sharding information inside SQL comments sent via the query. This is reasonably easy to implement with ORMs like [ActiveRecord](https://api.rubyonrails.org/classes/ActiveRecord/QueryMethods.html#method-i-annotate) and [SQLAlchemy](https://docs.sqlalchemy.org/en/20/core/events.html#sql-execution-and-connection-events).
+
+```
+/* shard_id: 5 */ SELECT * FROM foo WHERE id = 1234;
+
+/* sharding_key: 1234 */ SELECT * FROM foo WHERE id = 1234;
+```
+
+#### Automatic query parsing
+PgCat can use the `sqlparser` crate to parse SQL queries and extract the sharding key. This is configurable with the `automatic_sharding_key` setting. This feature is still experimental, but it's the ideal implementation for sharding, requiring no client modifications.
+
 ### Statistics reporting
 
 The stats are very similar to what Pgbouncer reports and the names are kept to be comparable. They are accessible by querying the admin database `pgcat`, and `pgbouncer` for compatibility.
@@ -225,3 +238,22 @@ Additionally, Prometheus statistics are available at `/metrics` via HTTP.
 ### Live configuration reloading
 
 The config can be reloaded by sending a `kill -s SIGHUP` to the process or by querying `RELOAD` to the admin database. All settings except the `host` and `port` can be reloaded without restarting the pooler, including sharding and replicas configurations.
+
+### Mirroring
+
+Mirroring allows to route queries to multiple databases at the same time. This is useful for prewarning replicas before placing them into the active configuration, or for testing different versions of Postgres with live traffic.
+
+## License
+
+PgCat is free and open source, released under the MIT license.
+
+## Contributors
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
