@@ -5,7 +5,7 @@
     <img src="https://img.shields.io/discord/1013868243036930099" alt="Join our Discord!" />
 </a>
 
-PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load balancing and failover.
+PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load balancing, failover and mirroring.
 
 ## Features
 
