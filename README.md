@@ -25,6 +25,15 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 | Automatic sharding | **Experimental** | PgCat can parse SQL and detect sharding keys automatically from the query. |
 | Mirroring | **Experimental** | Mirror queries between multiple databases in order to test servers with realistic production traffic. |
 
+
+## Deployments
+
+| | |
+|---------------------------------------|-----------------------------------------|
+| ![Instacart](./images/instacart.webp) | ![PostgresML](./images/postgresml.webp) |
+
+
+
 **Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
 
 ## Features
