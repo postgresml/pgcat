@@ -213,7 +213,7 @@ If the client doesn't specify, PgCat routes traffic to this role by default.
 `replica` round-robin between replicas only without touching the primary,
 `primary` all queries go to the primary unless otherwise specified.
 
-### query_parser_enabled
+### query_parser_enabled (experimental)
 ```
 path: pools.<pool_name>.query_parser_enabled
 default: true
@@ -234,7 +234,7 @@ If the query parser is enabled and this setting is enabled, the primary will be 
 load balancing of read queries. Otherwise, the primary will only be used for write
 queries. The primary can always be explicitly selected with our custom protocol.
 
-### sharding_key_regex
+### sharding_key_regex (experimental)
 ```
 path: pools.<pool_name>.sharding_key_regex
 default: <UNSET>
@@ -256,7 +256,7 @@ Current options:
 `pg_bigint_hash`: PARTITION BY HASH (Postgres hashing function)
 `sha1`: A hashing function based on SHA1
 
-### automatic_sharding_key
+### automatic_sharding_key (experimental)
 ```
 path: pools.<pool_name>.automatic_sharding_key
 default: <UNSET>
@@ -328,7 +328,7 @@ default: [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
 
 Array of servers in the shard, each server entry is an array of `[host, port, role]`
 
-### mirrors
+### mirrors (experimental)
 ```
 path: pools.<pool_name>.shards.<shard_index>.mirrors
 default: <UNSET>
