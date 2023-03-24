@@ -49,6 +49,14 @@ default: 30000 # milliseconds
 
 How long an idle connection with a server is left open (ms).
 
+### idle_client_in_transaction_timeout
+```
+path: general.idle_client_in_transaction_timeout
+default: 0 # milliseconds
+```
+
+How long a client is allowed to be idle while in a transaction (ms).
+
 ### healthcheck_timeout
 ```
 path: general.healthcheck_timeout

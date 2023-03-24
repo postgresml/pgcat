@@ -197,6 +197,9 @@ pub struct General {
     #[serde(default = "General::default_ban_time")]
     pub ban_time: i64,
 
+    #[serde(default = "General::default_idle_client_in_transaction_timeout")]
+    pub idle_client_in_transaction_timeout: u64,
+
     #[serde(default = "General::default_worker_threads")]
     pub worker_threads: usize,
 
@@ -260,6 +263,10 @@ impl General {
     pub fn default_worker_threads() -> usize {
         4
     }
+
+    pub fn default_idle_client_in_transaction_timeout() -> u64 {
+        0
+    }
 }
 
 impl Default for General {
@@ -276,6 +283,7 @@ impl Default for General {
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
             worker_threads: Self::default_worker_threads(),
+            idle_client_in_transaction_timeout: Self::default_idle_client_in_transaction_timeout(),
             tcp_keepalives_idle: Self::default_tcp_keepalives_idle(),
             tcp_keepalives_count: Self::default_tcp_keepalives_count(),
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
@@ -655,6 +663,13 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                 config.general.healthcheck_delay.to_string(),
             ),
             ("ban_time".to_string(), config.general.ban_time.to_string()),
+            (
+                "idle_client_in_transaction_timeout".to_string(),
+                config
+                    .general
+                    .idle_client_in_transaction_timeout
+                    .to_string(),
+            ),
         ];
 
         r.append(&mut static_settings);
@@ -666,6 +681,10 @@ impl Config {
     /// Print current configuration.
     pub fn show(&self) {
         info!("Ban time: {}s", self.general.ban_time);
+        info!(
+            "Idle client in transaction timeout: {}ms",
+            self.general.idle_client_in_transaction_timeout
+        );
         info!("Worker threads: {}", self.general.worker_threads);
         info!(
             "Healthcheck timeout: {}ms",
@@ -819,6 +838,12 @@ pub fn get_config() -> Config {
     (*(*CONFIG.load())).clone()
 }
 
+pub fn get_idle_client_in_transaction_timeout() -> u64 {
+    (*(*CONFIG.load()))
+        .general
+        .idle_client_in_transaction_timeout
+}
+
 /// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();
@@ -889,6 +914,7 @@ mod test {
         assert_eq!(get_config().path, "pgcat.toml".to_string());
 
         assert_eq!(get_config().general.ban_time, 60);
+        assert_eq!(get_config().general.idle_client_in_transaction_timeout, 0);
         assert_eq!(get_config().general.idle_timeout, 30000);
         assert_eq!(get_config().pools.len(), 2);
         assert_eq!(get_config().pools["sharded_db"].shards.len(), 3);

@@ -12,7 +12,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
-use crate::config::{get_config, Address, PoolMode};
+use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
 
 use crate::messages::*;
@@ -859,6 +859,11 @@ where
 
             let mut initial_message = Some(message);
 
+            let idle_client_timeout_duration = match get_idle_client_in_transaction_timeout() {
+                0 => tokio::time::Duration::MAX,
+                timeout => tokio::time::Duration::from_millis(timeout),
+            };
+
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
             // or until the client disconnects if we are in session mode.
@@ -870,14 +875,25 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
-                        match read_message(&mut self.read).await {
-                            Ok(message) => message,
-                            Err(err) => {
+                        match tokio::time::timeout(
+                            idle_client_timeout_duration,
+                            read_message(&mut self.read),
+                        )
+                        .await
+                        {
+                            Ok(Ok(message)) => message,
+                            Ok(Err(err)) => {
                                 // Client disconnected inside a transaction.
                                 // Clean up the server and re-use it.
                                 server.checkin_cleanup().await?;
 
                                 return Err(err);
+                            }
+                            Err(_) => {
+                                // Client idle in transaction timeout
+                                error_response(&mut self.write, "idle transaction timeout").await?;
+                                error!("Client idle in transaction timeout: {{ pool_name: {:?}, username: {:?}, shard: {:?}, role: \"{:?}\"}}", self.pool_name.clone(), self.username.clone(), query_router.shard(), query_router.role());
+                                break;
                             }
                         }
                     }

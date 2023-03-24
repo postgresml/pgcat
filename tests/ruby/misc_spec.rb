@@ -309,4 +309,58 @@ describe "Miscellaneous" do
       end
     end
   end
+
+  describe "Idle client timeout" do
+    context "idle transaction timeout set to 0" do
+      before do
+        current_configs = processes.pgcat.current_config
+        correct_idle_client_transaction_timeout = current_configs["general"]["idle_client_in_transaction_timeout"]
+        puts(current_configs["general"]["idle_client_in_transaction_timeout"])
+  
+        current_configs["general"]["idle_client_in_transaction_timeout"] = 0
+  
+        processes.pgcat.update_config(current_configs) # with timeout 0
+        processes.pgcat.reload_config
+      end
+
+      it "Allow client to be idle in transaction" do
+        conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        conn.async_exec("BEGIN")
+        conn.async_exec("SELECT 1")
+        sleep(2)
+        conn.async_exec("COMMIT")
+        conn.close
+      end
+    end
+
+    context "idle transaction timeout set to 500ms" do
+      before do
+        current_configs = processes.pgcat.current_config
+        correct_idle_client_transaction_timeout = current_configs["general"]["idle_client_in_transaction_timeout"]  
+        current_configs["general"]["idle_client_in_transaction_timeout"] = 500
+  
+        processes.pgcat.update_config(current_configs) # with timeout 500
+        processes.pgcat.reload_config
+      end
+
+      it "Allow client to be idle in transaction below timeout" do
+        conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        conn.async_exec("BEGIN")
+        conn.async_exec("SELECT 1")
+        sleep(0.4) # below 500ms
+        conn.async_exec("COMMIT")
+        conn.close
+      end
+
+      it "Error when client idle in transaction time exceeds timeout" do
+        conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        conn.async_exec("BEGIN")
+        conn.async_exec("SELECT 1")
+        sleep(1) # above 500ms
+        expect{ conn.async_exec("COMMIT") }.to raise_error(PG::SystemError, /idle transaction timeout/) 
+        conn.async_exec("SELECT 1") # should be able to send another query
+        conn.close
+      end
+    end
+  end
 end
