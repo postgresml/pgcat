@@ -1,4 +1,4 @@
-##### PgCat: PostgreSQL at petabyte scale
+## PgCat: PostgreSQL at petabyte scale
 
 [![CircleCI](https://circleci.com/gh/postgresml/pgcat/tree/main.svg?style=svg)](https://circleci.com/gh/postgresml/pgcat/tree/main)
 <a href="https://discord.gg/DmyJP3qJ7U" target="_blank">
@@ -248,6 +248,8 @@ Mirroring allows to route queries to multiple databases at the same time. This i
 PgCat is free and open source, released under the MIT license.
 
 ## Contributors
+
+Many thanks to our amazing contributors!
 
 <a href = "https://github.com/postgresml/pgcat/graphs/contributors">
   <img src = "https://contrib.rocks/image?repo=postgresml/pgcat"/>
