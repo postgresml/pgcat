@@ -5,7 +5,6 @@
 pub enum Error {
     SocketError(String),
     ClientBadStartup,
-    ClientIdleTransactionTimeout,
     ProtocolSyncError(String),
     BadQuery(String),
     ServerError,
