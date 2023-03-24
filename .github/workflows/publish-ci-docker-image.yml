@@ -15,6 +15,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build CI Docker image
         run: |
-          docker build . -f Dockerfile.ci --tag ghcr.io/levkk/pgcat-ci:latest
-          docker run ghcr.io/levkk/pgcat-ci:latest
-          docker push ghcr.io/levkk/pgcat-ci:latest
+          docker build . -f Dockerfile.ci --tag ghcr.io/postgresml/pgcat-ci:latest
+          docker run ghcr.io/postgresml/pgcat-ci:latest
+          docker push ghcr.io/postgresml/pgcat-ci:latest
