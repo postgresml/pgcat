@@ -5,7 +5,25 @@
     <img src="https://img.shields.io/discord/1013868243036930099" alt="Join our Discord!" />
 </a>
 
-PostgreSQL pooler (like PgBouncer) with sharding, load balancing and failover support.
+PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load balancing and failover.
+
+## Features
+
+| **Feature** | **Status** | **Comments** |
+|-------------|------------|--------------|
+| Transaction pooling | **In production** | Identical to PgBouncer with notable improvements for handling bad clients and abandoned transactions. |
+| Session pooling | **In production** | Identical to PgBouncer. |
+| Multi-threaded runtime | **In production** | Using Tokio asynchronous runtime, allowing the pooler to take advantage of multicore machines. |
+| Load balancing of read queries | **In production** | Queries are automatically load balanced between replicas and the primary. |
+| Failover | **In production** | Queries are automatically rerouted around broken replicas, validated by regular health checks. |
+| Admin database statistics | **In production** | Pooler statistics and administration via the `pgbouncer` and `pgcat` databases. |
+| Prometheus statistics | **In production** | Statistics are reported via a HTTP endpoint for Prometheus. |
+| Client TLS | **In production** | Clients can connect to the pooler using TLS/SSL. |
+| Client/Server authentication | **In production** | Clients can connect using MD5 authentication, supported by `libpq` and all Postgres client drivers. PgCat can connect to Postgres using MD5 and SCRAM-SHA-256. |
+| Sharding using extended SQL syntax | **Experimental** | Clients can dynamically configure the pooler to route queries to specific shards. |
+| Sharding using comments parsing/Regex | **Experimental** | Clients can include shard information (sharding key, shard ID) in the query comments. |
+| Automatic sharding | **Experimental** | PgCat can parse SQL and detect sharding keys automatically from the query. |
+| Mirroring | **Experimental** | Mirror queries between multiple databases in order to test servers with realistic production traffic. |
 
 **Beta**: looking for beta testers, see [#35](https://github.com/levkk/pgcat/issues/35).
 
