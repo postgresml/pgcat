@@ -357,7 +357,8 @@ describe "Miscellaneous" do
         conn.async_exec("BEGIN")
         conn.async_exec("SELECT 1")
         sleep(1) # above 500ms
-        expect { conn.async_exec("COMMIT") }.to raise_error(PG::SystemError)
+        expect{ conn.async_exec("COMMIT") }.to raise_error(PG::SystemError, /idle transaction timeout/) 
+        conn.async_exec("SELECT 1") # should be able to send another query
         conn.close
       end
     end
