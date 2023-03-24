@@ -113,7 +113,7 @@ In transaction mode, a client talks to one server for the duration of a single t
 This mode is enabled by default.
 
 ### Load balancing of read queries
-All queries are load balanced against the configured servers using either the random or least open connections algorithms. The most straight forward configuration example would be to put this pooler in front of several replicas and let it load balance all queries.
+All queries are load balanced against the configured servers using either the random or least open connections algorithms. The most straightforward configuration example would be to put this pooler in front of several replicas and let it load balance all queries.
 
 If the configuration includes a primary and replicas, the queries can be separated with the built-in query parser. The query parser, implemented with the `sqlparser` crate, will interpret the query and route all `SELECT` queries to a replica, while all other queries including explicit transactions will be routed to the primary.
 
