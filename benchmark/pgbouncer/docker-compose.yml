@@ -1,0 +1,14 @@
+version: "3"
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: main_user
+      POSTGRES_PASSWORD: main_user
+      POSTGRES_DB: shard0
+    command: ["postgres", "-c", "max_connections=500"]
+  proxy:
+    network_mode: "service:postgres"
+    build: .
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer.ini
