@@ -249,11 +249,7 @@ PgCat is free and open source, released under the MIT license.
 
 ## Contributors
 
-<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
+<a href = "https://github.com/postgresml/pgcat/graphs/contributors">
+  <img src = "https://contrib.rocks/image?repo=postgresml/pgcat"/>
+</a>
 
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-
-<!-- ALL-CONTRIBUTORS-LIST:END -->
