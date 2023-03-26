@@ -23,7 +23,7 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 | Live configuration reloading | **Stable** | Identical to PgBouncer; all settings can be reloaded dynamically (except `host` and `port`). |
 | Sharding using extended SQL syntax | **Experimental** | Clients can dynamically configure the pooler to route queries to specific shards. |
 | Sharding using comments parsing/Regex | **Experimental** | Clients can include shard information (sharding key, shard ID) in the query comments. |
-| Automatic sharding | **Experimental** | PgCat can parse queries detect sharding keys automatically, and route queries to the route shard. |
+| Automatic sharding | **Experimental** | PgCat can parse queries, detect sharding keys automatically, and route queries to the correct shard. |
 | Mirroring | **Experimental** | Mirror queries between multiple databases in order to test servers with realistic production traffic. |
 
 
@@ -79,7 +79,7 @@ pgbench -t 1000 -p 6432 -h 127.0.0.1 --protocol extended
 
 See [sharding README](./tests/sharding/README.md) for sharding logic testing.
 
-Additionally, all features are tested with Ruby, Python, and Rust tests unit and integration tests.
+Additionally, all features are tested with Ruby, Python, and Rust unit and integration tests.
 
 Run `cargo test` to run Rust unit tests.
 
