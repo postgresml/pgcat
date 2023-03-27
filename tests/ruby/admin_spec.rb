@@ -176,6 +176,24 @@ describe "Admin" do
       end
     end
 
+    context "clients connects and disconnect normally" do
+      let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
+
+      it 'shows the number same number of clients before and after' do
+        clients_before = clients_connected_to_pool(processes: processes)
+        threads = []
+        connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT 1") }
+        end
+        clients_between = clients_connected_to_pool(processes: processes)
+        expect(clients_before).not_to eq(clients_between)
+        connections.each(&:close)
+        clients_after = clients_connected_to_pool(processes: processes)
+        expect(clients_before).to eq(clients_after)
+      end
+    end
+
     context "clients overwhelm server pools" do
       let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
 
