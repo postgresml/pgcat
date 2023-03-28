@@ -22,7 +22,7 @@ use crate::errors::Error;
 
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
-use crate::stats::{get_reporter, Reporter};
+use crate::stats::{AddressStats, ClientStats, PoolStats, ServerStats};
 
 pub type ProcessId = i32;
 pub type SecretKey = i32;
@@ -51,7 +51,7 @@ pub enum BanReason {
 
 /// An identifier for a PgCat pool,
 /// a database visible to clients.
-#[derive(Hash, Debug, Clone, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, PartialEq, Eq, Default)]
 pub struct PoolIdentifier {
     // The name of the database clients want to connect to.
     pub db: String,
@@ -161,10 +161,6 @@ pub struct ConnectionPool {
     /// that should not be queried.
     banlist: BanList,
 
-    /// The statistics aggregator runs in a separate task
-    /// and receives stats from clients, servers, and the pool.
-    stats: Reporter,
-
     /// The server information (K messages) have to be passed to the
     /// clients on startup. We pre-connect to all shards and replicas
     /// on pool creation and save the K messages here.
@@ -185,6 +181,8 @@ pub struct ConnectionPool {
     /// If the pool has been paused or not.
     paused: Arc<AtomicBool>,
     paused_waiter: Arc<Notify>,
+
+    pub stats: Arc<PoolStats>,
 }
 
 impl ConnectionPool {
@@ -201,6 +199,7 @@ impl ConnectionPool {
             // There is one pool per database/user pair.
             for user in pool_config.users.values() {
                 let old_pool_ref = get_pool(pool_name, &user.username);
+                let identifier = PoolIdentifier::new(pool_name, &user.username);
 
                 match old_pool_ref {
                     Some(pool) => {
@@ -211,10 +210,7 @@ impl ConnectionPool {
                                 "[pool: {}][user: {}] has not changed",
                                 pool_name, user.username
                             );
-                            new_pools.insert(
-                                PoolIdentifier::new(pool_name, &user.username),
-                                pool.clone(),
-                            );
+                            new_pools.insert(identifier.clone(), pool.clone());
                             continue;
                         }
                     }
@@ -234,6 +230,10 @@ impl ConnectionPool {
                     .clone()
                     .into_keys()
                     .collect::<Vec<String>>();
+                let pool_stats = Arc::new(PoolStats::new(identifier, pool_config.clone()));
+
+                // Allow the pool to be seen in statistics
+                pool_stats.register(pool_stats.clone());
 
                 // Sort by shard number to ensure consistency.
                 shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
@@ -266,6 +266,7 @@ impl ConnectionPool {
                                     username: user.username.clone(),
                                     pool_name: pool_name.clone(),
                                     mirrors: vec![],
+                                    stats: Arc::new(AddressStats::default()),
                                 });
                                 address_id += 1;
                             }
@@ -283,6 +284,7 @@ impl ConnectionPool {
                             username: user.username.clone(),
                             pool_name: pool_name.clone(),
                             mirrors: mirror_addresses,
+                            stats: Arc::new(AddressStats::default()),
                         };
 
                         address_id += 1;
@@ -296,7 +298,7 @@ impl ConnectionPool {
                             user.clone(),
                             &shard.database,
                             client_server_map.clone(),
-                            get_reporter(),
+                            pool_stats.clone(),
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -331,9 +333,9 @@ impl ConnectionPool {
 
                 let pool = ConnectionPool {
                     databases: shards,
+                    stats: pool_stats,
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
-                    stats: get_reporter(),
                     config_hash: new_pool_hash_value,
                     server_info: Arc::new(RwLock::new(BytesMut::new())),
                     settings: PoolSettings {
@@ -476,9 +478,9 @@ impl ConnectionPool {
     /// Get a connection from the pool.
     pub async fn get(
         &self,
-        shard: usize,           // shard number
-        role: Option<Role>,     // primary or replica
-        client_process_id: i32, // client id
+        shard: usize,               // shard number
+        role: Option<Role>,         // primary or replica
+        client_stats: &ClientStats, // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
         let mut candidates: Vec<&Address> = self.addresses[shard]
             .iter()
@@ -517,7 +519,7 @@ impl ConnectionPool {
 
             // Indicate we're waiting on a server connection from a pool.
             let now = Instant::now();
-            self.stats.client_waiting(client_process_id);
+            client_stats.waiting();
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -527,9 +529,10 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!("Banning instance {:?}, error: {:?}", address, err);
-                    self.ban(address, BanReason::FailedCheckout, client_process_id);
-                    self.stats
-                        .client_checkout_error(client_process_id, address.id);
+                    self.ban(address, BanReason::FailedCheckout, Some(client_stats));
+                    address.stats.error();
+                    client_stats.idle();
+                    client_stats.checkout_error();
                     continue;
                 }
             };
@@ -546,18 +549,18 @@ impl ConnectionPool {
             // since we last checked the server is ok.
             // Health checks are pretty expensive.
             if !require_healthcheck {
-                self.stats.checkout_time(
-                    now.elapsed().as_micros(),
-                    client_process_id,
-                    server.server_id(),
-                );
-                self.stats
-                    .server_active(client_process_id, server.server_id());
+                let checkout_time: u64 = now.elapsed().as_micros() as u64;
+                client_stats.checkout_time(checkout_time);
+                server
+                    .stats()
+                    .checkout_time(checkout_time, client_stats.application_name());
+                server.stats().active(client_stats.application_name());
+
                 return Ok((conn, address.clone()));
             }
 
             if self
-                .run_health_check(address, server, now, client_process_id)
+                .run_health_check(address, server, now, client_stats)
                 .await
             {
                 return Ok((conn, address.clone()));
@@ -565,7 +568,6 @@ impl ConnectionPool {
                 continue;
             }
         }
-
         Err(Error::AllServersDown)
     }
 
@@ -574,11 +576,11 @@ impl ConnectionPool {
         address: &Address,
         server: &mut Server,
         start: Instant,
-        client_process_id: i32,
+        client_info: &ClientStats,
     ) -> bool {
         debug!("Running health check on server {:?}", address);
 
-        self.stats.server_tested(server.server_id());
+        server.stats().tested();
 
         match tokio::time::timeout(
             tokio::time::Duration::from_millis(self.settings.healthcheck_timeout),
@@ -589,13 +591,13 @@ impl ConnectionPool {
             // Check if health check succeeded.
             Ok(res) => match res {
                 Ok(_) => {
-                    self.stats.checkout_time(
-                        start.elapsed().as_micros(),
-                        client_process_id,
-                        server.server_id(),
-                    );
-                    self.stats
-                        .server_active(client_process_id, server.server_id());
+                    let checkout_time: u64 = start.elapsed().as_micros() as u64;
+                    client_info.checkout_time(checkout_time);
+                    server
+                        .stats()
+                        .checkout_time(checkout_time, client_info.application_name());
+                    server.stats().active(client_info.application_name());
+
                     return true;
                 }
 
@@ -620,14 +622,14 @@ impl ConnectionPool {
         // Don't leave a bad connection in the pool.
         server.mark_bad();
 
-        self.ban(&address, BanReason::FailedHealthCheck, client_process_id);
+        self.ban(&address, BanReason::FailedHealthCheck, Some(client_info));
         return false;
     }
 
     /// Ban an address (i.e. replica). It no longer will serve
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
-    pub fn ban(&self, address: &Address, reason: BanReason, client_id: i32) {
+    pub fn ban(&self, address: &Address, reason: BanReason, client_info: Option<&ClientStats>) {
         // Primary can never be banned
         if address.role == Role::Primary {
             return;
@@ -636,7 +638,10 @@ impl ConnectionPool {
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
         error!("Banning {:?}", address);
-        self.stats.client_ban_error(client_id, address.id);
+        if let Some(client_info) = client_info {
+            client_info.ban_error();
+            address.stats.error();
+        }
         guard[address.shard].insert(address.clone(), (reason, now));
     }
 
@@ -797,7 +802,7 @@ pub struct ServerPool {
     user: User,
     database: String,
     client_server_map: ClientServerMap,
-    stats: Reporter,
+    stats: Arc<PoolStats>,
 }
 
 impl ServerPool {
@@ -806,11 +811,11 @@ impl ServerPool {
         user: User,
         database: &str,
         client_server_map: ClientServerMap,
-        stats: Reporter,
+        stats: Arc<PoolStats>,
     ) -> ServerPool {
         ServerPool {
             address,
-            user,
+            user: user.clone(),
             database: database.to_string(),
             client_server_map,
             stats,
@@ -826,34 +831,31 @@ impl ManageConnection for ServerPool {
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         info!("Creating a new server connection {:?}", self.address);
-        let server_id = rand::random::<i32>();
 
-        self.stats.server_register(
-            server_id,
-            self.address.id,
-            self.address.name(),
-            self.address.pool_name.clone(),
-            self.address.username.clone(),
-        );
-        self.stats.server_login(server_id);
+        let stats = Arc::new(ServerStats::new(
+            self.address.clone(),
+            self.stats.clone(),
+            tokio::time::Instant::now(),
+        ));
+
+        stats.register(stats.clone());
 
         // Connect to the PostgreSQL server.
         match Server::startup(
-            server_id,
             &self.address,
             &self.user,
             &self.database,
             self.client_server_map.clone(),
-            self.stats.clone(),
+            stats.clone(),
         )
         .await
         {
             Ok(conn) => {
-                self.stats.server_idle(server_id);
+                stats.idle();
                 Ok(conn)
             }
             Err(err) => {
-                self.stats.server_disconnecting(server_id);
+                stats.disconnect();
                 Err(err)
             }
         }
@@ -880,12 +882,4 @@ pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
 /// Get a pointer to all configured pools.
 pub fn get_all_pools() -> HashMap<PoolIdentifier, ConnectionPool> {
     (*(*POOLS.load())).clone()
-}
-
-/// How many total servers we have in the config.
-pub fn get_number_of_addresses() -> usize {
-    get_all_pools()
-        .iter()
-        .map(|(_, pool)| pool.databases())
-        .sum()
 }

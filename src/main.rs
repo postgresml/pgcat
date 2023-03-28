@@ -162,8 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
         // Statistics reporting.
-        let (stats_tx, stats_rx) = mpsc::channel(500_000);
-        REPORTER.store(Arc::new(Reporter::new(stats_tx.clone())));
+        REPORTER.store(Arc::new(Reporter::default()));
 
         // Connection pool that allows to query all shards and replicas.
         match ConnectionPool::from_config(client_server_map.clone()).await {
@@ -175,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         tokio::task::spawn(async move {
-            let mut stats_collector = Collector::new(stats_rx, stats_tx.clone());
+            let mut stats_collector = Collector::default();
             stats_collector.collect().await;
         });
 

@@ -1,10 +1,11 @@
 use crate::pool::BanReason;
-/// Admin database.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;
+/// Admin database.
+use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 
@@ -12,9 +13,7 @@ use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::{get_all_pools, get_pool};
-use crate::stats::{
-    get_address_stats, get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState,
-};
+use crate::stats::{get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState};
 use crate::ClientServerMap;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
@@ -158,7 +157,14 @@ where
         "free_clients".to_string(),
         client_stats
             .keys()
-            .filter(|client_id| client_stats.get(client_id).unwrap().state == ClientState::Idle)
+            .filter(|client_id| {
+                client_stats
+                    .get(client_id)
+                    .unwrap()
+                    .state
+                    .load(Ordering::Relaxed)
+                    == ClientState::Idle
+            })
             .count()
             .to_string(),
     ]));
@@ -166,7 +172,14 @@ where
         "used_clients".to_string(),
         client_stats
             .keys()
-            .filter(|client_id| client_stats.get(client_id).unwrap().state == ClientState::Active)
+            .filter(|client_id| {
+                client_stats
+                    .get(client_id)
+                    .unwrap()
+                    .state
+                    .load(Ordering::Relaxed)
+                    == ClientState::Active
+            })
             .count()
             .to_string(),
     ]));
@@ -178,7 +191,14 @@ where
         "free_servers".to_string(),
         server_stats
             .keys()
-            .filter(|server_id| server_stats.get(server_id).unwrap().state == ServerState::Idle)
+            .filter(|server_id| {
+                server_stats
+                    .get(server_id)
+                    .unwrap()
+                    .state
+                    .load(Ordering::Relaxed)
+                    == ServerState::Idle
+            })
             .count()
             .to_string(),
     ]));
@@ -186,7 +206,14 @@ where
         "used_servers".to_string(),
         server_stats
             .keys()
-            .filter(|server_id| server_stats.get(server_id).unwrap().state == ServerState::Active)
+            .filter(|server_id| {
+                server_stats
+                    .get(server_id)
+                    .unwrap()
+                    .state
+                    .load(Ordering::Relaxed)
+                    == ServerState::Active
+            })
             .count()
             .to_string(),
     ]));
@@ -248,28 +275,15 @@ where
 
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
-    for (user_pool, pool) in get_all_pools() {
-        let def = HashMap::default();
-        let pool_stats = all_pool_stats
-            .get(&(user_pool.db.clone(), user_pool.user.clone()))
-            .unwrap_or(&def);
 
-        let pool_config = &pool.settings;
+    for ((_user_pool, _pool), pool_stats) in all_pool_stats {
         let mut row = vec![
-            user_pool.db.clone(),
-            user_pool.user.clone(),
-            pool_config.pool_mode.to_string(),
+            pool_stats.database(),
+            pool_stats.user(),
+            pool_stats.pool_mode().to_string(),
         ];
-        for column in &columns[3..columns.len()] {
-            let value = match column.0 {
-                "maxwait" => (pool_stats.get("maxwait_us").unwrap_or(&0) / 1_000_000).to_string(),
-                "maxwait_us" => {
-                    (pool_stats.get("maxwait_us").unwrap_or(&0) % 1_000_000).to_string()
-                }
-                _other_values => pool_stats.get(column.0).unwrap_or(&0).to_string(),
-            };
-            row.push(value);
-        }
+        pool_stats.populate_row(&mut row);
+        pool_stats.clear_maxwait();
         res.put(data_row(&row));
     }
 
@@ -400,7 +414,7 @@ where
     for (id, pool) in get_all_pools().iter() {
         for address in pool.get_addresses_from_host(host) {
             if !pool.is_banned(&address) {
-                pool.ban(&address, BanReason::AdminBan(duration_seconds), -1);
+                pool.ban(&address, BanReason::AdminBan(duration_seconds), None);
                 res.put(data_row(&vec![
                     id.db.clone(),
                     id.user.clone(),
@@ -617,7 +631,6 @@ where
         ("avg_wait_time", DataType::Numeric),
     ];
 
-    let all_stats = get_address_stats();
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
@@ -625,15 +638,10 @@ where
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
-                let stats = match all_stats.get(&address.id) {
-                    Some(stats) => stats.clone(),
-                    None => HashMap::new(),
-                };
 
                 let mut row = vec![address.name(), user_pool.db.clone(), user_pool.user.clone()];
-                for column in &columns[3..] {
-                    row.push(stats.get(column.0).unwrap_or(&0).to_string());
-                }
+                let stats = address.stats.clone();
+                stats.populate_row(&mut row);
 
                 res.put(data_row(&row));
             }
@@ -673,16 +681,16 @@ where
 
     for (_, client) in new_map {
         let row = vec![
-            format!("{:#010X}", client.client_id),
-            client.pool_name,
-            client.username,
-            client.application_name.clone(),
-            client.state.to_string(),
-            client.transaction_count.to_string(),
-            client.query_count.to_string(),
-            client.error_count.to_string(),
+            format!("{:#010X}", client.client_id()),
+            client.pool_name(),
+            client.username(),
+            client.application_name(),
+            client.state.load(Ordering::Relaxed).to_string(),
+            client.transaction_count.load(Ordering::Relaxed).to_string(),
+            client.query_count.load(Ordering::Relaxed).to_string(),
+            client.error_count.load(Ordering::Relaxed).to_string(),
             Instant::now()
-                .duration_since(client.connect_time)
+                .duration_since(client.connect_time())
                 .as_secs()
                 .to_string(),
         ];
@@ -724,19 +732,20 @@ where
     res.put(row_description(&columns));
 
     for (_, server) in new_map {
+        let application_name = server.application_name.read();
         let row = vec![
-            format!("{:#010X}", server.server_id),
-            server.pool_name,
-            server.username,
-            server.address_name,
-            server.application_name,
-            server.state.to_string(),
-            server.transaction_count.to_string(),
-            server.query_count.to_string(),
-            server.bytes_sent.to_string(),
-            server.bytes_received.to_string(),
+            format!("{:#010X}", server.server_id()),
+            server.pool_name(),
+            server.username(),
+            server.address_name(),
+            application_name.clone(),
+            server.state.load(Ordering::Relaxed).to_string(),
+            server.transaction_count.load(Ordering::Relaxed).to_string(),
+            server.query_count.load(Ordering::Relaxed).to_string(),
+            server.bytes_sent.load(Ordering::Relaxed).to_string(),
+            server.bytes_received.load(Ordering::Relaxed).to_string(),
             Instant::now()
-                .duration_since(server.connect_time)
+                .duration_since(server.connect_time())
                 .as_secs()
                 .to_string(),
         ];

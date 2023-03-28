@@ -19,3 +19,10 @@ ensure
   STDOUT.reopen(sout)
   STDERR.reopen(serr)
 end
+
+def clients_connected_to_pool(pool_index: 0, processes:)
+  admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+  results = admin_conn.async_exec("SHOW POOLS")[pool_index]
+  admin_conn.close
+  results['cl_idle'].to_i + results['cl_active'].to_i + results['cl_waiting'].to_i
+end

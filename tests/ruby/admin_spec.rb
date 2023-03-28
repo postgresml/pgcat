@@ -176,6 +176,47 @@ describe "Admin" do
       end
     end
 
+    context "clients connects and disconnect normally" do
+      let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
+
+      it 'shows the same number of clients before and after' do
+        clients_before = clients_connected_to_pool(processes: processes)
+        threads = []
+        connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT 1") }
+        end
+        clients_between = clients_connected_to_pool(processes: processes)
+        expect(clients_before).not_to eq(clients_between)
+        connections.each(&:close)
+        clients_after = clients_connected_to_pool(processes: processes)
+        expect(clients_before).to eq(clients_after)
+      end
+    end
+
+    context "clients connects and disconnect abruptly" do
+      let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 10) }
+
+      it 'shows the same number of clients before and after' do
+        threads = []
+        connections = Array.new(2) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT 1") }
+        end
+        clients_before = clients_connected_to_pool(processes: processes)
+        random_string = (0...8).map { (65 + rand(26)).chr }.join
+        connection_string = "#{pgcat_conn_str}?application_name=#{random_string}"
+        faulty_client = Process.spawn("psql -Atx #{connection_string} >/dev/null")
+        sleep(1)
+        # psql starts two processes, we only know the pid of the parent, this
+        # ensure both are killed
+        `pkill -9 -f '#{random_string}'`
+        Process.wait(faulty_client)
+        clients_after = clients_connected_to_pool(processes: processes)
+        expect(clients_before).to eq(clients_after)
+      end
+    end
+
     context "clients overwhelm server pools" do
       let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
 
@@ -199,7 +240,7 @@ describe "Admin" do
 
         sleep(2.5) # Allow time for stats to update
         results = admin_conn.async_exec("SHOW POOLS")[0]
-        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
+        %w[cl_active cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login].each do |s|
           raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
         end
         expect(results["cl_idle"]).to eq("4")

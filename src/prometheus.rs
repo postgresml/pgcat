@@ -5,10 +5,12 @@ use phf::phf_map;
 use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use crate::config::Address;
 use crate::pool::get_all_pools;
-use crate::stats::{get_address_stats, get_pool_stats, get_server_stats, ServerInformation};
+use crate::stats::{get_pool_stats, get_server_stats, ServerStats};
 
 struct MetricHelpType {
     help: &'static str,
@@ -220,7 +222,7 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         Self::from_name(&format!("servers_{}", name), value, labels)
     }
 
-    fn from_address(address: &Address, name: &str, value: i64) -> Option<PrometheusMetric<i64>> {
+    fn from_address(address: &Address, name: &str, value: u64) -> Option<PrometheusMetric<u64>> {
         let mut labels = HashMap::new();
         labels.insert("host", address.host.clone());
         labels.insert("shard", address.shard.to_string());
@@ -231,7 +233,7 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         Self::from_name(&format!("stats_{}", name), value, labels)
     }
 
-    fn from_pool(pool: &(String, String), name: &str, value: i64) -> Option<PrometheusMetric<i64>> {
+    fn from_pool(pool: &(String, String), name: &str, value: u64) -> Option<PrometheusMetric<u64>> {
         let mut labels = HashMap::new();
         labels.insert("pool", pool.0.clone());
         labels.insert("user", pool.1.clone());
@@ -261,20 +263,18 @@ async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hype
 
 // Adds metrics shown in a SHOW STATS admin command.
 fn push_address_stats(lines: &mut Vec<String>) {
-    let address_stats: HashMap<usize, HashMap<String, i64>> = get_address_stats();
     for (_, pool) in get_all_pools() {
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
-                if let Some(address_stats) = address_stats.get(&address.id) {
-                    for (key, value) in address_stats.iter() {
-                        if let Some(prometheus_metric) =
-                            PrometheusMetric::<i64>::from_address(address, key, *value)
-                        {
-                            lines.push(prometheus_metric.to_string());
-                        } else {
-                            warn!("Metric {} not implemented for {}", key, address.name());
-                        }
+                let stats = &*address.stats;
+                for (key, value) in stats.clone() {
+                    if let Some(prometheus_metric) =
+                        PrometheusMetric::<u64>::from_address(address, &key, value)
+                    {
+                        lines.push(prometheus_metric.to_string());
+                    } else {
+                        warn!("Metric {} not implemented for {}", key, address.name());
                     }
                 }
             }
@@ -286,8 +286,9 @@ fn push_address_stats(lines: &mut Vec<String>) {
 fn push_pool_stats(lines: &mut Vec<String>) {
     let pool_stats = get_pool_stats();
     for (pool, stats) in pool_stats.iter() {
-        for (name, value) in stats.iter() {
-            if let Some(prometheus_metric) = PrometheusMetric::<i64>::from_pool(pool, name, *value)
+        let stats = &**stats;
+        for (name, value) in stats.clone() {
+            if let Some(prometheus_metric) = PrometheusMetric::<u64>::from_pool(pool, &name, value)
             {
                 lines.push(prometheus_metric.to_string());
             } else {
@@ -330,9 +331,9 @@ fn push_database_stats(lines: &mut Vec<String>) {
 // Adds relevant metrics shown in a SHOW SERVERS admin command.
 fn push_server_stats(lines: &mut Vec<String>) {
     let server_stats = get_server_stats();
-    let mut server_stats_by_addresses = HashMap::<String, ServerInformation>::new();
-    for (_, info) in server_stats {
-        server_stats_by_addresses.insert(info.address_name.clone(), info);
+    let mut server_stats_by_addresses = HashMap::<String, Arc<ServerStats>>::new();
+    for (_, stats) in server_stats {
+        server_stats_by_addresses.insert(stats.address_name(), stats);
     }
 
     for (_, pool) in get_all_pools() {
@@ -341,11 +342,23 @@ fn push_server_stats(lines: &mut Vec<String>) {
                 let address = pool.address(shard, server);
                 if let Some(server_info) = server_stats_by_addresses.get(&address.name()) {
                     let metrics = [
-                        ("bytes_received", server_info.bytes_received),
-                        ("bytes_sent", server_info.bytes_sent),
-                        ("transaction_count", server_info.transaction_count),
-                        ("query_count", server_info.query_count),
-                        ("error_count", server_info.error_count),
+                        (
+                            "bytes_received",
+                            server_info.bytes_received.load(Ordering::Relaxed),
+                        ),
+                        ("bytes_sent", server_info.bytes_sent.load(Ordering::Relaxed)),
+                        (
+                            "transaction_count",
+                            server_info.transaction_count.load(Ordering::Relaxed),
+                        ),
+                        (
+                            "query_count",
+                            server_info.query_count.load(Ordering::Relaxed),
+                        ),
+                        (
+                            "error_count",
+                            server_info.error_count.load(Ordering::Relaxed),
+                        ),
                     ];
                     for (key, value) in metrics {
                         if let Some(prometheus_metric) =

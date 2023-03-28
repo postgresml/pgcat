@@ -15,6 +15,7 @@ use tokio::io::AsyncReadExt;
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
+use crate::stats::AddressStats;
 use crate::tls::{load_certs, load_keys};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -62,7 +63,7 @@ impl PartialEq<Role> for Option<Role> {
 }
 
 /// Address identifying a PostgreSQL server uniquely.
-#[derive(Clone, PartialEq, Hash, std::cmp::Eq, Debug)]
+#[derive(Clone, Debug)]
 pub struct Address {
     /// Unique ID per addressable Postgres server.
     pub id: usize,
@@ -96,6 +97,9 @@ pub struct Address {
 
     /// List of addresses to receive mirrored traffic.
     pub mirrors: Vec<Address>,
+
+    /// Address stats
+    pub stats: Arc<AddressStats>,
 }
 
 impl Default for Address {
@@ -112,7 +116,43 @@ impl Default for Address {
             username: String::from("username"),
             pool_name: String::from("pool_name"),
             mirrors: Vec::new(),
+            stats: Arc::new(AddressStats::default()),
         }
+    }
+}
+
+// We need to implement PartialEq by ourselves so we skip stats in the comparison
+impl PartialEq for Address {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.host == other.host
+            && self.port == other.port
+            && self.shard == other.shard
+            && self.address_index == other.address_index
+            && self.replica_number == other.replica_number
+            && self.database == other.database
+            && self.role == other.role
+            && self.username == other.username
+            && self.pool_name == other.pool_name
+            && self.mirrors == other.mirrors
+    }
+}
+impl Eq for Address {}
+
+// We need to implement Hash by ourselves so we skip stats in the comparison
+impl Hash for Address {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.host.hash(state);
+        self.port.hash(state);
+        self.shard.hash(state);
+        self.address_index.hash(state);
+        self.replica_number.hash(state);
+        self.database.hash(state);
+        self.role.hash(state);
+        self.username.hash(state);
+        self.pool_name.hash(state);
+        self.mirrors.hash(state);
     }
 }
 
