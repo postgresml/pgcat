@@ -26,6 +26,8 @@ x-common-env-pg:
 services:
   main:
     image: kubernetes/pause
+    ports:
+      - 6432
 
   pg1:
     <<: *common-definition-pg
