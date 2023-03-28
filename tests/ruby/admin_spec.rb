@@ -179,7 +179,7 @@ describe "Admin" do
     context "clients connects and disconnect normally" do
       let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
 
-      it 'shows the number same number of clients before and after' do
+      it 'shows the same number of clients before and after' do
         clients_before = clients_connected_to_pool(processes: processes)
         threads = []
         connections = Array.new(4) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
@@ -189,6 +189,29 @@ describe "Admin" do
         clients_between = clients_connected_to_pool(processes: processes)
         expect(clients_before).not_to eq(clients_between)
         connections.each(&:close)
+        clients_after = clients_connected_to_pool(processes: processes)
+        expect(clients_before).to eq(clients_after)
+      end
+    end
+
+    context "clients connects and disconnect abruptly" do
+      let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 10) }
+
+      it 'shows the same number of clients before and after' do
+        threads = []
+        connections = Array.new(2) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT 1") }
+        end
+        clients_before = clients_connected_to_pool(processes: processes)
+        random_string = (0...8).map { (65 + rand(26)).chr }.join
+        connection_string = "#{pgcat_conn_str}?application_name=#{random_string}"
+        faulty_client = Process.spawn("psql -Atx #{connection_string} >/dev/null")
+        sleep(1)
+        # psql starts two processes, we only know the pid of the parent, this
+        # ensure both are killed
+        `pkill -9 -f '#{random_string}'`
+        Process.wait(faulty_client)
         clients_after = clients_connected_to_pool(processes: processes)
         expect(clients_before).to eq(clients_after)
       end

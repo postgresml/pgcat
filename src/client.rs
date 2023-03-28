@@ -135,6 +135,10 @@ pub async fn client_entrypoint(
 
                         if !client.is_admin() {
                             let _ = drain.send(-1).await;
+
+                            if result.is_err() {
+                                client.stats.disconnect();
+                            }
                         }
 
                         result
@@ -183,6 +187,10 @@ pub async fn client_entrypoint(
 
                                 if !client.is_admin() {
                                     let _ = drain.send(-1).await;
+
+                                    if result.is_err() {
+                                        client.stats.disconnect();
+                                    }
                                 }
 
                                 result
@@ -233,6 +241,10 @@ pub async fn client_entrypoint(
 
                     if !client.is_admin() {
                         let _ = drain.send(-1).await;
+
+                        if result.is_err() {
+                            client.stats.disconnect();
+                        }
                     }
 
                     result
@@ -258,8 +270,11 @@ pub async fn client_entrypoint(
 
                     if !client.is_admin() {
                         let _ = drain.send(-1).await;
-                    }
 
+                        if result.is_err() {
+                            client.stats.disconnect();
+                        }
+                    }
                     result
                 }
 
