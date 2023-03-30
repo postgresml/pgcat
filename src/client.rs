@@ -2,7 +2,7 @@ use crate::errors::Error;
 use crate::pool::BanReason;
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -89,6 +89,9 @@ pub struct Client<S, T> {
 
     /// Application name for this client (defaults to pgcat)
     application_name: String,
+
+    /// Which secret the user is using to connect, if any.
+    secret: Option<String>,
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
@@ -290,7 +293,7 @@ pub async fn client_entrypoint(
 /// Handle the first message the client sends.
 async fn get_startup<S>(stream: &mut S) -> Result<(ClientConnectionType, BytesMut), Error>
 where
-    S: tokio::io::AsyncRead + std::marker::Unpin + tokio::io::AsyncWrite,
+    S: tokio::io::AsyncRead + std::marker::Unpin + tokio::io::AsyncWrite + std::marker::Send,
 {
     // Get startup message length.
     let len = match stream.read_i32().await {
@@ -377,24 +380,10 @@ pub async fn startup_tls(
     }
 }
 
-async fn refetch_auth_hash(pool: &ConnectionPool) -> Result<String, Error> {
-    let address = pool.address(0, 0);
-    if let Some(apt) = AuthPassthrough::from_pool_settings(&pool.settings) {
-        let hash = apt.fetch_hash(address).await?;
-
-        return Ok(hash);
-    }
-
-    Err(Error::ClientError(format!(
-        "Could not obtain hash for {{ username: {:?}, database: {:?} }}. Auth passthrough not enabled.",
-        address.username, address.database
-    )))
-}
-
 impl<S, T> Client<S, T>
 where
-    S: tokio::io::AsyncRead + std::marker::Unpin,
-    T: tokio::io::AsyncWrite + std::marker::Unpin,
+    S: tokio::io::AsyncRead + std::marker::Unpin + std::marker::Send,
+    T: tokio::io::AsyncWrite + std::marker::Unpin + std::marker::Send,
 {
     pub fn is_admin(&self) -> bool {
         self.admin
@@ -457,161 +446,39 @@ where
         let process_id: i32 = rand::random();
         let secret_key: i32 = rand::random();
 
-        // Perform MD5 authentication.
-        // TODO: Add SASL support.
-        let salt = md5_challenge(&mut write).await?;
+        let config = get_config();
 
-        let code = match read.read_u8().await {
-            Ok(p) => p,
-            Err(_) => return Err(Error::SocketError(format!("Error reading password code from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
+        let secret = if admin {
+            debug!("Using md5 auth for admin");
+            let auth = crate::auth::Md5::new(&username, &pool_name, &application_name, true);
+            auth.challenge(&mut write).await?;
+            auth.authenticate(&mut read, &mut write).await?;
+            None
+        } else if !config.tls_enabled() {
+            debug!("Using md5 auth");
+            let auth = crate::auth::Md5::new(&username, &pool_name, &application_name, false);
+            auth.challenge(&mut write).await?;
+            auth.authenticate(&mut read, &mut write).await?;
+            None
+        } else {
+            debug!("Using plain auth");
+            let auth = crate::auth::ClearText::new(&username, &pool_name, &application_name);
+            auth.challenge(&mut write).await?;
+            auth.authenticate(&mut read, &mut write).await?
         };
 
-        // PasswordMessage
-        if code as char != 'p' {
-            return Err(Error::ProtocolSyncError(format!(
-                "Expected p, got {}",
-                code as char
-            )));
-        }
-
-        let len = match read.read_i32().await {
-            Ok(len) => len,
-            Err(_) => return Err(Error::SocketError(format!("Error reading password message length from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
-        };
-
-        let mut password_response = vec![0u8; (len - 4) as usize];
-
-        match read.read_exact(&mut password_response).await {
-            Ok(_) => (),
-            Err(_) => return Err(Error::SocketError(format!("Error reading password message from client {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name))),
-        };
-
-        // Authenticate admin user.
+        // Authenticated admin user.
         let (transaction_mode, server_info) = if admin {
-            let config = get_config();
-            // Compare server and client hashes.
-            let password_hash = md5_hash_password(
-                &config.general.admin_username,
-                &config.general.admin_password,
-                &salt,
-            );
-
-            if password_hash != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name);
-                wrong_password(&mut write, username).await?;
-
-                return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
-            }
-
             (false, generate_server_info_for_admin())
         }
-        // Authenticate normal user.
+        // Authenticated normal user.
         else {
-            let mut pool = match get_pool(pool_name, username) {
-                Some(pool) => pool,
-                None => {
-                    error_response(
-                        &mut write,
-                        &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
-                            pool_name, username
-                        ),
-                    )
-                    .await?;
-
-                    return Err(Error::ClientError(format!("Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
-                }
-            };
-
-            // Obtain the hash to compare, we give preference to that written in cleartext in config
-            // if there is nothing set in cleartext and auth passthrough (auth_query) is configured, we use the hash obtained
-            // when the pool was created. If there is no hash there, we try to fetch it one more time.
-            let password_hash = if let Some(password) = &pool.settings.user.password {
-                Some(md5_hash_password(username, password, &salt))
-            } else {
-                if !get_config().is_auth_query_configured() {
-                    return Err(Error::ClientError(format!("Client auth not possible, no cleartext password set for username: {:?} in config and auth passthrough (query_auth) is not set up.", username)));
-                }
-
-                let mut hash = (*pool.auth_hash.read()).clone();
-
-                if hash.is_none() {
-                    warn!("Query auth configured but no hash password found for pool {}. Will try to refetch it.", pool_name);
-                    match refetch_auth_hash(&pool).await {
-                        Ok(fetched_hash) => {
-                            warn!("Password for {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}, obtained. Updating.", username, pool_name, application_name);
-                            {
-                                let mut pool_auth_hash = pool.auth_hash.write();
-                                *pool_auth_hash = Some(fetched_hash.clone());
-                            }
-
-                            hash = Some(fetched_hash);
-                        }
-                        Err(err) => {
-                            return Err(
-				Error::ClientError(
-				    format!("No cleartext password set, and no auth passthrough could not obtain the hash from server for {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}, the error was: {:?}",
-					    username,
-					    pool_name,
-					    application_name,
-					    err)
-				)
-			    );
-                        }
-                    }
-                };
-
-                Some(md5_hash_second_pass(&hash.unwrap(), &salt))
-            };
-
-            // Once we have the resulting hash, we compare with what the client gave us.
-            // If they do not match and auth query is set up, we try to refetch the hash one more time
-            // to see if the password has changed since the pool was created.
-            //
-            // @TODO: we could end up fetching again the same password twice (see above).
-            if password_hash.unwrap() != password_response {
-                warn!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}, will try to refetch it.", username, pool_name, application_name);
-                let fetched_hash = refetch_auth_hash(&pool).await?;
-                let new_password_hash = md5_hash_second_pass(&fetched_hash, &salt);
-
-                // Ok password changed in server an auth is possible.
-                if new_password_hash == password_response {
-                    warn!("Password for {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}, changed in server. Updating.", username, pool_name, application_name);
-                    {
-                        let mut pool_auth_hash = pool.auth_hash.write();
-                        *pool_auth_hash = Some(fetched_hash);
-                    }
-                } else {
-                    wrong_password(&mut write, username).await?;
-                    return Err(Error::ClientError(format!("Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}", username, pool_name, application_name)));
-                }
-            }
-
+            let pool = get_pool(&pool_name, &username, secret.clone()).unwrap();
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
-
-            // If the pool hasn't been validated yet,
-            // connect to the servers and figure out what's what.
-            if !pool.validated() {
-                match pool.validate().await {
-                    Ok(_) => (),
-                    Err(err) => {
-                        error_response(
-                            &mut write,
-                            &format!(
-                                "Pool down for database: {:?}, user: {:?}",
-                                pool_name, username
-                            ),
-                        )
-                        .await?;
-                        return Err(Error::ClientError(format!("Pool down: {:?}", err)));
-                    }
-                }
-            }
-
             (transaction_mode, pool.server_info())
         };
 
-        debug!("Password authentication successful");
+        debug!("Authentication successful");
 
         auth_ok(&mut write).await?;
         write_all(&mut write, server_info).await?;
@@ -619,7 +486,7 @@ where
         ready_for_query(&mut write).await?;
 
         trace!("Startup OK");
-        let pool_stats = match get_pool(pool_name, username) {
+        let pool_stats = match get_pool(pool_name, username, secret.clone()) {
             Some(pool) => {
                 if !admin {
                     pool.stats
@@ -659,6 +526,7 @@ where
             application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
+            secret,
         })
     }
 
@@ -693,6 +561,7 @@ where
             application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
+            secret: None,
         })
     }
 
@@ -1200,7 +1069,7 @@ where
     /// Retrieve connection pool, if it exists.
     /// Return an error to the client otherwise.
     async fn get_pool(&mut self) -> Result<ConnectionPool, Error> {
-        match get_pool(&self.pool_name, &self.username) {
+        match get_pool(&self.pool_name, &self.username, self.secret.clone()) {
             Some(pool) => Ok(pool),
             None => {
                 error_response(

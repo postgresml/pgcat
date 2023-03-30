@@ -780,7 +780,7 @@ where
         let database = parts[0];
         let user = parts[1];
 
-        match get_pool(database, user) {
+        match get_pool(database, user, None) {
             Some(pool) => {
                 pool.pause();
 
@@ -827,7 +827,7 @@ where
         let database = parts[0];
         let user = parts[1];
 
-        match get_pool(database, user) {
+        match get_pool(database, user, None) {
             Some(pool) => {
                 pool.resume();
 

@@ -46,29 +46,6 @@ where
     write_all(stream, auth_ok).await
 }
 
-/// Generate md5 password challenge.
-pub async fn md5_challenge<S>(stream: &mut S) -> Result<[u8; 4], Error>
-where
-    S: tokio::io::AsyncWrite + std::marker::Unpin,
-{
-    // let mut rng = rand::thread_rng();
-    let salt: [u8; 4] = [
-        rand::random(),
-        rand::random(),
-        rand::random(),
-        rand::random(),
-    ];
-
-    let mut res = BytesMut::new();
-    res.put_u8(b'R');
-    res.put_i32(12);
-    res.put_i32(5); // MD5
-    res.put_slice(&salt[..]);
-
-    write_all(stream, res).await?;
-    Ok(salt)
-}
-
 /// Give the client the process_id and secret we generated
 /// used in query cancellation.
 pub async fn backend_key_data<S>(

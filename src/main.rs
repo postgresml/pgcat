@@ -62,6 +62,7 @@ use tokio::sync::broadcast;
 
 mod admin;
 mod auth_passthrough;
+mod auth;
 mod client;
 mod config;
 mod constants;
