@@ -259,6 +259,7 @@ where
     let columns = vec![
         ("database", DataType::Text),
         ("user", DataType::Text),
+        ("secret", DataType::Text),
         ("pool_mode", DataType::Text),
         ("cl_idle", DataType::Numeric),
         ("cl_active", DataType::Numeric),
@@ -276,10 +277,11 @@ where
     let mut res = BytesMut::new();
     res.put(row_description(&columns));
 
-    for ((_user_pool, _pool), pool_stats) in all_pool_stats {
+    for (_, pool_stats) in all_pool_stats {
         let mut row = vec![
             pool_stats.database(),
             pool_stats.user(),
+            pool_stats.redacted_secret(),
             pool_stats.pool_mode().to_string(),
         ];
         pool_stats.populate_row(&mut row);
@@ -895,13 +897,20 @@ where
     res.put(row_description(&vec![
         ("name", DataType::Text),
         ("pool_mode", DataType::Text),
+        ("secret", DataType::Text),
     ]));
 
     for (user_pool, pool) in get_all_pools() {
         let pool_config = &pool.settings;
+        let redacted_secret = match user_pool.secret {
+            Some(secret) => format!("****{}", &secret[secret.len() - 4..]),
+            None => "<no secret>".to_string(),
+        };
+
         res.put(data_row(&vec![
             user_pool.user.clone(),
             pool_config.pool_mode.to_string(),
+            redacted_secret,
         ]));
     }
 

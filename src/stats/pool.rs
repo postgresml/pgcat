@@ -102,6 +102,13 @@ impl PoolStats {
         self.identifier.user.clone()
     }
 
+    pub fn redacted_secret(&self) -> String {
+        match self.identifier.secret {
+            Some(ref s) => format!("****{}", &s[s.len() - 4..]),
+            None => "<no secret>".to_string(),
+        }
+    }
+
     pub fn pool_mode(&self) -> PoolMode {
         self.config.pool_mode
     }

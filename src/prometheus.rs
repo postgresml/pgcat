@@ -9,7 +9,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::config::Address;
-use crate::pool::get_all_pools;
+use crate::pool::{get_all_pools, PoolIdentifier};
 use crate::stats::{get_pool_stats, get_server_stats, ServerStats};
 
 struct MetricHelpType {
@@ -233,10 +233,10 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         Self::from_name(&format!("stats_{}", name), value, labels)
     }
 
-    fn from_pool(pool: &(String, String), name: &str, value: u64) -> Option<PrometheusMetric<u64>> {
+    fn from_pool(pool: &PoolIdentifier, name: &str, value: u64) -> Option<PrometheusMetric<u64>> {
         let mut labels = HashMap::new();
-        labels.insert("pool", pool.0.clone());
-        labels.insert("user", pool.1.clone());
+        labels.insert("pool", pool.db.clone());
+        labels.insert("user", pool.user.clone());
 
         Self::from_name(&format!("pools_{}", name), value, labels)
     }
@@ -294,7 +294,7 @@ fn push_pool_stats(lines: &mut Vec<String>) {
             } else {
                 warn!(
                     "Metric {} not implemented for ({},{})",
-                    name, pool.0, pool.1
+                    name, pool.db, pool.user
                 );
             }
         }
