@@ -5,16 +5,24 @@
 use crate::errors::Error;
 use crate::tokio::io::AsyncReadExt;
 use crate::{
-    config::get_config,
-    messages::{error_response, md5_hash_password, write_all, wrong_password, md5_hash_second_pass},
-    pool::{get_pool, ConnectionPool},
     auth_passthrough::AuthPassthrough,
+    config::get_config,
+    messages::{
+        error_response, md5_hash_password, md5_hash_second_pass, write_all, wrong_password,
+    },
+    pool::{get_pool, ConnectionPool},
 };
 use bytes::{BufMut, BytesMut};
 use log::debug;
 
-async fn refetch_auth_hash<S>(pool: &ConnectionPool, stream: &mut S, username: &str, pool_name: &str) -> Result<String, Error>
-where S: tokio::io::AsyncWrite + std::marker::Unpin + std::marker::Send
+async fn refetch_auth_hash<S>(
+    pool: &ConnectionPool,
+    stream: &mut S,
+    username: &str,
+    pool_name: &str,
+) -> Result<String, Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin + std::marker::Send,
 {
     let address = pool.address(0, 0);
     if let Some(apt) = AuthPassthrough::from_pool_settings(&pool.settings) {
@@ -29,7 +37,8 @@ where S: tokio::io::AsyncWrite + std::marker::Unpin + std::marker::Send
             "No password set and auth passthrough failed for database: {}, user: {}",
             pool_name, username
         ),
-    ).await?;
+    )
+    .await?;
 
     Err(Error::ClientError(format!(
         "Could not obtain hash for {{ username: {:?}, database: {:?} }}. Auth passthrough not enabled.",
@@ -174,8 +183,7 @@ impl ClearText {
                                         "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
                                         self.username, self.pool_name, self.application_name
                                 )))
-                            }
-                            else {
+                            } else {
                                 validate_pool(write, pool, &self.username, &self.pool_name).await?;
 
                                 Ok(None)
@@ -305,7 +313,7 @@ impl Md5 {
                         Some(ref password) => {
                             let our_hash = md5_hash_password(&self.username, password, &self.salt);
 
-                             if our_hash != password_hash {
+                            if our_hash != password_hash {
                                 wrong_password(write, &self.username).await?;
 
                                 Err(Error::ClientError(format!(
@@ -324,7 +332,10 @@ impl Md5 {
 
                             let hash = match hash {
                                 Some(hash) => hash.to_string(),
-                                None => refetch_auth_hash(&pool, write, &self.username, &self.pool_name).await?,
+                                None => {
+                                    refetch_auth_hash(&pool, write, &self.username, &self.pool_name)
+                                        .await?
+                                }
                             };
 
                             let our_hash = md5_hash_second_pass(&hash, &self.salt);
@@ -332,7 +343,13 @@ impl Md5 {
                             // Compare hashes
                             if our_hash != password_hash {
                                 // Server hash maybe changed
-                                let hash = refetch_auth_hash(&pool, write, &self.username, &self.pool_name).await?;
+                                let hash = refetch_auth_hash(
+                                    &pool,
+                                    write,
+                                    &self.username,
+                                    &self.pool_name,
+                                )
+                                .await?;
                                 let our_hash = md5_hash_second_pass(&hash, &self.salt);
 
                                 if our_hash != password_hash {
@@ -345,7 +362,13 @@ impl Md5 {
                                 } else {
                                     (*pool.auth_hash.write()) = Some(hash);
 
-                                    validate_pool(write, pool.clone(), &self.username, &self.pool_name).await?;
+                                    validate_pool(
+                                        write,
+                                        pool.clone(),
+                                        &self.username,
+                                        &self.pool_name,
+                                    )
+                                    .await?;
 
                                     Ok(())
                                 }

@@ -218,11 +218,10 @@ impl ConnectionPool {
                         .collect::<Vec<Option<String>>>(),
                     None => vec![],
                 };
-                
+
                 secrets.push(None);
 
                 for secret in secrets {
-
                     let old_pool_ref = get_pool(pool_name, &user.username, secret.clone());
                     let identifier = PoolIdentifier::new(pool_name, &user.username, secret.clone());
 
@@ -362,7 +361,9 @@ impl ConnectionPool {
 
                             let pool = Pool::builder()
                                 .max_size(user.pool_size)
-                                .connection_timeout(std::time::Duration::from_millis(connect_timeout))
+                                .connection_timeout(std::time::Duration::from_millis(
+                                    connect_timeout,
+                                ))
                                 .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                                 .test_on_check_out(false)
                                 .build(manager)
