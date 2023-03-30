@@ -331,6 +331,21 @@ impl Md5 {
                         }
 
                         None => {
+                            if !get_config().is_auth_query_configured() {
+                                error_response(
+                                    write,
+                                    &format!(
+                                        "No password configured and auth_query is not set: {:?}, user: {:?}",
+                                        self.pool_name, self.username
+                                    ),
+                                )
+                                .await?;
+
+                                return Err(Error::ClientError(format!(
+                                    "No password configured and auth_query is not set"
+                                )));
+                            }
+
                             // Fetch hash from server
                             let hash = (*pool.auth_hash.read()).clone();
 
