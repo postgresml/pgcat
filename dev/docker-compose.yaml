@@ -58,6 +58,13 @@ services:
       POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       PGPORT: 9432
     command: ["postgres", "-p", "9432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
+  pg5:
+    <<: *common-definition-pg
+    environment:
+      <<: *common-env-pg
+      POSTGRES_INITDB_ARGS: --auth-local=md5 --auth-host=md5 --auth=md5
+      PGPORT: 10432
+    command: ["postgres", "-p", "5432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
 
   toxiproxy:
     build: .
@@ -71,6 +78,7 @@ services:
       - pg2
       - pg3
       - pg4
+      - pg5
 
   pgcat-shell:
     stdin_open: true

@@ -1,7 +1,11 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
 use bytes::{Buf, BufMut, BytesMut};
+use fallible_iterator::FallibleIterator;
 use log::{debug, error, info, trace, warn};
+use parking_lot::{Mutex, RwLock};
+use postgres_protocol::message;
+use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -81,6 +85,7 @@ impl Server {
         database: &str,
         client_server_map: ClientServerMap,
         stats: Arc<ServerStats>,
+        auth_hash: Arc<RwLock<Option<String>>>,
     ) -> Result<Server, Error> {
         let mut stream =
             match TcpStream::connect(&format!("{}:{}", &address.host, address.port)).await {
@@ -106,7 +111,10 @@ impl Server {
 
         // We'll be handling multiple packets, but they will all be structured the same.
         // We'll loop here until this exchange is complete.
-        let mut scram = ScramSha256::new(&user.password);
+        let mut scram: Option<ScramSha256> = None;
+        if let Some(password) = &user.password.clone() {
+            scram = Some(ScramSha256::new(password));
+        }
 
         loop {
             let code = match stream.read_u8().await {
@@ -143,13 +151,40 @@ impl Server {
                                 Err(_) => return Err(Error::SocketError(format!("Error reading salt on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
-                            md5_password(&mut stream, &user.username, &user.password, &salt[..])
-                                .await?;
+                            match &user.password {
+                                // Using plaintext password
+                                Some(password) => {
+                                    md5_password(&mut stream, &user.username, password, &salt[..])
+                                        .await?
+                                }
+
+                                // Using auth passthrough, in this case we should already have a
+                                // hash obtained when the pool was validated. If we reach this point
+                                // and don't have a hash, we return an error.
+                                None => {
+                                    let option_hash = (*auth_hash.read()).clone();
+                                    match option_hash {
+                                        Some(hash) =>
+                                            md5_password_with_hash(
+                                                &mut stream,
+                                                &hash,
+                                                &salt[..],
+                                            )
+                                            .await?,
+                                        None =>
+                                            return Err(Error::AuthError(format!("Auth passthrough (auth_query) failed and no user password is set in cleartext for {{ username: {:?}, database: {:?} }}", user.username, database)))
+                                    }
+                                }
+                            }
                         }
 
                         AUTHENTICATION_SUCCESSFUL => (),
 
                         SASL => {
+                            if scram.is_none() {
+                                return Err(Error::AuthError(format!("SASL auth required and not password specified, auth passthrough (auth_query) method is currently unsupported for SASL auth {{ username: {:?}, database: {:?} }}", user.username, database)));
+                            }
+
                             debug!("Starting SASL authentication");
                             let sasl_len = (len - 8) as usize;
                             let mut sasl_auth = vec![0u8; sasl_len];
@@ -165,7 +200,7 @@ impl Server {
                                 debug!("Using {}", SCRAM_SHA_256);
 
                                 // Generate client message.
-                                let sasl_response = scram.message();
+                                let sasl_response = scram.as_mut().unwrap().message();
 
                                 // SASLInitialResponse (F)
                                 let mut res = BytesMut::new();
@@ -202,7 +237,7 @@ impl Server {
                             };
 
                             let msg = BytesMut::from(&sasl_data[..]);
-                            let sasl_response = scram.update(&msg)?;
+                            let sasl_response = scram.as_mut().unwrap().update(&msg)?;
 
                             // SASLResponse
                             let mut res = BytesMut::new();
@@ -222,7 +257,11 @@ impl Server {
                                 Err(_) => return Err(Error::SocketError(format!("Error reading sasl final message on server startup {{ username: {:?}, database: {:?} }}", user.username, database))),
                             };
 
-                            match scram.finish(&BytesMut::from(&sasl_final[..])) {
+                            match scram
+                                .as_mut()
+                                .unwrap()
+                                .finish(&BytesMut::from(&sasl_final[..]))
+                            {
                                 Ok(_) => {
                                     debug!("SASL authentication successful");
                                 }
@@ -696,6 +735,105 @@ impl Server {
             None => (),
         }
     }
+
+    // This is so we can execute out of band queries to the server.
+    // The connection will be opened, the query executed and closed.
+    pub async fn exec_simple_query(
+        address: &Address,
+        user: &User,
+        query: &str,
+    ) -> Result<Vec<String>, Error> {
+        let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
+
+        debug!("Connecting to server to obtain auth hashes.");
+        let mut server = Server::startup(
+            address,
+            user,
+            &address.database,
+            client_server_map,
+            Arc::new(ServerStats::default()),
+            Arc::new(RwLock::new(None)),
+        )
+        .await?;
+        debug!("Connected!, sending query.");
+        server.send(&simple_query(query)).await?;
+        let mut message = server.recv().await?;
+
+        Ok(parse_query_message(&mut message).await?)
+    }
+}
+
+async fn parse_query_message(message: &mut BytesMut) -> Result<Vec<String>, Error> {
+    let mut pair = Vec::<String>::new();
+    match message::backend::Message::parse(message) {
+        Ok(Some(message::backend::Message::RowDescription(_description))) => {}
+        Ok(Some(message::backend::Message::ErrorResponse(err))) => {
+            return Err(Error::ProtocolSyncError(format!(
+                "Protocol error parsing response. Err: {:?}",
+                err.fields()
+                    .iterator()
+                    .fold(String::default(), |acc, element| acc
+                        + element.unwrap().value())
+            )))
+        }
+        Ok(_) => {
+            return Err(Error::ProtocolSyncError(
+                "Protocol error, expected Row Description.".to_string(),
+            ))
+        }
+        Err(err) => {
+            return Err(Error::ProtocolSyncError(format!(
+                "Protocol error parsing response. Err: {:?}",
+                err
+            )))
+        }
+    }
+
+    while !message.is_empty() {
+        match message::backend::Message::parse(message) {
+            Ok(postgres_message) => {
+                match postgres_message {
+                    Some(message::backend::Message::DataRow(data)) => {
+                        let buf = data.buffer();
+                        trace!("Data: {:?}", buf);
+
+                        for item in data.ranges().iterator() {
+                            match item.as_ref() {
+                                Ok(range) => match range {
+                                    Some(range) => {
+                                        pair.push(String::from_utf8_lossy(&buf[range.clone()]).to_string());
+                                    }
+                                    None => return Err(Error::ProtocolSyncError(String::from(
+                                        "Data expected while receiving query auth data, found nothing.",
+                                    ))),
+                                },
+                                Err(err) => {
+                                    return Err(Error::ProtocolSyncError(format!(
+                                        "Data error, err: {:?}",
+                                        err
+                                    )))
+                                }
+                            }
+                        }
+                    }
+                    Some(message::backend::Message::CommandComplete(_)) => {}
+                    Some(message::backend::Message::ReadyForQuery(_)) => {}
+                    _ => {
+                        return Err(Error::ProtocolSyncError(
+                            "Unexpected message while receiving auth query data.".to_string(),
+                        ))
+                    }
+                }
+            }
+            Err(err) => {
+                return Err(Error::ProtocolSyncError(format!(
+                    "Parse error, err: {:?}",
+                    err
+                )))
+            }
+        };
+    }
+    Ok(pair)
 }
 
 impl Drop for Server {

@@ -4,6 +4,7 @@ use std::sync::Arc;
 /// Packets arrive to us through a channel from the main client and we send them to the server.
 use bb8::Pool;
 use bytes::{Bytes, BytesMut};
+use parking_lot::RwLock;
 
 use crate::config::{get_config, Address, Role, User};
 use crate::pool::{ClientServerMap, PoolIdentifier, ServerPool};
@@ -41,6 +42,7 @@ impl MirroredClient {
             self.database.as_str(),
             ClientServerMap::default(),
             Arc::new(PoolStats::new(identifier, cfg.clone())),
+            Arc::new(RwLock::new(None)),
         );
 
         Pool::builder()

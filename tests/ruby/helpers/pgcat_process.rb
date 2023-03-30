@@ -67,17 +67,21 @@ class PgcatProcess
   def start
     raise StandardError, "Process is already started" unless @pid.nil?
     @pid = Process.spawn(@env, @command, err: @log_filename, out: @log_filename)
+    Process.detach(@pid)
     ObjectSpace.define_finalizer(@log_filename, proc { PgcatProcess.finalize(@pid, @log_filename, @config_filename) })
 
     return self
   end
 
-  def wait_until_ready
+  def wait_until_ready(connection_string = nil)
     exc = nil
     10.times do
-      PG::connect(example_connection_string).close
+      Process.kill 0, @pid
+      PG::connect(connection_string || example_connection_string).close
 
       return self
+    rescue Errno::ESRCH
+      raise StandardError, "Process #{@pid} died. #{logs}"
     rescue => e
       exc = e
       sleep(0.5)
@@ -108,13 +112,10 @@ class PgcatProcess
     "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/pgcat"
   end
 
-  def connection_string(pool_name, username)
+  def connection_string(pool_name, username, password = nil)
     cfg = current_config
-
     user_idx, user_obj = cfg["pools"][pool_name]["users"].detect { |k, user| user["username"] == username }
-    password = user_obj["password"]
-
-    "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/#{pool_name}"
+    "postgresql://#{username}:#{password || user_obj["password"]}@0.0.0.0:#{@port}/#{pool_name}"
   end
 
   def example_connection_string

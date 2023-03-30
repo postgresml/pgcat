@@ -213,7 +213,13 @@ pub fn md5_hash_password(user: &str, password: &str, salt: &[u8]) -> Vec<u8> {
     let output = md5.finalize_reset();
 
     // Second pass
-    md5.update(format!("{:x}", output));
+    md5_hash_second_pass(&(format!("{:x}", output)), salt)
+}
+
+pub fn md5_hash_second_pass(hash: &str, salt: &[u8]) -> Vec<u8> {
+    let mut md5 = Md5::new();
+    // Second pass
+    md5.update(hash);
     md5.update(salt);
 
     let mut password = format!("md5{:x}", md5.finalize())
@@ -238,6 +244,20 @@ where
 {
     let password = md5_hash_password(user, password, salt);
 
+    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+
+    message.put_u8(b'p');
+    message.put_i32(password.len() as i32 + 4);
+    message.put_slice(&password[..]);
+
+    write_all(stream, message).await
+}
+
+pub async fn md5_password_with_hash<S>(stream: &mut S, hash: &str, salt: &[u8]) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let password = md5_hash_second_pass(hash, salt);
     let mut message = BytesMut::with_capacity(password.len() as usize + 5);
 
     message.put_u8(b'p');

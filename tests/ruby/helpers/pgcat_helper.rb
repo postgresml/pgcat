@@ -3,6 +3,13 @@ require 'ostruct'
 require_relative 'pgcat_process'
 require_relative 'pg_instance'
 
+class ::Hash
+    def deep_merge(second)
+        merger = proc { |key, v1, v2| Hash === v1 && Hash === v2 ? v1.merge(v2, &merger) : v2 }
+        self.merge(second, &merger)
+    end
+end
+
 module Helpers
   module Pgcat
     def self.three_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info")
