@@ -112,10 +112,13 @@ class PgcatProcess
     "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/pgcat"
   end
 
-  def connection_string(pool_name, username, password = nil)
+  def connection_string(pool_name, username, password=nil)
     cfg = current_config
     user_idx, user_obj = cfg["pools"][pool_name]["users"].detect { |k, user| user["username"] == username }
-    "postgresql://#{username}:#{password || user_obj["password"]}@0.0.0.0:#{@port}/#{pool_name}"
+
+    password = if password.nil? then user_obj["password"] else password end
+
+    "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/#{pool_name}"
   end
 
   def example_connection_string
