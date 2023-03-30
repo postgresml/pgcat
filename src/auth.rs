@@ -24,11 +24,15 @@ async fn refetch_auth_hash<S>(
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin + std::marker::Send,
 {
-    let address = pool.address(0, 0);
-    if let Some(apt) = AuthPassthrough::from_pool_settings(&pool.settings) {
-        let hash = apt.fetch_hash(address).await?;
+    let config = get_config();
 
-        return Ok(hash);
+    if config.is_auth_query_configured() {
+        let address = pool.address(0, 0);
+        if let Some(apt) = AuthPassthrough::from_pool_settings(&pool.settings) {
+            let hash = apt.fetch_hash(address).await?;
+
+            return Ok(hash);
+        }
     }
 
     error_response(
@@ -42,7 +46,7 @@ where
 
     Err(Error::ClientError(format!(
         "Could not obtain hash for {{ username: {:?}, database: {:?} }}. Auth passthrough not enabled.",
-        address.username, address.database
+        pool_name, username
     )))
 }
 
@@ -331,10 +335,19 @@ impl Md5 {
                             let hash = (*pool.auth_hash.read()).clone();
 
                             let hash = match hash {
-                                Some(hash) => hash.to_string(),
+                                Some(hash) => hash.clone(),
                                 None => {
-                                    refetch_auth_hash(&pool, write, &self.username, &self.pool_name)
-                                        .await?
+                                    let hash = refetch_auth_hash(
+                                        &pool,
+                                        write,
+                                        &self.username,
+                                        &self.pool_name,
+                                    )
+                                    .await?;
+
+                                    (*pool.auth_hash.write()) = Some(hash.clone());
+
+                                    hash
                                 }
                             };
 
@@ -350,6 +363,7 @@ impl Md5 {
                                     &self.pool_name,
                                 )
                                 .await?;
+
                                 let our_hash = md5_hash_second_pass(&hash, &self.salt);
 
                                 if our_hash != password_hash {

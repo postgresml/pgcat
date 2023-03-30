@@ -12,7 +12,6 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
-use crate::auth_passthrough::AuthPassthrough;
 use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
 use crate::messages::*;
