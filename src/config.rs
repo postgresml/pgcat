@@ -1,6 +1,6 @@
 /// Parse the configuration file.
 use arc_swap::ArcSwap;
-use log::{error, info};
+use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
@@ -186,6 +186,19 @@ pub struct User {
 
 impl User {
     fn validate(&self) -> Result<(), Error> {
+        match self.secrets {
+            Some(ref secrets) => {
+                for secret in secrets.iter() {
+                    if secret.len() < 16 {
+                        warn!(
+                            "[user: {}] Secret is too short (less than 16 characters)",
+                            self.username
+                        );
+                    }
+                }
+            }
+            None => (),
+        }
         Ok(())
     }
 }
