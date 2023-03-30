@@ -390,7 +390,7 @@ impl QueryRouter {
 
                 // Likely a read-only query
                 Query(query) => {
-                    match &self.pool_settings.automatic_sharding_key {
+                    match &self.pool_settings.automatic_sharding_keys {
                         Some(_) => {
                             // TODO: if we have multiple queries in the same message,
                             // we can either split them and execute them individually
@@ -571,17 +571,23 @@ impl QueryRouter {
         let mut result = Vec::new();
         let mut found = false;
 
-        let sharding_key = self
+        let sharding_keys = self
             .pool_settings
-            .automatic_sharding_key
+            .automatic_sharding_keys
             .as_ref()
             .unwrap()
-            .split(".")
-            .map(|ident| Ident::new(ident))
-            .collect::<Vec<Ident>>();
+            .iter()
+            .map(|x| {
+                x.split(".")
+                    .map(|ident| Ident::new(ident))
+                    .collect::<Vec<Ident>>()
+            })
+            .collect::<Vec<Vec<Ident>>>();
 
-        // Sharding key must be always fully qualified
-        assert_eq!(sharding_key.len(), 2);
+        for sharding_key in sharding_keys.iter() {
+            // Sharding key must be always fully qualified
+            assert_eq!(sharding_key.len(), 2);
+        }
 
         // This parses `sharding_key = 5`. But it's technically
         // legal to write `5 = sharding_key`. I don't judge the people
@@ -593,7 +599,10 @@ impl QueryRouter {
                 Expr::Identifier(ident) => {
                     // Only if we're dealing with only one table
                     // and there is no ambiguity
-                    if &ident.value == &sharding_key[1].value {
+                    if let Some(sharding_key) = sharding_keys
+                        .iter()
+                        .find(|key| &ident.value == &key[1].value)
+                    {
                         // Sharding key is unique enough, don't worry about
                         // table names.
                         if &sharding_key[0].value == "*" {
@@ -624,8 +633,13 @@ impl QueryRouter {
                     // The key is fully qualified in the query,
                     // it will exist or Postgres will throw an error.
                     if idents.len() == 2 {
-                        found = &sharding_key[0].value == &idents[0].value
-                            && &sharding_key[1].value == &idents[1].value;
+                        found = sharding_keys
+                            .iter()
+                            .find(|key| {
+                                &key[0].value == &idents[0].value
+                                    && &key[1].value == &idents[1].value
+                            })
+                            .is_some();
                     }
                     // TODO: key can have schema as well, e.g. public.data.id (len == 3)
                 }
@@ -1166,7 +1180,7 @@ mod test {
             query_parser_enabled: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: Some(String::from("test.id")),
+            automatic_sharding_keys: Some(vec![String::from("test.id")]),
             healthcheck_delay: PoolSettings::default().healthcheck_delay,
             healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
             ban_time: PoolSettings::default().ban_time,
@@ -1241,7 +1255,7 @@ mod test {
             query_parser_enabled: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: None,
+            automatic_sharding_keys: None,
             healthcheck_delay: PoolSettings::default().healthcheck_delay,
             healthcheck_timeout: PoolSettings::default().healthcheck_timeout,
             ban_time: PoolSettings::default().ban_time,
@@ -1282,12 +1296,19 @@ mod test {
         QueryRouter::setup();
 
         let mut qr = QueryRouter::new();
-        qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
+        qr.pool_settings.automatic_sharding_keys =
+            Some(vec!["data.id".to_string(), "derived.data_id".to_string()]);
         qr.pool_settings.shards = 3;
 
         assert!(qr
             .infer(&QueryRouter::parse(&simple_query("SELECT * FROM data WHERE id = 5")).unwrap())
             .is_ok());
+        assert_eq!(qr.shard(), 2);
+
+        assert!(qr.infer(&QueryRouter::parse(&simple_query("SELECT * FROM derived WHERE data_id = 5")).unwrap()).is_ok());
+        assert_eq!(qr.shard(), 2);
+
+        assert!(qr.infer(&QueryRouter::parse(&simple_query("SELECT * FROM derived WHERE data_id = 5")).unwrap()).is_ok());
         assert_eq!(qr.shard(), 2);
 
         assert!(qr
@@ -1298,6 +1319,16 @@ mod test {
                 .unwrap()
             )
             .is_ok());
+        assert_eq!(qr.shard(), 0);
+
+        assert!(qr.infer(&QueryRouter::parse(&simple_query(
+            "SELECT one, two, three FROM public.derived WHERE data_id = 6"
+        )).unwrap()).is_ok());
+        assert_eq!(qr.shard(), 0);
+
+        assert!(qr.infer(&QueryRouter::parse(&simple_query(
+            "SELECT one, two, three FROM public.derived WHERE data_id = 6"
+        )).unwrap()).is_ok());
         assert_eq!(qr.shard(), 0);
 
         assert!(qr
@@ -1346,7 +1377,8 @@ mod test {
         assert_eq!(qr.shard(), 2);
 
         // Super unique sharding key
-        qr.pool_settings.automatic_sharding_key = Some("*.unique_enough_column_name".to_string());
+        qr.pool_settings.automatic_sharding_keys =
+            Some(vec!["*.unique_enough_column_name".to_string()]);
         assert!(qr
             .infer(
                 &QueryRouter::parse(&simple_query(
@@ -1383,7 +1415,7 @@ mod test {
         bind.put(payload);
 
         let mut qr = QueryRouter::new();
-        qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
+        qr.pool_settings.automatic_sharding_keys = Some(vec!["data.id".to_string()]);
         qr.pool_settings.shards = 3;
 
         assert!(qr

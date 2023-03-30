@@ -118,7 +118,7 @@ pub struct PoolSettings {
     pub sharding_function: ShardingFunction,
 
     // Sharding key
-    pub automatic_sharding_key: Option<String>,
+    pub automatic_sharding_keys: Option<Vec<String>>,
 
     // Health check timeout
     pub healthcheck_timeout: u64,
@@ -159,7 +159,7 @@ impl Default for PoolSettings {
             query_parser_enabled: false,
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: None,
+            automatic_sharding_keys: None,
             healthcheck_delay: General::default_healthcheck_delay(),
             healthcheck_timeout: General::default_healthcheck_timeout(),
             ban_time: General::default_ban_time(),
@@ -458,7 +458,7 @@ impl ConnectionPool {
                         query_parser_enabled: pool_config.query_parser_enabled,
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
-                        automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
+                        automatic_sharding_keys: pool_config.automatic_sharding_keys.clone(),
                         healthcheck_delay: config.general.healthcheck_delay,
                         healthcheck_timeout: config.general.healthcheck_timeout,
                         ban_time: config.general.ban_time,

@@ -529,7 +529,7 @@ pub struct Pool {
     pub sharding_function: ShardingFunction,
 
     #[serde(default = "Pool::default_automatic_sharding_key")]
-    pub automatic_sharding_key: Option<String>,
+    pub automatic_sharding_keys: Option<Vec<String>>,
 
     pub sharding_key_regex: Option<String>,
     pub shard_id_regex: Option<String>,
@@ -571,7 +571,7 @@ impl Pool {
         LoadBalancingMode::Random
     }
 
-    pub fn default_automatic_sharding_key() -> Option<String> {
+    pub fn default_automatic_sharding_key() -> Option<Vec<String>> {
         None
     }
 
@@ -627,23 +627,23 @@ impl Pool {
             }
         }
 
-        self.automatic_sharding_key = match &self.automatic_sharding_key {
-            Some(key) => {
-                // No quotes in the key so we don't have to compare quoted
-                // to unquoted idents.
-                let key = key.replace("\"", "");
+        match &mut self.automatic_sharding_keys {
+            Some(keys) => {
+                for key in keys {
+                    // No quotes in the key so we don't have to compare quoted
+                    // to unquoted idents.
+                    let key = key.replace("\"", "");
 
-                if key.split(".").count() != 2 {
-                    error!(
-                        "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
-                        key, key
-                    );
-                    return Err(Error::BadConfig);
+                    if key.split(".").count() != 2 {
+                        error!(
+                            "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
+                            key, key
+                        );
+                        return Err(Error::BadConfig);
+                    }
                 }
-
-                Some(key)
             }
-            None => None,
+            None => (),
         };
 
         for (_, user) in &self.users {
@@ -665,7 +665,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: None,
+            automatic_sharding_keys: None,
             connect_timeout: None,
             idle_timeout: None,
             sharding_key_regex: None,
