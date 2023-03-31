@@ -78,7 +78,6 @@ class PgcatProcess
     10.times do
       Process.kill 0, @pid
       PG::connect(connection_string || example_connection_string).close
-
       return self
     rescue Errno::ESRCH
       raise StandardError, "Process #{@pid} died. #{logs}"

@@ -26,13 +26,19 @@ where
 {
     let config = get_config();
 
+    debug!("Fetching auth hash");
+
     if config.is_auth_query_configured() {
         let address = pool.address(0, 0);
         if let Some(apt) = AuthPassthrough::from_pool_settings(&pool.settings) {
             let hash = apt.fetch_hash(address).await?;
 
+            debug!("Auth query succeeded");
+
             return Ok(hash);
         }
+    } else {
+        debug!("Auth query not configured on pool");
     }
 
     error_response(
@@ -303,6 +309,7 @@ impl Md5 {
 
             if our_hash != password_hash {
                 wrong_password(write, &self.username).await?;
+
                 Err(Error::ClientError(format!(
                     "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
                     self.username, self.pool_name, self.application_name
@@ -346,12 +353,19 @@ impl Md5 {
                                 )));
                             }
 
+                            debug!("Using auth_query");
+
                             // Fetch hash from server
                             let hash = (*pool.auth_hash.read()).clone();
 
                             let hash = match hash {
-                                Some(hash) => hash.clone(),
+                                Some(hash) => {
+                                    debug!("Using existing hash: {}", hash);
+                                    hash.clone()
+                                }
                                 None => {
+                                    debug!("Pool has no hash set, fetching new one");
+
                                     let hash = refetch_auth_hash(
                                         &pool,
                                         write,
@@ -370,6 +384,8 @@ impl Md5 {
 
                             // Compare hashes
                             if our_hash != password_hash {
+                                debug!("Pool auth query hash did not match, refetching");
+
                                 // Server hash maybe changed
                                 let hash = refetch_auth_hash(
                                     &pool,
@@ -382,6 +398,8 @@ impl Md5 {
                                 let our_hash = md5_hash_second_pass(&hash, &self.salt);
 
                                 if our_hash != password_hash {
+                                    debug!("Auth query failed, passwords don't match");
+
                                     wrong_password(write, &self.username).await?;
 
                                     Err(Error::ClientError(format!(
@@ -402,12 +420,10 @@ impl Md5 {
                                     Ok(())
                                 }
                             } else {
-                                wrong_password(write, &self.username).await?;
+                                validate_pool(write, pool.clone(), &self.username, &self.pool_name)
+                                    .await?;
 
-                                Err(Error::ClientError(format!(
-                                    "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
-                                    self.username, self.pool_name, self.application_name
-                                )))
+                                Ok(())
                             }
                         }
                     }
