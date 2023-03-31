@@ -85,6 +85,11 @@ where
 
     let mut response = vec![0; (len - 4) as usize];
 
+    // Too short to be a password (null-terminated)
+    if response.len() < 2 {
+        return Err(Error::ClientError(format!("Password response too short")));
+    }
+
     match stream.read_exact(&mut response).await {
         Ok(_) => (),
         Err(_) => {
@@ -114,10 +119,7 @@ where
             Err(err) => {
                 error_response(
                     stream,
-                    &format!(
-                        "Pool down for database: {:?}, user: {:?}",
-                        pool_name, username,
-                    ),
+                    &format!("Pool down for database: {}, user: {}", pool_name, username,),
                 )
                 .await?;
 
@@ -190,7 +192,7 @@ impl ClearText {
                             if password != &secret {
                                 wrong_password(write, &self.username).await?;
                                 Err(Error::ClientError(format!(
-                                        "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                                        "Invalid password {{ username: {}, pool_name: {}, application_name: {} }}",
                                         self.username, self.pool_name, self.application_name
                                 )))
                             } else {
@@ -205,14 +207,14 @@ impl ClearText {
                             error_response(
                                 write,
                                 &format!(
-                                    "No server password configured for database: {:?}, user: {:?}",
+                                    "No server password configured for database: {}, user: {}",
                                     self.pool_name, self.username
                                 ),
                             )
                             .await?;
 
                             Err(Error::ClientError(format!(
-                                "No server password configured for {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                                "No server password configured for {{ username: {}, pool_name: {}, application_name: {} }}",
                                 self.username, self.pool_name, self.application_name
                             )))
                         }
@@ -223,16 +225,16 @@ impl ClearText {
                     error_response(
                         write,
                         &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
+                            "No pool configured for database: {}, user: {}",
                             self.pool_name, self.username
                         ),
                     )
                     .await?;
 
                     Err(Error::ClientError(format!(
-                            "Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
-                            self.username, self.pool_name, self.application_name
-                        )))
+                        "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
+                        self.username, self.pool_name, self.application_name
+                    )))
                 }
             },
             Some(pool) => {
@@ -311,7 +313,7 @@ impl Md5 {
                 wrong_password(write, &self.username).await?;
 
                 Err(Error::ClientError(format!(
-                    "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                    "Invalid password {{ username: {}, pool_name: {}, application_name: {} }}",
                     self.username, self.pool_name, self.application_name
                 )))
             } else {
@@ -328,7 +330,7 @@ impl Md5 {
                                 wrong_password(write, &self.username).await?;
 
                                 Err(Error::ClientError(format!(
-                                    "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                                    "Invalid password {{ username: {}, pool_name: {}, application_name: {} }}",
                                     self.username, self.pool_name, self.application_name
                                 )))
                             } else {
@@ -342,7 +344,7 @@ impl Md5 {
                                 error_response(
                                     write,
                                     &format!(
-                                        "No password configured and auth_query is not set: {:?}, user: {:?}",
+                                        "No password configured and auth_query is not set: {}, user: {}",
                                         self.pool_name, self.username
                                     ),
                                 )
@@ -403,7 +405,7 @@ impl Md5 {
                                     wrong_password(write, &self.username).await?;
 
                                     Err(Error::ClientError(format!(
-                                        "Invalid password {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                                        "Invalid password {{ username: {}, pool_name: {}, application_name: {} }}",
                                         self.username, self.pool_name, self.application_name
                                     )))
                                 } else {
@@ -433,14 +435,14 @@ impl Md5 {
                     error_response(
                         write,
                         &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
+                            "No pool configured for database: {}, user: {}",
                             self.pool_name, self.username
                         ),
                     )
                     .await?;
 
                     return Err(Error::ClientError(format!(
-                        "Invalid pool name {{ username: {:?}, pool_name: {:?}, application_name: {:?} }}",
+                        "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
                         self.username, self.pool_name, self.application_name
                     )));
                 }
