@@ -37,7 +37,7 @@ futures = "0.3"
 socket2 = { version = "0.4.7", features = ["all"] }
 nix = "0.26.2"
 atomic_enum = "0.2.0"
-postgres-protocol = "0.6.4"
+postgres-protocol = "0.6.5"
 fallible-iterator = "0.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
