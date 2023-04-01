@@ -2,7 +2,7 @@
 require_relative 'spec_helper'
 
 
-xdescribe "Portocol handling" do
+describe "Portocol handling" do
   let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 1, "session") }
   let(:sequence) { [] }
   let(:pgcat_socket) { PostgresSocket.new('localhost', processes.pgcat.port) }
@@ -92,7 +92,7 @@ xdescribe "Portocol handling" do
     it_behaves_like "at parity with database"
   end
 
-  context "Simple query after parse" do
+  xcontext "Simple query after parse" do
     let(:sequence) {
       [
         [:send_parse_message, "SELECT 5"],
@@ -108,7 +108,7 @@ xdescribe "Portocol handling" do
     it_behaves_like "at parity with database"
   end
 
-  context "Flush message" do
+  xcontext "Flush message" do
     let(:sequence) {
       [
         [:send_parse_message, "SELECT 1"],
