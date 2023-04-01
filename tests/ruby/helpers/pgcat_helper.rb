@@ -2,6 +2,7 @@ require 'json'
 require 'ostruct'
 require_relative 'pgcat_process'
 require_relative 'pg_instance'
+require_relative 'pg_socket'
 
 class ::Hash
     def deep_merge(second)
