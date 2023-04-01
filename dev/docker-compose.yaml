@@ -1,0 +1,84 @@
+version: "3"
+
+x-common-definition-pg:
+  &common-definition-pg
+  image: postgres:14
+  network_mode: "service:main"
+  healthcheck:
+    test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres" ]
+    interval: 5s
+    timeout: 5s
+    retries: 5
+  volumes:
+    - type: bind
+      source: ../tests/sharding/query_routing_setup.sql
+      target: /docker-entrypoint-initdb.d/query_routing_setup.sql
+    - type: bind
+      source: ../tests/sharding/partition_hash_test_setup.sql
+      target: /docker-entrypoint-initdb.d/partition_hash_test_setup.sql
+
+x-common-env-pg:
+  &common-env-pg
+  POSTGRES_USER: postgres
+  POSTGRES_DB: postgres
+  POSTGRES_PASSWORD: postgres
+
+services:
+  main:
+    image: kubernetes/pause
+
+  pg1:
+    <<: *common-definition-pg
+    environment:
+      <<: *common-env-pg
+      POSTGRES_INITDB_ARGS: --auth-local=md5 --auth-host=md5 --auth=md5
+      PGPORT: 5432
+    command: ["postgres", "-p", "5432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
+
+  pg2:
+    <<: *common-definition-pg
+    environment:
+      <<: *common-env-pg
+      POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
+      PGPORT: 7432
+    command: ["postgres", "-p", "7432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
+  pg3:
+    <<: *common-definition-pg
+    environment:
+      <<: *common-env-pg
+      POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
+      PGPORT: 8432
+    command: ["postgres", "-p", "8432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
+  pg4:
+    <<: *common-definition-pg
+    environment:
+      <<: *common-env-pg
+      POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
+      PGPORT: 9432
+    command: ["postgres", "-p", "9432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
+
+  toxiproxy:
+    build: .
+    network_mode: "service:main"
+    container_name: toxiproxy
+    environment:
+      LOG_LEVEL: info
+    entrypoint: toxiproxy-server
+    depends_on:
+      - pg1
+      - pg2
+      - pg3
+      - pg4
+
+  pgcat-shell:
+    stdin_open: true
+    user: "${HOST_UID}:${HOST_GID}"
+    build: .
+    network_mode: "service:main"
+    depends_on:
+      - toxiproxy
+    volumes:
+      - ../:/app/
+    entrypoint:
+      - /bin/bash
+      - -i

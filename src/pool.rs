@@ -9,7 +9,7 @@ use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -29,7 +29,7 @@ pub type SecretKey = i32;
 pub type ServerHost = String;
 pub type ServerPort = u16;
 
-pub type BanList = Arc<RwLock<Vec<HashMap<Address, NaiveDateTime>>>>;
+pub type BanList = Arc<RwLock<Vec<HashMap<Address, (BanReason, NaiveDateTime)>>>>;
 pub type ClientServerMap =
     Arc<Mutex<HashMap<(ProcessId, SecretKey), (ProcessId, SecretKey, ServerHost, ServerPort)>>>;
 pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
@@ -37,8 +37,17 @@ pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
 /// This is atomic and safe and read-optimized.
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
-static POOLS_HASH: Lazy<ArcSwap<HashSet<crate::config::Pool>>> =
-    Lazy::new(|| ArcSwap::from_pointee(HashSet::default()));
+
+// Reasons for banning a server.
+#[derive(Debug, PartialEq, Clone)]
+pub enum BanReason {
+    FailedHealthCheck,
+    MessageSendFailed,
+    MessageReceiveFailed,
+    FailedCheckout,
+    StatementTimeout,
+    AdminBan(i64),
+}
 
 /// An identifier for a PgCat pool,
 /// a database visible to clients.
@@ -168,6 +177,11 @@ pub struct ConnectionPool {
     /// to use it.
     validated: Arc<AtomicBool>,
 
+    /// Hash value for the pool configs. It is used to compare new configs
+    /// against current config to decide whether or not we need to recreate
+    /// the pool after a RELOAD command
+    pub config_hash: u64,
+
     /// If the pool has been paused or not.
     paused: Arc<AtomicBool>,
     paused_waiter: Arc<Notify>,
@@ -179,20 +193,20 @@ impl ConnectionPool {
         let config = get_config();
 
         let mut new_pools = HashMap::new();
-        let mut address_id = 0;
-
-        let mut pools_hash = (*(*POOLS_HASH.load())).clone();
+        let mut address_id: usize = 0;
 
         for (pool_name, pool_config) in &config.pools {
-            let changed = pools_hash.insert(pool_config.clone());
+            let new_pool_hash_value = pool_config.hash_value();
 
             // There is one pool per database/user pair.
             for user in pool_config.users.values() {
-                // If the pool hasn't changed, get existing reference and insert it into the new_pools.
-                // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
-                if !changed {
-                    match get_pool(pool_name, &user.username) {
-                        Some(pool) => {
+                let old_pool_ref = get_pool(pool_name, &user.username);
+
+                match old_pool_ref {
+                    Some(pool) => {
+                        // If the pool hasn't changed, get existing reference and insert it into the new_pools.
+                        // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
+                        if pool.config_hash == new_pool_hash_value {
                             info!(
                                 "[pool: {}][user: {}] has not changed",
                                 pool_name, user.username
@@ -203,8 +217,8 @@ impl ConnectionPool {
                             );
                             continue;
                         }
-                        None => (),
                     }
+                    None => (),
                 }
 
                 info!(
@@ -230,7 +244,33 @@ impl ConnectionPool {
                     let mut servers = Vec::new();
                     let mut replica_number = 0;
 
+                    // Load Mirror settings
                     for (address_index, server) in shard.servers.iter().enumerate() {
+                        let mut mirror_addresses = vec![];
+                        if let Some(mirror_settings_vec) = &shard.mirrors {
+                            for (mirror_idx, mirror_settings) in
+                                mirror_settings_vec.iter().enumerate()
+                            {
+                                if mirror_settings.mirroring_target_index != address_index {
+                                    continue;
+                                }
+                                mirror_addresses.push(Address {
+                                    id: address_id,
+                                    database: shard.database.clone(),
+                                    host: mirror_settings.host.clone(),
+                                    port: mirror_settings.port,
+                                    role: server.role,
+                                    address_index: mirror_idx,
+                                    replica_number,
+                                    shard: shard_idx.parse::<usize>().unwrap(),
+                                    username: user.username.clone(),
+                                    pool_name: pool_name.clone(),
+                                    mirrors: vec![],
+                                });
+                                address_id += 1;
+                            }
+                        }
+
                         let address = Address {
                             id: address_id,
                             database: shard.database.clone(),
@@ -242,6 +282,7 @@ impl ConnectionPool {
                             shard: shard_idx.parse::<usize>().unwrap(),
                             username: user.username.clone(),
                             pool_name: pool_name.clone(),
+                            mirrors: mirror_addresses,
                         };
 
                         address_id += 1;
@@ -293,6 +334,7 @@ impl ConnectionPool {
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     stats: get_reporter(),
+                    config_hash: new_pool_hash_value,
                     server_info: Arc::new(RwLock::new(BytesMut::new())),
                     settings: PoolSettings {
                         pool_mode: pool_config.pool_mode,
@@ -342,8 +384,6 @@ impl ConnectionPool {
         }
 
         POOLS.store(Arc::new(new_pools.clone()));
-        POOLS_HASH.store(Arc::new(pools_hash.clone()));
-
         Ok(())
     }
 
@@ -487,7 +527,7 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!("Banning instance {:?}, error: {:?}", address, err);
-                    self.ban(address, client_process_id);
+                    self.ban(address, BanReason::FailedCheckout, client_process_id);
                     self.stats
                         .client_checkout_error(client_process_id, address.id);
                     continue;
@@ -580,14 +620,14 @@ impl ConnectionPool {
         // Don't leave a bad connection in the pool.
         server.mark_bad();
 
-        self.ban(&address, client_process_id);
+        self.ban(&address, BanReason::FailedHealthCheck, client_process_id);
         return false;
     }
 
     /// Ban an address (i.e. replica). It no longer will serve
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
-    pub fn ban(&self, address: &Address, client_id: i32) {
+    pub fn ban(&self, address: &Address, reason: BanReason, client_id: i32) {
         // Primary can never be banned
         if address.role == Role::Primary {
             return;
@@ -597,12 +637,12 @@ impl ConnectionPool {
         let mut guard = self.banlist.write();
         error!("Banning {:?}", address);
         self.stats.client_ban_error(client_id, address.id);
-        guard[address.shard].insert(address.clone(), now);
+        guard[address.shard].insert(address.clone(), (reason, now));
     }
 
     /// Clear the replica to receive traffic again. Takes effect immediately
     /// for all new transactions.
-    pub fn _unban(&self, address: &Address) {
+    pub fn unban(&self, address: &Address) {
         let mut guard = self.banlist.write();
         guard[address.shard].remove(address);
     }
@@ -651,9 +691,14 @@ impl ConnectionPool {
         // Check if ban time is expired
         let read_guard = self.banlist.read();
         let exceeded_ban_time = match read_guard[address.shard].get(address) {
-            Some(timestamp) => {
+            Some((ban_reason, timestamp)) => {
                 let now = chrono::offset::Utc::now().naive_utc();
-                now.timestamp() - timestamp.timestamp() > self.settings.ban_time
+                match ban_reason {
+                    BanReason::AdminBan(duration) => {
+                        now.timestamp() - timestamp.timestamp() > *duration
+                    }
+                    _ => now.timestamp() - timestamp.timestamp() > self.settings.ban_time,
+                }
             }
             None => return true,
         };
@@ -675,6 +720,31 @@ impl ConnectionPool {
     /// Get the number of configured shards.
     pub fn shards(&self) -> usize {
         self.databases.len()
+    }
+
+    pub fn get_bans(&self) -> Vec<(Address, (BanReason, NaiveDateTime))> {
+        let mut bans: Vec<(Address, (BanReason, NaiveDateTime))> = Vec::new();
+        let guard = self.banlist.read();
+        for banlist in guard.iter() {
+            for (address, (reason, timestamp)) in banlist.iter() {
+                bans.push((address.clone(), (reason.clone(), timestamp.clone())));
+            }
+        }
+        return bans;
+    }
+
+    /// Get the address from the host url
+    pub fn get_addresses_from_host(&self, host: &str) -> Vec<Address> {
+        let mut addresses = Vec::new();
+        for shard in 0..self.shards() {
+            for server in 0..self.servers(shard) {
+                let address = self.address(shard, server);
+                if address.host == host {
+                    addresses.push(address.clone());
+                }
+            }
+        }
+        addresses
     }
 
     /// Get the number of servers (primary and replicas)

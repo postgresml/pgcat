@@ -18,28 +18,28 @@ jobs:
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort -Cinstrument-coverage"
           RUSTDOCFLAGS: "-Cpanic=abort"
       - image: postgres:14
-        command: ["postgres", "-p", "5432", "-c", "shared_preload_libraries=pg_stat_statements"]
+        command: ["postgres", "-p", "5432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_INITDB_ARGS: --auth-local=md5 --auth-host=md5 --auth=md5
       - image: postgres:14
-        command: ["postgres", "-p", "7432", "-c", "shared_preload_libraries=pg_stat_statements"]
+        command: ["postgres", "-p", "7432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       - image: postgres:14
-        command: ["postgres", "-p", "8432", "-c", "shared_preload_libraries=pg_stat_statements"]
+        command: ["postgres", "-p", "8432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256 --auth=scram-sha-256
       - image: postgres:14
-        command: ["postgres", "-p", "9432", "-c", "shared_preload_libraries=pg_stat_statements"]
+        command: ["postgres", "-p", "9432", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all", "-c", "pg_stat_statements.max=100000"]
         environment:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres

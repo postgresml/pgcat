@@ -109,6 +109,17 @@ docker compose up --exit-code-from main # This will also produce coverage report
 | Statistics            | :white_check_mark: | :white_check_mark:  | Query the admin database with `psql -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW STATS'`.                                  |
 | Live config reloading | :white_check_mark: | :white_check_mark:  | Run `kill -s SIGHUP $(pgrep pgcat)` and watch the config reload.                                                         |
 
+### Dev
+
+Also, you can open a 'dev' environment where you can debug tests easier by running the following command:
+
+```
+./dev/script/console
+```
+
+This will open a terminal in an environment similar to that used in tests. In there you can compile, run tests, do some debugging with the test environment, etc. Objects
+compiled inside the contaner (and bundled gems) will be placed in `dev/cache` so they don't interfere with what you have in your host.
+
 ## Usage
 
 ### Session mode

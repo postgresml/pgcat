@@ -24,7 +24,13 @@ class PgcatProcess
     @log_filename = "/tmp/pgcat_log_#{SecureRandom.urlsafe_base64}.log"
     @config_filename = "/tmp/pgcat_cfg_#{SecureRandom.urlsafe_base64}.toml"
 
-    @command = "../../target/debug/pgcat #{@config_filename}"
+    command_path = if ENV['CARGO_TARGET_DIR'] then
+                     "#{ENV['CARGO_TARGET_DIR']}/debug/pgcat"
+                   else
+                     '../../target/debug/pgcat'
+                   end
+
+    @command = "#{command_path} #{@config_filename}"
 
     FileUtils.cp("../../pgcat.toml", @config_filename)
     cfg = current_config
@@ -42,18 +48,20 @@ class PgcatProcess
     @original_config = current_config
     output_to_write = TOML::Generator.new(config_hash).body
     output_to_write = output_to_write.gsub(/,\s*["|'](\d+)["|']\s*,/, ',\1,')
+    output_to_write = output_to_write.gsub(/,\s*["|'](\d+)["|']\s*\]/, ',\1]')
     File.write(@config_filename, output_to_write)
   end
 
   def current_config
-    old_cfg = File.read(@config_filename)
-    loadable_string = old_cfg.gsub(/,\s*(\d+)\s*,/, ', "\1",')
+    loadable_string = File.read(@config_filename)
+    loadable_string = loadable_string.gsub(/,\s*(\d+)\s*,/,  ', "\1",')
+    loadable_string = loadable_string.gsub(/,\s*(\d+)\s*\]/, ', "\1"]')
     TOML.load(loadable_string)
   end
 
   def reload_config
     `kill -s HUP #{@pid}`
-    sleep 0.1
+    sleep 0.5
   end
 
   def start

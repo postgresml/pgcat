@@ -4,8 +4,9 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -28,6 +29,8 @@ pub enum Role {
     Primary,
     #[serde(alias = "replica", alias = "Replica")]
     Replica,
+    #[serde(alias = "mirror", alias = "Mirror")]
+    Mirror,
 }
 
 impl ToString for Role {
@@ -35,6 +38,7 @@ impl ToString for Role {
         match *self {
             Role::Primary => "primary".to_string(),
             Role::Replica => "replica".to_string(),
+            Role::Mirror => "mirror".to_string(),
         }
     }
 }
@@ -89,6 +93,9 @@ pub struct Address {
 
     /// The name of this pool (i.e. database name visible to the client).
     pub pool_name: String,
+
+    /// List of addresses to receive mirrored traffic.
+    pub mirrors: Vec<Address>,
 }
 
 impl Default for Address {
@@ -104,6 +111,7 @@ impl Default for Address {
             role: Role::Replica,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
+            mirrors: Vec::new(),
         }
     }
 }
@@ -113,9 +121,12 @@ impl Address {
     pub fn name(&self) -> String {
         match self.role {
             Role::Primary => format!("{}_shard_{}_primary", self.pool_name, self.shard),
-
             Role::Replica => format!(
                 "{}_shard_{}_replica_{}",
+                self.pool_name, self.shard, self.replica_number
+            ),
+            Role::Mirror => format!(
+                "{}_shard_{}_mirror_{}",
                 self.pool_name, self.shard, self.replica_number
             ),
         }
@@ -355,6 +366,12 @@ pub struct Pool {
 }
 
 impl Pool {
+    pub fn hash_value(&self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        s.finish()
+    }
+
     pub fn default_pool_mode() -> PoolMode {
         PoolMode::Transaction
     }
@@ -367,7 +384,7 @@ impl Pool {
         None
     }
 
-    pub fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&mut self) -> Result<(), Error> {
         match self.default_role.as_ref() {
             "any" => (),
             "primary" => (),
@@ -407,6 +424,25 @@ impl Pool {
             }
         }
 
+        self.automatic_sharding_key = match &self.automatic_sharding_key {
+            Some(key) => {
+                // No quotes in the key so we don't have to compare quoted
+                // to unquoted idents.
+                let key = key.replace("\"", "");
+
+                if key.split(".").count() != 2 {
+                    error!(
+                        "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
+                        key, key
+                    );
+                    return Err(Error::BadConfig);
+                }
+
+                Some(key)
+            }
+            None => None,
+        };
+
         Ok(())
     }
 }
@@ -439,11 +475,19 @@ pub struct ServerConfig {
     pub role: Role,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]
+pub struct MirrorServerConfig {
+    pub host: String,
+    pub port: u16,
+    pub mirroring_target_index: usize,
+}
+
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Shard {
     pub database: String,
     pub servers: Vec<ServerConfig>,
+    pub mirrors: Option<Vec<MirrorServerConfig>>,
 }
 
 impl Shard {
@@ -492,6 +536,7 @@ impl Default for Shard {
                 port: 5432,
                 role: Role::Primary,
             }],
+            mirrors: None,
             database: String::from("postgres"),
         }
     }
