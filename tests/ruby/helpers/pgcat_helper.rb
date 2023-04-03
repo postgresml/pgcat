@@ -13,13 +13,17 @@ end
 
 module Helpers
   module Pgcat
-    def self.three_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info")
+    def self.three_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info", secrets=nil)
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
         "statement_timeout" => 0,
-        "username" => "sharding_user"
+        "username" => "sharding_user",
       }
+
+      if !secrets.nil?
+        user["secrets"] = secrets
+      end
 
       pgcat    = PgcatProcess.new(log_level)
       primary0 = PgInstance.new(5432, user["username"], user["password"], "shard0")
@@ -28,7 +32,7 @@ module Helpers
 
       pgcat_cfg = pgcat.current_config
       pgcat_cfg["pools"] = {
-        "#{pool_name}" => {
+        "#{pool_name}" =>  {
           "default_role" => "any",
           "pool_mode" => pool_mode,
           "load_balancing_mode" => lb_mode,
@@ -42,8 +46,14 @@ module Helpers
             "2" => { "database" => "shard2", "servers" => [["localhost", primary2.port.to_s, "primary"]] },
           },
           "users" => { "0" => user }
-        }
+        },
       }
+
+      if !secrets.nil?
+        pgcat_cfg["general"]["tls_certificate"] = "../../.circleci/server.cert"
+        pgcat_cfg["general"]["tls_private_key"] = "../../.circleci/server.key"
+      end
+
       pgcat.update_config(pgcat_cfg)
 
       pgcat.start

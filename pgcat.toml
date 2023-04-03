@@ -58,9 +58,9 @@ tcp_keepalives_count = 5
 tcp_keepalives_interval = 5
 
 # Path to TLS Certficate file to use for TLS connections
-# tls_certificate = "server.cert"
+# tls_certificate = ".circleci/server.cert"
 # Path to TLS private key file to use for TLS connections
-# tls_private_key = "server.key"
+# tls_private_key = ".circleci/server.key"
 
 # User name to access the virtual administrative database (pgbouncer or pgcat)
 # Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DATABASES`, etc..
@@ -122,6 +122,10 @@ idle_timeout = 40000
 # Connect timeout can be overwritten in the pool
 connect_timeout = 3000
 
+# auth_query = "SELECT * FROM public.user_lookup('$1')"
+# auth_query_user = "postgres"
+# auth_query_password = "postgres"
+
 # User configs are structured as pool.<pool_name>.users.<user_index>
 # This secion holds the credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
@@ -129,6 +133,10 @@ connect_timeout = 3000
 username = "sharding_user"
 # Postgresql password
 password = "sharding_user"
+
+# # Passwords the client can use to connect. Useful for password rotations.
+# secrets = [ "secret_one", "secret_two" ]
+
 # Maximum number of server connections that can be established for this user
 # The maximum number of connection from a single Pgcat process to any database in the cluster
 # is the sum of pool_size across all users.

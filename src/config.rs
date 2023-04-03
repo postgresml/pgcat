@@ -1,6 +1,6 @@
 /// Parse the configuration file.
 use arc_swap::ArcSwap;
-use log::{error, info};
+use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
@@ -181,6 +181,26 @@ pub struct User {
     pub pool_size: u32,
     #[serde(default)] // 0
     pub statement_timeout: u64,
+    pub secrets: Option<Vec<String>>,
+}
+
+impl User {
+    fn validate(&self) -> Result<(), Error> {
+        match self.secrets {
+            Some(ref secrets) => {
+                for secret in secrets.iter() {
+                    if secret.len() < 16 {
+                        warn!(
+                            "[user: {}] Secret is too short (less than 16 characters)",
+                            self.username
+                        );
+                    }
+                }
+            }
+            None => (),
+        }
+        Ok(())
+    }
 }
 
 impl Default for User {
@@ -190,6 +210,7 @@ impl Default for User {
             password: None,
             pool_size: 15,
             statement_timeout: 0,
+            secrets: None,
         }
     }
 }
@@ -508,6 +529,10 @@ impl Pool {
             None => None,
         };
 
+        for user in self.users.iter() {
+            user.1.validate()?;
+        }
+
         Ok(())
     }
 }
@@ -656,6 +681,11 @@ impl Config {
                 pool.auth_query_password = self.general.auth_query_password.clone();
             }
         }
+    }
+
+    /// Checks that we configured TLS.
+    pub fn tls_enabled(&self) -> bool {
+        self.general.tls_certificate.is_some() && self.general.tls_private_key.is_some()
     }
 }
 

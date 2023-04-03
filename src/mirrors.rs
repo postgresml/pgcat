@@ -34,7 +34,7 @@ impl MirroredClient {
                 None => (default, default, crate::config::Pool::default()),
             };
 
-        let identifier = PoolIdentifier::new(&self.database, &self.user.username);
+        let identifier = PoolIdentifier::new(&self.database, &self.user.username, None);
 
         let manager = ServerPool::new(
             self.address.clone(),

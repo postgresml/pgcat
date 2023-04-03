@@ -755,7 +755,9 @@ impl Server {
             Arc::new(RwLock::new(None)),
         )
         .await?;
-        debug!("Connected!, sending query.");
+
+        debug!("Connected!, sending query: {}", query);
+
         server.send(&simple_query(query)).await?;
         let mut message = server.recv().await?;
 
@@ -764,6 +766,8 @@ impl Server {
 }
 
 async fn parse_query_message(message: &mut BytesMut) -> Result<Vec<String>, Error> {
+    debug!("Parsing query message");
+
     let mut pair = Vec::<String>::new();
     match message::backend::Message::parse(message) {
         Ok(Some(message::backend::Message::RowDescription(_description))) => {}
@@ -833,6 +837,9 @@ async fn parse_query_message(message: &mut BytesMut) -> Result<Vec<String>, Erro
             }
         };
     }
+
+    debug!("Got auth hash successfully");
+
     Ok(pair)
 }
 

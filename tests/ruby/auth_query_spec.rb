@@ -67,7 +67,7 @@ describe "Auth Query" do
         end
 
         context 'and with cleartext passwords not set' do
-          let(:config_user) { { 'username' => 'sharding_user', 'password' => 'sharding_user' } }
+          let(:config_user) { { 'username' => 'sharding_user' } }
 
           it 'it uses obtained passwords' do
             connection_string = processes.pgcat.connection_string("sharded_db", pg_user['username'], pg_user['password'])
@@ -76,7 +76,7 @@ describe "Auth Query" do
           end
 
           it 'allows passwords to be changed without closing existing connections' do
-            pgconn = PG.connect(processes.pgcat.connection_string("sharded_db", pg_user['username']))
+            pgconn = PG.connect(processes.pgcat.connection_string("sharded_db", pg_user['username'], pg_user['password']))
             expect(pgconn.exec("SELECT 1 + 2")).not_to be_nil
             Helpers::AuthQuery.exec_in_instances(query: "ALTER USER #{pg_user['username']} WITH ENCRYPTED PASSWORD 'secret2';")
             expect(pgconn.exec("SELECT 1 + 4")).not_to be_nil
@@ -84,7 +84,7 @@ describe "Auth Query" do
           end
 
           it 'allows passwords to be changed and that new password is needed when reconnecting' do
-            pgconn = PG.connect(processes.pgcat.connection_string("sharded_db", pg_user['username']))
+            pgconn = PG.connect(processes.pgcat.connection_string("sharded_db", pg_user['username'], pg_user['password']))
             expect(pgconn.exec("SELECT 1 + 2")).not_to be_nil
             Helpers::AuthQuery.exec_in_instances(query: "ALTER USER #{pg_user['username']} WITH ENCRYPTED PASSWORD 'secret2';")
             newconn = PG.connect(processes.pgcat.connection_string("sharded_db", pg_user['username'], 'secret2'))

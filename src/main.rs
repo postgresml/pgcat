@@ -61,6 +61,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 mod admin;
+mod auth;
 mod auth_passthrough;
 mod client;
 mod config;

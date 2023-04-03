@@ -25,7 +25,8 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 | Sharding using comments parsing/Regex | **Experimental** | Clients can include shard information (sharding key, shard ID) in the query comments. |
 | Automatic sharding | **Experimental** | PgCat can parse queries, detect sharding keys automatically, and route queries to the correct shard. |
 | Mirroring | **Experimental** | Mirror queries between multiple databases in order to test servers with realistic production traffic. |
-| Auth passthrough | **Experimental** | MD5 password authentication can be configured to use an `auth_query` so no cleartext passwords are needed in the config file.                         |
+| Auth passthrough | **Experimental** | MD5 password authentication can be configured to use an `auth_query` so no cleartext passwords are needed in the config file. |
+| Password rotation | **Experimental** | Allows to rotate passwords without downtime or using third-party tools to manage Postgres authentication. |
 
 
 ## Status
@@ -243,6 +244,12 @@ The config can be reloaded by sending a `kill -s SIGHUP` to the process or by qu
 ### Mirroring
 
 Mirroring allows to route queries to multiple databases at the same time. This is useful for prewarning replicas before placing them into the active configuration, or for testing different versions of Postgres with live traffic.
+
+### Password rotation
+
+Password rotation allows to specify multiple passwords for a user, so they can connect to PgCat with multiple credentials. This allows distributed applications to change their configuration (connection strings) gradually and for PgCat to monitor their progression in admin statistics. Once the new secret is deployed everywhere, the old one can be removed from PgCat.
+
+This also decouples server passwords from client passwords, allowing to change one without necessarily changing the other.
 
 ## License
 

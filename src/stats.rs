@@ -22,7 +22,7 @@ pub use server::{ServerState, ServerStats};
 /// Convenience types for various stats
 type ClientStatesLookup = HashMap<i32, Arc<ClientStats>>;
 type ServerStatesLookup = HashMap<i32, Arc<ServerStats>>;
-type PoolStatsLookup = HashMap<(String, String), Arc<PoolStats>>;
+type PoolStatsLookup = HashMap<PoolIdentifier, Arc<PoolStats>>;
 
 /// Stats for individual client connections
 /// Used in SHOW CLIENTS.
@@ -83,9 +83,7 @@ impl Reporter {
 
     /// Register a pool with the stats system.
     fn pool_register(&self, identifier: PoolIdentifier, stats: Arc<PoolStats>) {
-        POOL_STATS
-            .write()
-            .insert((identifier.db, identifier.user), stats);
+        POOL_STATS.write().insert(identifier, stats);
     }
 }
 

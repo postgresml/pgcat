@@ -1,7 +1,7 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, BytesMut};
-use log::error;
+use log::{debug, error};
 use md5::{Digest, Md5};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -44,29 +44,6 @@ where
     auth_ok.put_i32(0);
 
     write_all(stream, auth_ok).await
-}
-
-/// Generate md5 password challenge.
-pub async fn md5_challenge<S>(stream: &mut S) -> Result<[u8; 4], Error>
-where
-    S: tokio::io::AsyncWrite + std::marker::Unpin,
-{
-    // let mut rng = rand::thread_rng();
-    let salt: [u8; 4] = [
-        rand::random(),
-        rand::random(),
-        rand::random(),
-        rand::random(),
-    ];
-
-    let mut res = BytesMut::new();
-    res.put_u8(b'R');
-    res.put_i32(12);
-    res.put_i32(5); // MD5
-    res.put_slice(&salt[..]);
-
-    write_all(stream, res).await?;
-    Ok(salt)
 }
 
 /// Give the client the process_id and secret we generated
@@ -257,6 +234,8 @@ pub async fn md5_password_with_hash<S>(stream: &mut S, hash: &str, salt: &[u8]) 
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
+    debug!("Sending hash {} to server", hash);
+
     let password = md5_hash_second_pass(hash, salt);
     let mut message = BytesMut::with_capacity(password.len() as usize + 5);
 
