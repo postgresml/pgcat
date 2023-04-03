@@ -196,7 +196,7 @@ sharding_function = "pg_bigint_hash"
 # auth_query_password = "sharding_user"
 
 # Automatically parse this from queries and route queries to the right shard!
-# automatic_sharding_key = "data.id"
+# automatic_sharding_keys = ["data.id"]
 
 # Idle timeout can be overwritten in the pool
 idle_timeout = 40000
