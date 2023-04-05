@@ -179,6 +179,7 @@ pub struct User {
     pub username: String,
     pub password: Option<String>,
     pub pool_size: u32,
+    pub pool_mode: Option<PoolMode>,
     #[serde(default)] // 0
     pub statement_timeout: u64,
 }
@@ -190,6 +191,7 @@ impl Default for User {
             password: None,
             pool_size: 15,
             statement_timeout: 0,
+            pool_mode: None,
         }
     }
 }
@@ -201,7 +203,7 @@ pub struct General {
     pub host: String,
 
     #[serde(default = "General::default_port")]
-    pub port: i16,
+    pub port: u16,
 
     pub enable_prometheus_exporter: Option<bool>,
     pub prometheus_exporter_port: i16,
@@ -261,7 +263,7 @@ impl General {
         "0.0.0.0".into()
     }
 
-    pub fn default_port() -> i16 {
+    pub fn default_port() -> u16 {
         5432
     }
 
@@ -356,6 +358,7 @@ pub enum PoolMode {
     #[serde(alias = "session", alias = "Session")]
     Session,
 }
+
 impl ToString for PoolMode {
     fn to_string(&self) -> String {
         match *self {
@@ -816,8 +819,9 @@ impl Config {
                     .to_string()
             );
             info!(
-                "[pool: {}] Pool mode: {:?}",
-                pool_name, pool_config.pool_mode
+                "[pool: {}] Default pool mode: {}",
+                pool_name,
+                pool_config.pool_mode.to_string()
             );
             info!(
                 "[pool: {}] Load Balancing mode: {:?}",
@@ -868,7 +872,16 @@ impl Config {
                 info!(
                     "[pool: {}][user: {}] Statement timeout: {}",
                     pool_name, user.1.username, user.1.statement_timeout
-                )
+                );
+                info!(
+                    "[pool: {}][user: {}] Pool mode: {}",
+                    pool_name,
+                    user.1.username,
+                    match user.1.pool_mode {
+                        Some(pool_mode) => pool_mode.to_string(),
+                        None => pool_config.pool_mode.to_string(),
+                    }
+                );
             }
         }
     }

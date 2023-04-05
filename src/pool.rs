@@ -382,7 +382,10 @@ impl ConnectionPool {
                     server_info: Arc::new(RwLock::new(BytesMut::new())),
                     auth_hash: pool_auth_hash,
                     settings: PoolSettings {
-                        pool_mode: pool_config.pool_mode,
+                        pool_mode: match user.pool_mode {
+                            Some(pool_mode) => pool_mode,
+                            None => pool_config.pool_mode,
+                        },
                         load_balancing_mode: pool_config.load_balancing_mode,
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),

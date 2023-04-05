@@ -133,6 +133,8 @@ password = "sharding_user"
 # The maximum number of connection from a single Pgcat process to any database in the cluster
 # is the sum of pool_size across all users.
 pool_size = 9
+pool_mode = "transaction"
+
 
 # Maximum query duration. Dangerous, but protects against DBs that died in a non-obvious way.
 # 0 means it is disabled.
