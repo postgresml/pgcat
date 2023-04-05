@@ -73,6 +73,7 @@ impl AuthPassthrough {
             password: Some(self.password.clone()),
             pool_size: 1,
             statement_timeout: 0,
+            pool_mode: None,
         };
 
         let user = &address.username;
