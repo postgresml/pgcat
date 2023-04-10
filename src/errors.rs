@@ -12,6 +12,8 @@ pub enum Error {
     ProtocolSyncError(String),
     BadQuery(String),
     ServerError,
+    ServerStartupError(String, ServerIdentifier),
+    ServerAuthError(String, ServerIdentifier),
     BadConfig,
     AllServersDown,
     ClientError(String),
@@ -50,6 +52,31 @@ impl std::fmt::Display for ClientIdentifier {
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub struct ServerIdentifier {
+    pub username: String,
+    pub database: String,
+}
+
+impl ServerIdentifier {
+    pub fn new(username: &str, database: &str) -> ServerIdentifier {
+        ServerIdentifier {
+            username: username.into(),
+            database: database.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ServerIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{{ username: {}, database: {} }}",
+            self.username, self.database
+        )
+    }
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self {
@@ -77,7 +104,17 @@ impl std::fmt::Display for Error {
                     the error was: {}",
                 client_identifier, error
             ),
-            _ => todo!(),
+            &Error::ServerStartupError(error, server_identifier) => write!(
+                f,
+                "Error reading {} on server startup {}",
+                error, server_identifier,
+            ),
+            &Error::ServerAuthError(error, server_identifier) => {
+                write!(f, "{} for {}", error, server_identifier,)
+            }
+
+            // The rest can use Debug.
+            err => write!(f, "{:?}", err),
         }
     }
 }
