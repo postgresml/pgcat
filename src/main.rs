@@ -179,16 +179,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             stats_collector.collect().await;
         });
 
-        info!("Config autoreloader: {}", config.general.autoreload);
+        info!("Config autoreloader: {}", match config.general.autoreload {
+            Some(interval) => format!("{} ms", interval),
+            None => "disabled".into(),
+        });
 
-        let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(15_000));
-        let autoreload_client_server_map = client_server_map.clone();
+        if let Some(interval) = config.general.autoreload {
+            let mut autoreload_interval = tokio::time::interval(tokio::time::Duration::from_millis(interval));
+            let autoreload_client_server_map = client_server_map.clone();
 
-        tokio::task::spawn(async move {
-            loop {
-                autoreload_interval.tick().await;
-                if config.general.autoreload {
-                    info!("Automatically reloading config");
+            tokio::task::spawn(async move {
+                loop {
+                    autoreload_interval.tick().await;
+                    debug!("Automatically reloading config");
 
                     if let Ok(changed) = reload_config(autoreload_client_server_map.clone()).await {
                         if changed {
@@ -196,8 +199,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
                 }
-            }
-        });
+            });
+        };
+
+
 
         #[cfg(windows)]
         let mut term_signal = win_signal::ctrl_close().unwrap();

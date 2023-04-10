@@ -39,7 +39,7 @@ log_client_connections = false
 log_client_disconnections = false
 
 # Reload config automatically if it changes.
-autoreload = true
+autoreload = 15000
 
 # TLS
 tls_certificate = ".circleci/server.cert"
