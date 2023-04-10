@@ -245,8 +245,8 @@ pub struct General {
     #[serde(default = "General::default_worker_threads")]
     pub worker_threads: usize,
 
-    #[serde(default)] // False
-    pub autoreload: bool,
+    #[serde(default)] // None
+    pub autoreload: Option<u64>,
 
     pub tls_certificate: Option<String>,
     pub tls_private_key: Option<String>,
@@ -335,7 +335,7 @@ impl Default for General {
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
             log_client_connections: false,
             log_client_disconnections: false,
-            autoreload: false,
+            autoreload: None,
             tls_certificate: None,
             tls_private_key: None,
             admin_username: String::from("admin"),

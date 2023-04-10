@@ -100,7 +100,6 @@ impl ServerStats {
             .server_idle(self.state.load(Ordering::Relaxed));
 
         self.state.store(ServerState::Idle, Ordering::Relaxed);
-        self.set_undefined_application();
     }
 
     /// Reports a server connection is disconecting from the pooler.
