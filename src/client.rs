@@ -202,7 +202,7 @@ pub async fn client_entrypoint(
                     // Client probably disconnected rejecting our plain text connection.
                     Ok((ClientConnectionType::Tls, _))
                     | Ok((ClientConnectionType::CancelQuery, _)) => Err(Error::ProtocolSyncError(
-                        format!("Bad postgres client (plain)"),
+                        "Bad postgres client (plain)".into(),
                     )),
 
                     Err(err) => Err(err),
