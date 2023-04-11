@@ -37,9 +37,9 @@ describe "Admin" do
   describe "SHOW POOLS" do
     context "bad credentials" do
       it "does not change any stats" do
-        bad_passsword_url = URI(pgcat_conn_str)
-        bad_passsword_url.password = "wrong"
-        expect { PG::connect("#{bad_passsword_url.to_s}?application_name=bad_password") }.to raise_error(PG::ConnectionBad)
+        bad_password_url = URI(pgcat_conn_str)
+        bad_password_url.password = "wrong"
+        expect { PG::connect("#{bad_password_url.to_s}?application_name=bad_password") }.to raise_error(PG::ConnectionBad)
 
         sleep(1)
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)

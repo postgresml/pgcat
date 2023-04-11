@@ -273,7 +273,7 @@ impl General {
 
     // These keepalive defaults should detect a dead connection within 30 seconds.
     // Tokio defaults to disabling keepalives which keeps dead connections around indefinitely.
-    // This can lead to permenant server pool exhaustion
+    // This can lead to permanent server pool exhaustion
     pub fn default_tcp_keepalives_idle() -> u64 {
         5 // 5 seconds
     }
@@ -422,7 +422,7 @@ pub struct Pool {
 
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
-    // Note, don't put simple fields below these configs. There's a compatability issue with TOML that makes it
+    // Note, don't put simple fields below these configs. There's a compatibility issue with TOML that makes it
     // incompatible to have simple fields in TOML after complex objects. See
     // https://users.rust-lang.org/t/why-toml-to-string-get-error-valueaftertable/85903
 }

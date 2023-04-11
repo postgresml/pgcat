@@ -65,7 +65,7 @@ describe "Least Outstanding Queries Load Balancing" do
     processes.pgcat.shutdown
   end
 
-  context "under homogenous load" do
+  context "under homogeneous load" do
     it "balances query volume between all instances" do
       conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
 

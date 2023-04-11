@@ -1,4 +1,4 @@
-/// Route queries automatically based on explicitely requested
+/// Route queries automatically based on explicitly requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
 use log::{debug, error};

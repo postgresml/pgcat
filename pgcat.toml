@@ -57,7 +57,7 @@ tcp_keepalives_count = 5
 # Number of seconds between keepalive packets.
 tcp_keepalives_interval = 5
 
-# Path to TLS Certficate file to use for TLS connections
+# Path to TLS Certificate file to use for TLS connections
 # tls_certificate = "server.cert"
 # Path to TLS private key file to use for TLS connections
 # tls_private_key = "server.key"
@@ -123,7 +123,7 @@ idle_timeout = 40000
 connect_timeout = 3000
 
 # User configs are structured as pool.<pool_name>.users.<user_index>
-# This secion holds the credentials for users that may connect to this cluster
+# This section holds the credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
 # Postgresql username
 username = "sharding_user"

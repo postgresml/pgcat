@@ -152,7 +152,7 @@ default: <UNSET>
 example: "server.cert"
 ```
 
-Path to TLS Certficate file to use for TLS connections
+Path to TLS Certificate file to use for TLS connections
 
 ### tls_private_key
 ```
