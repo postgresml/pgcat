@@ -287,7 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let drain_tx = drain_tx.clone();
                     let client_server_map = client_server_map.clone();
 
-                    let tls_certificate = config.general.tls_certificate.clone();
+                    let tls_certificate = get_config().general.tls_certificate.clone();
 
                     tokio::task::spawn(async move {
                         let start = chrono::offset::Utc::now().naive_utc();
@@ -298,7 +298,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             shutdown_rx,
                             drain_tx,
                             admin_only,
-                            tls_certificate.clone(),
+                            tls_certificate,
                             config.general.log_client_connections,
                         )
                         .await
@@ -306,7 +306,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Ok(()) => {
                                 let duration = chrono::offset::Utc::now().naive_utc() - start;
 
-                                if config.general.log_client_disconnections {
+                                if get_config().general.log_client_disconnections {
                                     info!(
                                         "Client {:?} disconnected, session duration: {}",
                                         addr,
