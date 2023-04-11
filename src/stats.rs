@@ -66,7 +66,7 @@ impl Reporter {
         CLIENT_STATS.write().insert(client_id, stats);
     }
 
-    /// Reports a client is disconecting from the pooler.
+    /// Reports a client is disconnecting from the pooler.
     fn client_disconnecting(&self, client_id: i32) {
         CLIENT_STATS.write().remove(&client_id);
     }
@@ -76,7 +76,7 @@ impl Reporter {
     fn server_register(&self, server_id: i32, stats: Arc<ServerStats>) {
         SERVER_STATS.write().insert(server_id, stats);
     }
-    /// Reports a server connection is disconecting from the pooler.
+    /// Reports a server connection is disconnecting from the pooler.
     fn server_disconnecting(&self, server_id: i32) {
         SERVER_STATS.write().remove(&server_id);
     }

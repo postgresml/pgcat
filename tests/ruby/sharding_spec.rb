@@ -27,7 +27,7 @@ describe "Sharding" do
     processes.pgcat.shutdown
   end
 
-  describe "automatic routing of extended procotol" do
+  describe "automatic routing of extended protocol" do
     it "can do it" do
       conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
       conn.exec("SET SERVER ROLE TO 'auto'")

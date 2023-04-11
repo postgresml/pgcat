@@ -92,7 +92,7 @@ impl ClientStats {
         }
     }
 
-    /// Reports a client is disconecting from the pooler and
+    /// Reports a client is disconnecting from the pooler and
     /// update metrics on the corresponding pool.
     pub fn disconnect(&self) {
         self.reporter.client_disconnecting(self.client_id);
@@ -140,7 +140,7 @@ impl ClientStats {
         self.error_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Reportes the time spent by a client waiting to get a healthy connection from the pool
+    /// Reporters the time spent by a client waiting to get a healthy connection from the pool
     pub fn checkout_time(&self, microseconds: u64) {
         self.total_wait_time
             .fetch_add(microseconds, Ordering::Relaxed);

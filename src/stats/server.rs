@@ -102,7 +102,7 @@ impl ServerStats {
         self.state.store(ServerState::Idle, Ordering::Relaxed);
     }
 
-    /// Reports a server connection is disconecting from the pooler.
+    /// Reports a server connection is disconnecting from the pooler.
     /// Also updates metrics on the pool regarding server usage.
     pub fn disconnect(&self) {
         self.reporter.server_disconnecting(self.server_id);
