@@ -1,4 +1,4 @@
-# PgCat Configurations 
+# PgCat Configurations
 ## `general` Section
 
 ### host
@@ -127,7 +127,7 @@ path: general.tcp_keepalives_idle
 default: 5
 ```
 
-Number of seconds of connection idleness to wait before sending a keepalive packet to the server.
+Number of seconds of connection idleness to wait before sending a keepalive packet to the server and client.
 
 ### tcp_keepalives_count
 ```

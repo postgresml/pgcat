@@ -79,6 +79,7 @@ mod stats;
 mod tls;
 
 use crate::config::{get_config, reload_config, VERSION};
+use crate::messages::configure_socket;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::prometheus::start_metric_server;
 use crate::stats::{Collector, Reporter, REPORTER};
@@ -288,6 +289,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let client_server_map = client_server_map.clone();
 
                     let tls_certificate = get_config().general.tls_certificate.clone();
+
+                    configure_socket(&socket);
 
                     tokio::task::spawn(async move {
                         let start = chrono::offset::Utc::now().naive_utc();
