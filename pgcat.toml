@@ -125,10 +125,22 @@ connect_timeout = 3000
 # User configs are structured as pool.<pool_name>.users.<user_index>
 # This section holds the credentials for users that may connect to this cluster
 [pools.sharded_db.users.0]
-# Postgresql username
+# PostgreSQL username used to authenticate the user and connect to the server
+# if `server_username` is not set.
 username = "sharding_user"
-# Postgresql password
+
+# PostgreSQL password used to authenticate the user and connect to the server
+# if `server_password` is not set.
 password = "sharding_user"
+
+pool_mode = "session"
+
+# PostgreSQL username used to connect to the server.
+# server_username = "another_user"
+
+# PostgreSQL password used to connect to the server.
+# server_password = "another_password"
+
 # Maximum number of server connections that can be established for this user
 # The maximum number of connection from a single Pgcat process to any database in the cluster
 # is the sum of pool_size across all users.

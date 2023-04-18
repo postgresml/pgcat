@@ -178,6 +178,8 @@ impl Address {
 pub struct User {
     pub username: String,
     pub password: Option<String>,
+    pub server_username: Option<String>,
+    pub server_password: Option<String>,
     pub pool_size: u32,
     pub pool_mode: Option<PoolMode>,
     #[serde(default)] // 0
@@ -189,6 +191,8 @@ impl Default for User {
         User {
             username: String::from("postgres"),
             password: None,
+            server_username: None,
+            server_password: None,
             pool_size: 15,
             statement_timeout: 0,
             pool_mode: None,
