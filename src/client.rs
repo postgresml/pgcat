@@ -1128,6 +1128,11 @@ where
                         self.buffer.put(&message[..]);
                     }
 
+                    // Close the prepared statement.
+                    'C' => {
+                        self.buffer.put(&message[..]);
+                    }
+
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {

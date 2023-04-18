@@ -72,6 +72,8 @@ impl AuthPassthrough {
         let auth_user = crate::config::User {
             username: self.user.clone(),
             password: Some(self.password.clone()),
+            server_username: None,
+            server_password: None,
             pool_size: 1,
             statement_timeout: 0,
             pool_mode: None,

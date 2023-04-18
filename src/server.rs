@@ -103,19 +103,32 @@ impl Server {
         trace!("Sending StartupMessage");
 
         // StartupMessage
-        startup(&mut stream, &user.username, database).await?;
+        let username = match user.server_username {
+            Some(ref server_username) => server_username,
+            None => &user.username,
+        };
+
+        let password = match user.server_password {
+            Some(ref server_password) => Some(server_password),
+            None => match user.password {
+                Some(ref password) => Some(password),
+                None => None,
+            },
+        };
+
+        startup(&mut stream, username, database).await?;
 
         let mut server_info = BytesMut::new();
         let mut process_id: i32 = 0;
         let mut secret_key: i32 = 0;
-        let server_identifier = ServerIdentifier::new(&user.username, &database);
+        let server_identifier = ServerIdentifier::new(username, &database);
 
         // We'll be handling multiple packets, but they will all be structured the same.
         // We'll loop here until this exchange is complete.
-        let mut scram: Option<ScramSha256> = None;
-        if let Some(password) = &user.password.clone() {
-            scram = Some(ScramSha256::new(password));
-        }
+        let mut scram: Option<ScramSha256> = match password {
+            Some(password) => Some(ScramSha256::new(password)),
+            None => None,
+        };
 
         loop {
             let code = match stream.read_u8().await {
@@ -172,11 +185,10 @@ impl Server {
                                 }
                             };
 
-                            match &user.password {
+                            match password {
                                 // Using plaintext password
                                 Some(password) => {
-                                    md5_password(&mut stream, &user.username, password, &salt[..])
-                                        .await?
+                                    md5_password(&mut stream, username, password, &salt[..]).await?
                                 }
 
                                 // Using auth passthrough, in this case we should already have a
