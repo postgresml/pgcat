@@ -1,4 +1,4 @@
-# PgCat Configurations
+# PgCat Configurations 
 ## `general` Section
 
 ### host
@@ -108,7 +108,7 @@ If we should log client disconnections
 ### autoreload
 ```
 path: general.autoreload
-default: false
+default: 15000
 ```
 
 When set to true, PgCat reloads configs if it detects a change in the config file.
@@ -127,7 +127,7 @@ path: general.tcp_keepalives_idle
 default: 5
 ```
 
-Number of seconds of connection idleness to wait before sending a keepalive packet to the server and client.
+Number of seconds of connection idleness to wait before sending a keepalive packet to the server.
 
 ### tcp_keepalives_count
 ```
@@ -175,40 +175,10 @@ Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DAT
 ### admin_password
 ```
 path: general.admin_password
-default: <UNSET>
+default: "admin_pass"
 ```
 
 Password to access the virtual administrative database
-
-### auth_query (experimental)
-```
-path: general.auth_query
-default: <UNSET>
-```
-
-Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
-established using the database configured in the pool. This parameter is inherited by every pool
-and can be redefined in pool configuration.
-
-### auth_query_user (experimental)
-```
-path: general.auth_query_user
-default: <UNSET>
-```
-
-User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
-specified in `auth_query_user`. The connection will be established using the database configured in the pool.
-This parameter is inherited by every pool and can be redefined in pool configuration.
-
-### auth_query_password (experimental)
-```
-path: general.auth_query_password
-default: <UNSET>
-```
-
-Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
-specified in `auth_query_user`. The connection will be established using the database configured in the pool.
-This parameter is inherited by every pool and can be redefined in pool configuration.
 
 ## `pools.<pool_name>` Section
 
@@ -243,7 +213,7 @@ If the client doesn't specify, PgCat routes traffic to this role by default.
 `replica` round-robin between replicas only without touching the primary,
 `primary` all queries go to the primary unless otherwise specified.
 
-### query_parser_enabled (experimental)
+### query_parser_enabled
 ```
 path: pools.<pool_name>.query_parser_enabled
 default: true
@@ -264,7 +234,7 @@ If the query parser is enabled and this setting is enabled, the primary will be 
 load balancing of read queries. Otherwise, the primary will only be used for write
 queries. The primary can always be explicitly selected with our custom protocol.
 
-### sharding_key_regex (experimental)
+### sharding_key_regex
 ```
 path: pools.<pool_name>.sharding_key_regex
 default: <UNSET>
@@ -286,7 +256,7 @@ Current options:
 `pg_bigint_hash`: PARTITION BY HASH (Postgres hashing function)
 `sha1`: A hashing function based on SHA1
 
-### automatic_sharding_key (experimental)
+### automatic_sharding_key
 ```
 path: pools.<pool_name>.automatic_sharding_key
 default: <UNSET>
@@ -311,30 +281,6 @@ default: 3000
 
 Connect timeout can be overwritten in the pool
 
-### auth_query (experimental)
-```
-path: general.auth_query
-default: <UNSET>
-```
-
-Auth query can be overwritten in the pool
-
-### auth_query_user (experimental)
-```
-path: general.auth_query_user
-default: <UNSET>
-```
-
-Auth query user can be overwritten in the pool
-
-### auth_query_password (experimental)
-```
-path: general.auth_query_password
-default: <UNSET>
-```
-
-Auth query password can be overwritten in the pool
-
 ## `pools.<pool_name>.users.<user_index>` Section
 
 ### username
@@ -343,7 +289,8 @@ path: pools.<pool_name>.users.<user_index>.username
 default: "sharding_user"
 ```
 
-Postgresql username
+PostgreSQL username used to authenticate the user and connect to the server
+if `server_username` is not set.
 
 ### password
 ```
@@ -351,7 +298,26 @@ path: pools.<pool_name>.users.<user_index>.password
 default: "sharding_user"
 ```
 
-Postgresql password
+PostgreSQL password used to authenticate the user and connect to the server
+if `server_password` is not set.
+
+### server_username
+```
+path: pools.<pool_name>.users.<user_index>.server_username
+default: <UNSET>
+example: "another_user"
+```
+
+PostgreSQL username used to connect to the server.
+
+### server_password
+```
+path: pools.<pool_name>.users.<user_index>.server_password
+default: <UNSET>
+example: "another_password"
+```
+
+PostgreSQL password used to connect to the server.
 
 ### pool_size
 ```
@@ -382,7 +348,7 @@ default: [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
 
 Array of servers in the shard, each server entry is an array of `[host, port, role]`
 
-### mirrors (experimental)
+### mirrors
 ```
 path: pools.<pool_name>.shards.<shard_index>.mirrors
 default: <UNSET>
