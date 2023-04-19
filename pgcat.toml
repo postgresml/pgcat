@@ -113,6 +113,21 @@ primary_reads_enabled = true
 # `sha1`: A hashing function based on SHA1
 sharding_function = "pg_bigint_hash"
 
+# Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
+# established using the database configured in the pool. This parameter is inherited by every pool
+# and can be redefined in pool configuration.
+# auth_query = "SELECT $1"
+
+# User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+# specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+# This parameter is inherited by every pool and can be redefined in pool configuration.
+# auth_query_user = "sharding_user"
+
+# Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+# specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+# This parameter is inherited by every pool and can be redefined in pool configuration.
+# auth_query_password = "sharding_user"
+
 # Automatically parse this from queries and route queries to the right shard!
 # automatic_sharding_key = "data.id"
 

@@ -256,6 +256,39 @@ Current options:
 `pg_bigint_hash`: PARTITION BY HASH (Postgres hashing function)
 `sha1`: A hashing function based on SHA1
 
+### auth_query
+```
+path: pools.<pool_name>.auth_query
+default: <UNSET>
+example: "SELECT $1"
+```
+
+Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
+established using the database configured in the pool. This parameter is inherited by every pool
+and can be redefined in pool configuration.
+
+### auth_query_user
+```
+path: pools.<pool_name>.auth_query_user
+default: <UNSET>
+example: "sharding_user"
+```
+
+User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
+
+### auth_query_password
+```
+path: pools.<pool_name>.auth_query_password
+default: <UNSET>
+example: "sharding_user"
+```
+
+Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
+
 ### automatic_sharding_key
 ```
 path: pools.<pool_name>.automatic_sharding_key
