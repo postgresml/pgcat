@@ -30,7 +30,7 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 
 ## Status
 
-PgCat is stable and used in production to serve hundreds of thousands of queries per second. Some features remain experimental and are being actively developed. They are optional and can be enabled through configuration.
+PgCat is stable and used in production to serve hundreds of thousands of queries per second.
 
 <table>
   <tr>
@@ -66,6 +66,8 @@ PgCat is stable and used in production to serve hundreds of thousands of queries
     </td>
   </tr>
 </table>
+
+Some features remain experimental and are being actively developed. They are optional and can be enabled through configuration.
 
 ## Deployment
 
