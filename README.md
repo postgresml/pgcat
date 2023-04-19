@@ -32,10 +32,40 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 
 PgCat is stable and used in production to serve hundreds of thousands of queries per second. Some features remain experimental and are being actively developed. They are optional and can be enabled through configuration.
 
-| | |
-|-|-|
-|<a href="https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f"><img src="./images/instacart.webp" height="70" width="auto"></a>|<a href="https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second"><img src="./images/postgresml.webp" height="70" width="auto"></a>|
-| [Instacart](https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f) | [PostgresML](https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second) |
+<table>
+  <tr>
+    <td>
+      <a href="https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f">
+        <img src="./images/instacart.webp" height="70" width="auto">
+      </a>
+    </td>
+    <td>
+      <a href="https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second">
+        <img src="./images/postgresml.webp" height="70" width="auto">
+      </a>
+    </td>
+    <td>
+      <a href="https://onesignal.com">
+        <img src="./images/one_signal.webp" height="70" width="auto">
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://tech.instacart.com/adopting-pgcat-a-nextgen-postgres-proxy-3cf284e68c2f">
+        Instacart
+      </a>
+    </td>
+    <td>
+      <a href="https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second">
+        PostgresML
+      </a>
+    </td>
+    <td>
+      OneSignal
+    </td>
+  </tr>
+</table>
 
 ## Deployment
 
