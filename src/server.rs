@@ -569,6 +569,8 @@ impl Server {
             let code = message.get_u8() as char;
             let _len = message.get_i32();
 
+            trace!("Message: {}", code);
+
             match code {
                 // ReadyForQuery
                 'Z' => {

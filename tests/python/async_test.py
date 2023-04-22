@@ -2,15 +2,18 @@ import psycopg2
 import asyncio
 import asyncpg
 
+PGCAT_HOST = "127.0.0.1"
+PGCAT_PORT = "6432"
+
 
 def regular_main():
     # Connect to the PostgreSQL database
     conn = psycopg2.connect(
-        host="localhost",
+        host=PGCAT_HOST,
         database="sharded_db",
         user="sharding_user",
         password="sharding_user",
-        port=6432,
+        port=PGCAT_PORT,
     )
 
     # Open a cursor to perform database operations
@@ -34,11 +37,11 @@ def regular_main():
 async def main():
     # Connect to the PostgreSQL database
     conn = await asyncpg.connect(
-        host="localhost",
+        host=PGCAT_HOST,
         database="sharded_db",
         user="sharding_user",
         password="sharding_user",
-        port=6432,
+        port=PGCAT_PORT,
     )
 
     # Execute a SQL query
