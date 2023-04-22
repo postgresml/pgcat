@@ -1348,8 +1348,6 @@ where
                 }
             };
 
-            debug!("Wrote to client");
-
             if !server.is_data_available() {
                 break;
             }
