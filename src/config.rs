@@ -181,7 +181,9 @@ pub struct User {
     pub server_username: Option<String>,
     pub server_password: Option<String>,
     pub pool_size: u32,
+    pub min_pool_size: Option<u32>,
     pub pool_mode: Option<PoolMode>,
+    pub server_lifetime: Option<u64>,
     #[serde(default)] // 0
     pub statement_timeout: u64,
 }
@@ -194,9 +196,28 @@ impl Default for User {
             server_username: None,
             server_password: None,
             pool_size: 15,
+            min_pool_size: None,
             statement_timeout: 0,
             pool_mode: None,
+            server_lifetime: None,
         }
+    }
+}
+
+impl User {
+    fn validate(&self) -> Result<(), Error> {
+        match self.min_pool_size {
+            Some(min_pool_size) => {
+                if min_pool_size > self.pool_size {
+                    error!("min_pool_size of {} cannot be larger than pool_size of {}", min_pool_size, self.pool_size);
+                    return Err(Error::BadConfig);
+                }
+            },
+
+            None => (),
+        };
+
+        Ok(())
     }
 }
 
@@ -246,6 +267,9 @@ pub struct General {
     #[serde(default = "General::default_idle_client_in_transaction_timeout")]
     pub idle_client_in_transaction_timeout: u64,
 
+    #[serde(default = "General::default_server_lifetime")]
+    pub server_lifetime: u64,
+
     #[serde(default = "General::default_worker_threads")]
     pub worker_threads: usize,
 
@@ -269,6 +293,10 @@ impl General {
 
     pub fn default_port() -> u16 {
         5432
+    }
+
+    pub fn default_server_lifetime() -> u64 {
+        1000 * 60 * 60 * 24 // 24 hours
     }
 
     pub fn default_connect_timeout() -> u64 {
@@ -347,6 +375,7 @@ impl Default for General {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            server_lifetime: 1000 * 3600 * 24, // 24 hours,
         }
     }
 }
@@ -410,6 +439,8 @@ pub struct Pool {
     pub connect_timeout: Option<u64>,
 
     pub idle_timeout: Option<u64>,
+
+    pub server_lifetime: Option<u64>,
 
     pub sharding_function: ShardingFunction,
 
@@ -515,6 +546,11 @@ impl Pool {
             None => None,
         };
 
+        for (_, user) in &self.users {
+            user.validate()?;
+        }
+
+
         Ok(())
     }
 }
@@ -539,6 +575,7 @@ impl Default for Pool {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            server_lifetime: None,
         }
     }
 }
@@ -791,6 +828,10 @@ impl Config {
         );
         info!("Shutdown timeout: {}ms", self.general.shutdown_timeout);
         info!("Healthcheck delay: {}ms", self.general.healthcheck_delay);
+        info!(
+            "Default max server lifetime: {}ms",
+            self.general.server_lifetime
+        );
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);
@@ -867,11 +908,25 @@ impl Config {
                 pool_name,
                 pool_config.users.len()
             );
+            info!(
+                "[pool: {}] Max server lifetime: {}",
+                pool_name,
+                match pool_config.server_lifetime {
+                    Some(server_lifetime) => format!("{}ms", server_lifetime),
+                    None => "default".to_string(),
+                }
+            );
 
             for user in &pool_config.users {
                 info!(
                     "[pool: {}][user: {}] Pool size: {}",
                     pool_name, user.1.username, user.1.pool_size,
+                );
+                info!(
+                    "[pool: {}][user: {}] Minimum pool size: {}",
+                    pool_name,
+                    user.1.username,
+                    user.1.min_pool_size.unwrap_or(0)
                 );
                 info!(
                     "[pool: {}][user: {}] Statement timeout: {}",
@@ -886,6 +941,15 @@ impl Config {
                         None => pool_config.pool_mode.to_string(),
                     }
                 );
+                info!(
+                    "[pool: {}][user: {}] Max server lifetime: {}",
+                    pool_name,
+                    user.1.username,
+                    match user.1.server_lifetime {
+                        Some(server_lifetime) => format!("{}ms", server_lifetime),
+                        None => "default".to_string(),
+                    }
+                );
             }
         }
     }
@@ -896,7 +960,13 @@ impl Config {
             && (self.general.auth_query_user.is_none()
                 || self.general.auth_query_password.is_none())
         {
-            error!("If auth_query is specified, you need to provide a value for `auth_query_user`, `auth_query_password`");
+            error!(
+                "If auth_query is specified, \
+                you need to provide a value \
+                for `auth_query_user`, \
+                `auth_query_password`"
+            );
+
             return Err(Error::BadConfig);
         }
 
@@ -904,7 +974,14 @@ impl Config {
             if pool.auth_query.is_some()
                 && (pool.auth_query_user.is_none() || pool.auth_query_password.is_none())
             {
-                error!("Error in pool {{ {} }}. If auth_query is specified, you need to provide a value for `auth_query_user`, `auth_query_password`", name);
+                error!(
+                    "Error in pool {{ {} }}. \
+                    If auth_query is specified, you need \
+                    to provide a value for `auth_query_user`, \
+                    `auth_query_password`",
+                    name
+                );
+
                 return Err(Error::BadConfig);
             }
 
@@ -914,7 +991,13 @@ impl Config {
                     || pool.auth_query_user.is_none())
                     && user_data.password.is_none()
                 {
-                    error!("Error in pool {{ {} }}. You have to specify a user password for every pool if auth_query is not specified", name);
+                    error!(
+                        "Error in pool {{ {} }}. \
+                        You have to specify a user password \
+                        for every pool if auth_query is not specified",
+                        name
+                    );
+
                     return Err(Error::BadConfig);
                 }
             }

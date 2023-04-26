@@ -49,6 +49,14 @@ default: 30000 # milliseconds
 
 How long an idle connection with a server is left open (ms).
 
+### server_lifetime
+```
+path: general.server_lifetime
+default: 86400000 # 24 hours
+```
+
+Max connection lifetime before it's closed, even if actively used.
+
 ### idle_client_in_transaction_timeout
 ```
 path: general.idle_client_in_transaction_timeout
