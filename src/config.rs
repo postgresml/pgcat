@@ -209,10 +209,13 @@ impl User {
         match self.min_pool_size {
             Some(min_pool_size) => {
                 if min_pool_size > self.pool_size {
-                    error!("min_pool_size of {} cannot be larger than pool_size of {}", min_pool_size, self.pool_size);
+                    error!(
+                        "min_pool_size of {} cannot be larger than pool_size of {}",
+                        min_pool_size, self.pool_size
+                    );
                     return Err(Error::BadConfig);
                 }
-            },
+            }
 
             None => (),
         };
@@ -549,7 +552,6 @@ impl Pool {
         for (_, user) in &self.users {
             user.validate()?;
         }
-
 
         Ok(())
     }
