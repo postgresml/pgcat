@@ -23,6 +23,9 @@ connect_timeout = 5000 # milliseconds
 # How long an idle connection with a server is left open (ms).
 idle_timeout = 30000 # milliseconds
 
+# Max connection lifetime before it's closed, even if actively used.
+server_lifetime = 86400000 # 24 hours
+
 # How long a client is allowed to be idle while in a transaction (ms).
 idle_client_in_transaction_timeout = 0 # milliseconds
 
@@ -206,6 +209,8 @@ sharding_function = "pg_bigint_hash"
 username = "simple_user"
 password = "simple_user"
 pool_size = 5
+min_pool_size = 3
+server_lifetime = 60000
 statement_timeout = 0
 
 [pools.simple_db.shards.0]

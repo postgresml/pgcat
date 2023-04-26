@@ -311,21 +311,34 @@ impl ConnectionPool {
 
                         if let Some(apt) = &auth_passthrough {
                             match apt.fetch_hash(&address).await {
-				Ok(ok) => {
-				    if let Some(ref pool_auth_hash_value) = *(pool_auth_hash.read()) {
-					if ok != *pool_auth_hash_value {
-					    warn!("Hash is not the same across shards of the same pool, client auth will \
-						   be done using last obtained hash. Server: {}:{}, Database: {}", server.host, server.port, shard.database);
-					}
-				    }
-				    debug!("Hash obtained for {:?}", address);
-				    {
-					let mut pool_auth_hash = pool_auth_hash.write();
-					*pool_auth_hash = Some(ok.clone());
-				    }
-				},
-				Err(err) => warn!("Could not obtain password hashes using auth_query config, ignoring. Error: {:?}", err),
-			    }
+                                Ok(ok) => {
+                                    if let Some(ref pool_auth_hash_value) = *(pool_auth_hash.read())
+                                    {
+                                        if ok != *pool_auth_hash_value {
+                                            warn!(
+                                                "Hash is not the same across shards \
+                                                of the same pool, client auth will \
+                                                be done using last obtained hash. \
+                                                Server: {}:{}, Database: {}",
+                                                server.host, server.port, shard.database,
+                                            );
+                                        }
+                                    }
+
+                                    debug!("Hash obtained for {:?}", address);
+
+                                    {
+                                        let mut pool_auth_hash = pool_auth_hash.write();
+                                        *pool_auth_hash = Some(ok.clone());
+                                    }
+                                }
+                                Err(err) => warn!(
+                                    "Could not obtain password hashes \
+                                        using auth_query config, ignoring. \
+                                        Error: {:?}",
+                                    err,
+                                ),
+                            }
                         }
 
                         let manager = ServerPool::new(
@@ -347,10 +360,20 @@ impl ConnectionPool {
                             None => config.general.idle_timeout,
                         };
 
+                        let server_lifetime = match user.server_lifetime {
+                            Some(server_lifetime) => server_lifetime,
+                            None => match pool_config.server_lifetime {
+                                Some(server_lifetime) => server_lifetime,
+                                None => config.general.server_lifetime,
+                            },
+                        };
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
+                            .min_idle(user.min_pool_size)
                             .connection_timeout(std::time::Duration::from_millis(connect_timeout))
                             .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
+                            .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
                             .test_on_check_out(false)
                             .build(manager)
                             .await
