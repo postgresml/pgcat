@@ -588,7 +588,7 @@ impl Shard {
 
         if primary_count > 1 {
             error!(
-                "Shard {} has more than on primary configured",
+                "Shard {} has more than one primary configured",
                 self.database
             );
             return Err(Error::BadConfig);
