@@ -243,9 +243,12 @@ impl Server {
                                 }
                             };
 
-                            let sasl_type = String::from_utf8_lossy(&sasl_auth[..sasl_len - 2]);
+                            let sasl_types: Vec<_> = sasl_auth[..sasl_len - 2]
+                                .split(|&b| b == 0)
+                                .map(|v| String::from_utf8_lossy(v).to_string())
+                                .collect();
 
-                            if sasl_type == SCRAM_SHA_256 {
+                            if sasl_types.contains(&SCRAM_SHA_256.to_string()) {
                                 debug!("Using {}", SCRAM_SHA_256);
 
                                 // Generate client message.
@@ -270,7 +273,7 @@ impl Server {
 
                                 write_all(&mut stream, res).await?;
                             } else {
-                                error!("Unsupported SCRAM version: {}", sasl_type);
+                                error!("Unsupported SCRAM version: {:?}", sasl_types);
                                 return Err(Error::ServerError);
                             }
                         }
