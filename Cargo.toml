@@ -39,6 +39,7 @@ nix = "0.26.2"
 atomic_enum = "0.2.0"
 postgres-protocol = "0.6.5"
 fallible-iterator = "0.2"
+pin-project = "*"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"

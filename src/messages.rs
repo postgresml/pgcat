@@ -150,6 +150,21 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
     }
 }
 
+pub async fn ssl_request(stream: &mut TcpStream) -> Result<(), Error> {
+    let mut bytes = BytesMut::with_capacity(12);
+
+    bytes.put_i32(8);
+    bytes.put_i32(80877103);
+
+    match stream.write_all(&bytes).await {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Error::SocketError(format!(
+            "Error writing SSLRequest to server socket - Error: {:?}",
+            err
+        ))),
+    }
+}
+
 /// Parse the params the server sends as a key/value format.
 pub fn parse_params(mut bytes: BytesMut) -> Result<HashMap<String, String>, Error> {
     let mut result = HashMap::new();
