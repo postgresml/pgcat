@@ -15,12 +15,6 @@ use tokio_rustls::TlsAcceptor;
 use crate::config::get_config;
 use crate::errors::Error;
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Error {
-        Error::TlsCertificateReadError(err.to_string())
-    }
-}
-
 // TLS
 pub fn load_certs(path: &Path) -> std::io::Result<Vec<Certificate>> {
     certs(&mut std::io::BufReader::new(std::fs::File::open(path)?))
