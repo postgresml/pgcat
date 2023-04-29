@@ -61,9 +61,9 @@ tcp_keepalives_count = 5
 tcp_keepalives_interval = 5
 
 # Path to TLS Certificate file to use for TLS connections
-tls_certificate = ".circleci/server.cert"
+# tls_certificate = ".circleci/server.cert"
 # Path to TLS private key file to use for TLS connections
-tls_private_key = ".circleci/server.key"
+# tls_private_key = ".circleci/server.key"
 
 # Enable/disable server TLS
 server_tls = true
