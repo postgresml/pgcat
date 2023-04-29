@@ -4,11 +4,22 @@ use rustls_pemfile::{certs, read_one, Item};
 use std::iter;
 use std::path::Path;
 use std::sync::Arc;
-use tokio_rustls::rustls::{self, Certificate, PrivateKey};
+use std::time::SystemTime;
+use tokio_rustls::rustls::{
+    self,
+    client::{ServerCertVerified, ServerCertVerifier},
+    Certificate, PrivateKey, ServerName,
+};
 use tokio_rustls::TlsAcceptor;
 
 use crate::config::get_config;
 use crate::errors::Error;
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
+        Error::TlsCertificateReadError(err.to_string())
+    }
+}
 
 // TLS
 pub fn load_certs(path: &Path) -> std::io::Result<Vec<Certificate>> {
@@ -62,5 +73,21 @@ impl Tls {
         Ok(Tls {
             acceptor: TlsAcceptor::from(Arc::new(config)),
         })
+    }
+}
+
+pub struct NoCertificateVerification;
+
+impl ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &Certificate,
+        _intermediates: &[Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: SystemTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
     }
 }
