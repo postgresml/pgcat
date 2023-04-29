@@ -523,6 +523,29 @@ where
     }
 }
 
+pub async fn write_all_flush<S>(stream: &mut S, buf: &[u8]) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    match stream.write_all(buf).await {
+        Ok(_) => match stream.flush().await {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                return Err(Error::SocketError(format!(
+                    "Error flushing socket - Error: {:?}",
+                    err
+                )))
+            }
+        },
+        Err(err) => {
+            return Err(Error::SocketError(format!(
+                "Error writing to socket - Error: {:?}",
+                err
+            )))
+        }
+    }
+}
+
 /// Read a complete message from the socket.
 pub async fn read_message<S>(stream: &mut S) -> Result<BytesMut, Error>
 where
