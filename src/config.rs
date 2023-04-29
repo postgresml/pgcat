@@ -861,6 +861,11 @@ impl Config {
                 info!("TLS support is disabled");
             }
         };
+        info!("Server TLS enabled: {}", self.general.server_tls);
+        info!(
+            "Server TLS certificate verification: {}",
+            self.general.verify_server_certificate
+        );
 
         for (pool_name, pool_config) in &self.pools {
             // TODO: Make this output prettier (maybe a table?)

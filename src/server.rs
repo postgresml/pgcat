@@ -194,6 +194,8 @@ impl Server {
             match response {
                 // Server supports TLS
                 'S' => {
+                    debug!("Connecting to server using TLS");
+
                     let mut root_store = RootCertStore::empty();
                     root_store.add_server_trust_anchors(
                         webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
