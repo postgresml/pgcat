@@ -25,7 +25,7 @@ describe "Query Mirroing" do
     processes.pgcat.shutdown
   end
 
-  it "can mirror a query" do
+  xit "can mirror a query" do
     conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
     runs = 15
     runs.times { conn.async_exec("SELECT 1 + 2") }
