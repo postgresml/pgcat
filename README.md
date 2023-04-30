@@ -18,7 +18,7 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 | Failover | **Stable** | Queries are automatically rerouted around broken replicas, validated by regular health checks. |
 | Admin database statistics | **Stable** | Pooler statistics and administration via the `pgbouncer` and `pgcat` databases. |
 | Prometheus statistics | **Stable** | Statistics are reported via a HTTP endpoint for Prometheus. |
-| SSL/TLS | **Stable** | Clients can connect to the pooler using TLS. PgCat can connect to servers using TLS. |
+| SSL/TLS | **Stable** | Clients can connect to the pooler using TLS. PgCat can connect to Postgres servers using TLS. |
 | Client/Server authentication | **Stable** | Clients can connect using MD5 authentication, supported by `libpq` and all Postgres client drivers. PgCat can connect to Postgres using MD5 and SCRAM-SHA-256. |
 | Live configuration reloading | **Stable** | Identical to PgBouncer; all settings can be reloaded dynamically (except `host` and `port`). |
 | Auth passthrough | **Stable** | MD5 password authentication can be configured to use an `auth_query` so no cleartext passwords are needed in the config file.|
