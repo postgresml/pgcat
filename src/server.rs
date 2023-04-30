@@ -1084,13 +1084,13 @@ impl Drop for Server {
         // Update statistics
         self.stats.disconnect();
 
-        let mut bytes = BytesMut::with_capacity(4);
+        let mut bytes = BytesMut::with_capacity(5);
         bytes.put_u8(b'X');
         bytes.put_i32(4);
 
         match self.stream.get_mut().try_write(&bytes) {
-            Ok(_) => (),
-            Err(_) => debug!("Dirty shutdown"),
+            Ok(5) => (),
+            _ => debug!("Dirty shutdown"),
         };
 
         // Should not matter.
