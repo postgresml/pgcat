@@ -23,7 +23,6 @@ pub enum Error {
     ParseBytesError(String),
     AuthError(String),
     AuthPassthroughError(String),
-    TlsCertificateReadError(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
