@@ -116,7 +116,10 @@ where
 
 /// Send the startup packet the server. We're pretending we're a Pg client.
 /// This tells the server which user we are and what database we want.
-pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Result<(), Error> {
+pub async fn startup<S>(stream: &mut S, user: &str, database: &str) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let mut bytes = BytesMut::with_capacity(25);
 
     bytes.put_i32(196608); // Protocol number
@@ -147,6 +150,21 @@ pub async fn startup(stream: &mut TcpStream, user: &str, database: &str) -> Resu
                 err
             )))
         }
+    }
+}
+
+pub async fn ssl_request(stream: &mut TcpStream) -> Result<(), Error> {
+    let mut bytes = BytesMut::with_capacity(12);
+
+    bytes.put_i32(8);
+    bytes.put_i32(80877103);
+
+    match stream.write_all(&bytes).await {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Error::SocketError(format!(
+            "Error writing SSLRequest to server socket - Error: {:?}",
+            err
+        ))),
     }
 }
 
@@ -496,6 +514,29 @@ where
 {
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
+        Err(err) => {
+            return Err(Error::SocketError(format!(
+                "Error writing to socket - Error: {:?}",
+                err
+            )))
+        }
+    }
+}
+
+pub async fn write_all_flush<S>(stream: &mut S, buf: &[u8]) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    match stream.write_all(buf).await {
+        Ok(_) => match stream.flush().await {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                return Err(Error::SocketError(format!(
+                    "Error flushing socket - Error: {:?}",
+                    err
+                )))
+            }
+        },
         Err(err) => {
             return Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",

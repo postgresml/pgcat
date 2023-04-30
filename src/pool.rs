@@ -376,8 +376,7 @@ impl ConnectionPool {
                             .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
                             .test_on_check_out(false)
                             .build(manager)
-                            .await
-                            .unwrap();
+                            .await?;
 
                         pools.push(pool);
                         servers.push(address);

@@ -539,6 +539,7 @@ where
                 Some(md5_hash_password(username, password, &salt))
             } else {
                 if !get_config().is_auth_query_configured() {
+                    wrong_password(&mut write, username).await?;
                     return Err(Error::ClientAuthImpossible(username.into()));
                 }
 
@@ -565,6 +566,8 @@ where
                         }
 
                         Err(err) => {
+                            wrong_password(&mut write, username).await?;
+
                             return Err(Error::ClientAuthPassthroughError(
                                 err.to_string(),
                                 client_identifier,
@@ -587,7 +590,15 @@ where
                     client_identifier
                 );
 
-                let fetched_hash = refetch_auth_hash(&pool).await?;
+                let fetched_hash = match refetch_auth_hash(&pool).await {
+                    Ok(fetched_hash) => fetched_hash,
+                    Err(err) => {
+                        wrong_password(&mut write, username).await?;
+
+                        return Err(err);
+                    }
+                };
+
                 let new_password_hash = md5_hash_second_pass(&fetched_hash, &salt);
 
                 // Ok password changed in server an auth is possible.

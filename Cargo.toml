@@ -39,6 +39,9 @@ nix = "0.26.2"
 atomic_enum = "0.2.0"
 postgres-protocol = "0.6.5"
 fallible-iterator = "0.2"
+pin-project = "1"
+webpki-roots = "0.23"
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"

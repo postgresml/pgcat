@@ -281,6 +281,13 @@ pub struct General {
 
     pub tls_certificate: Option<String>,
     pub tls_private_key: Option<String>,
+
+    #[serde(default)] // false
+    pub server_tls: bool,
+
+    #[serde(default)] // false
+    pub verify_server_certificate: bool,
+
     pub admin_username: String,
     pub admin_password: String,
 
@@ -373,6 +380,8 @@ impl Default for General {
             autoreload: None,
             tls_certificate: None,
             tls_private_key: None,
+            server_tls: false,
+            verify_server_certificate: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
             auth_query: None,
@@ -852,6 +861,11 @@ impl Config {
                 info!("TLS support is disabled");
             }
         };
+        info!("Server TLS enabled: {}", self.general.server_tls);
+        info!(
+            "Server TLS certificate verification: {}",
+            self.general.verify_server_certificate
+        );
 
         for (pool_name, pool_config) in &self.pools {
             // TODO: Make this output prettier (maybe a table?)
