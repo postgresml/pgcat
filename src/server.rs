@@ -176,7 +176,9 @@ impl Server {
         // TCP timeouts.
         configure_socket(&stream);
 
-        let mut stream = if get_config().general.server_tls {
+        let config = get_config();
+
+        let mut stream = if config.general.server_tls {
             // Request a TLS connection
             ssl_request(&mut stream).await?;
 
@@ -206,21 +208,21 @@ impl Server {
                         }),
                     );
 
-                    let mut config = rustls::ClientConfig::builder()
+                    let mut tls_config = rustls::ClientConfig::builder()
                         .with_safe_defaults()
                         .with_root_certificates(root_store)
                         .with_no_client_auth();
 
                     // Equivalent to sslmode=prefer which is fine most places.
                     // If you want verify-full, change `verify_server_certificate` to true.
-                    if !get_config().general.verify_server_certificate {
-                        let mut dangerous = config.dangerous();
+                    if !config.general.verify_server_certificate {
+                        let mut dangerous = tls_config.dangerous();
                         dangerous.set_certificate_verifier(Arc::new(
                             crate::tls::NoCertificateVerification {},
                         ));
                     }
 
-                    let connector = TlsConnector::from(Arc::new(config));
+                    let connector = TlsConnector::from(Arc::new(tls_config));
                     let stream = match connector
                         .connect(address.host.as_str().try_into().unwrap(), stream)
                         .await
