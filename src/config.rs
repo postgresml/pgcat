@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
+use crate::dns_cache::CachedResolver;
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
@@ -255,6 +256,12 @@ pub struct General {
     #[serde(default)] // False
     pub log_client_disconnections: bool,
 
+    #[serde(default)] // False
+    pub dns_cache_enabled: bool,
+
+    #[serde(default = "General::default_dns_max_ttl")]
+    pub dns_max_ttl: u64,
+
     #[serde(default = "General::default_shutdown_timeout")]
     pub shutdown_timeout: u64,
 
@@ -336,6 +343,10 @@ impl General {
         60000
     }
 
+    pub fn default_dns_max_ttl() -> u64 {
+        30
+    }
+
     pub fn default_healthcheck_timeout() -> u64 {
         1000
     }
@@ -378,6 +389,8 @@ impl Default for General {
             log_client_connections: false,
             log_client_disconnections: false,
             autoreload: None,
+            dns_cache_enabled: false,
+            dns_max_ttl: Self::default_dns_max_ttl(),
             tls_certificate: None,
             tls_private_key: None,
             server_tls: false,
@@ -1119,6 +1132,10 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
         }
     };
     let new_config = get_config();
+    match CachedResolver::from_config().await {
+        Ok(_) => (),
+        Err(err) => error!("DNS cache reinitialization error: {:?}", err),
+    };
 
     if old_config.pools != new_config.pools {
         info!("Pool configuration changed");

@@ -1,6 +1,7 @@
 pub mod auth_passthrough;
 pub mod config;
 pub mod constants;
+pub mod dns_cache;
 pub mod errors;
 pub mod messages;
 pub mod mirrors;

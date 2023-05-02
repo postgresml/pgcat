@@ -42,6 +42,8 @@ fallible-iterator = "0.2"
 pin-project = "1"
 webpki-roots = "0.23"
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
+trust-dns-resolver = "0.22.0"
+tokio-test = "0.4.2"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"
