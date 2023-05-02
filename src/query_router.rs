@@ -6,7 +6,8 @@ use once_cell::sync::OnceCell;
 use regex::{Regex, RegexSet};
 use sqlparser::ast::Statement::{Query, StartTransaction};
 use sqlparser::ast::{
-    BinaryOperator, Expr, Ident, JoinConstraint, JoinOperator, SetExpr, TableFactor, Value,
+    BinaryOperator, Expr, Ident, JoinConstraint, JoinOperator, SetExpr, Statement, TableFactor,
+    Value,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
@@ -14,6 +15,7 @@ use sqlparser::parser::Parser;
 use crate::config::Role;
 use crate::errors::Error;
 use crate::messages::BytesMutReader;
+use crate::plugins::{Intercept, Plugin, PluginOutput, TableAccess};
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
@@ -128,6 +130,10 @@ impl QueryRouter {
     /// Pool settings can change because of a config reload.
     pub fn update_pool_settings(&mut self, pool_settings: PoolSettings) {
         self.pool_settings = pool_settings;
+    }
+
+    pub fn pool_settings<'a>(&'a self) -> &'a PoolSettings {
+        &self.pool_settings
     }
 
     /// Try to parse a command and execute it.
@@ -335,7 +341,7 @@ impl QueryRouter {
             // Query
             'Q' => {
                 let query = message_cursor.read_string().unwrap();
-                debug!("Query: '{}'", query);
+                error!("Query: '{}'", query);
                 query
             }
 
@@ -347,7 +353,7 @@ impl QueryRouter {
                 // Reads query string
                 let query = message_cursor.read_string().unwrap();
 
-                debug!("Prepared statement: '{}'", query);
+                error!("Prepared statement: '{}'", query);
                 query
             }
 
@@ -355,11 +361,7 @@ impl QueryRouter {
         };
 
         match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
-            Ok(ast) => {
-                debug!("AST: {:?}", ast);
-                Ok(ast)
-            }
-
+            Ok(ast) => Ok(ast),
             Err(err) => {
                 debug!("{}: {}", err, query);
                 Err(Error::QueryRouterParserError(err.to_string()))
@@ -786,6 +788,32 @@ impl QueryRouter {
         }
     }
 
+    /// Add your plugins here and execute them.
+    pub async fn execute_plugins(&self, ast: &Vec<Statement>) -> Result<PluginOutput, Error> {
+        if let Some(plugins) = &self.pool_settings.plugins {
+            if plugins.contains(&String::from("intercept")) {
+                let mut intercept = Intercept {};
+                let result = intercept.run(&self, ast).await;
+
+                if let Ok(PluginOutput::Intercept(output)) = result {
+                    return Ok(PluginOutput::Intercept(output));
+                }
+            }
+
+            if plugins.contains(&String::from("pg_table_access")) {
+                let mut table_access = TableAccess {
+                    forbidden_tables: vec![String::from("pg_database"), String::from("pg_roles")],
+                };
+
+                if let Ok(PluginOutput::Deny(error)) = table_access.run(&self, ast).await {
+                    return Ok(PluginOutput::Deny(error));
+                }
+            }
+        }
+
+        Ok(PluginOutput::Allow)
+    }
+
     fn set_sharding_key(&mut self, sharding_key: i64) -> Option<usize> {
         let sharder = Sharder::new(
             self.pool_settings.shards,
@@ -813,11 +841,22 @@ impl QueryRouter {
     /// Should we attempt to parse queries?
     pub fn query_parser_enabled(&self) -> bool {
         let enabled = match self.query_parser_enabled {
-            None => self.pool_settings.query_parser_enabled,
-            Some(value) => value,
-        };
+            None => {
+                debug!(
+                    "Using pool settings, query_parser_enabled: {}",
+                    self.pool_settings.query_parser_enabled
+                );
+                self.pool_settings.query_parser_enabled
+            }
 
-        debug!("Query parser enabled: {}", enabled);
+            Some(value) => {
+                debug!(
+                    "Using query parser override, query_parser_enabled: {}",
+                    value
+                );
+                value
+            }
+        };
 
         enabled
     }

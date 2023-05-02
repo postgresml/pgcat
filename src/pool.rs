@@ -91,6 +91,7 @@ pub struct PoolSettings {
 
     // Connecting user.
     pub user: User,
+    pub db: String,
 
     // Default server role to connect to.
     pub default_role: Option<Role>,
@@ -129,6 +130,8 @@ pub struct PoolSettings {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    pub plugins: Option<Vec<String>>,
 }
 
 impl Default for PoolSettings {
@@ -138,6 +141,7 @@ impl Default for PoolSettings {
             load_balancing_mode: LoadBalancingMode::Random,
             shards: 1,
             user: User::default(),
+            db: String::default(),
             default_role: None,
             query_parser_enabled: false,
             primary_reads_enabled: true,
@@ -152,6 +156,7 @@ impl Default for PoolSettings {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            plugins: None,
         }
     }
 }
@@ -414,6 +419,7 @@ impl ConnectionPool {
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
                         user: user.clone(),
+                        db: pool_name.clone(),
                         default_role: match pool_config.default_role.as_str() {
                             "any" => None,
                             "replica" => Some(Role::Replica),
@@ -439,6 +445,7 @@ impl ConnectionPool {
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
+                        plugins: config.general.query_router_plugins.clone(),
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
@@ -455,6 +462,13 @@ impl ConnectionPool {
 
                 // There is one pool per database/user pair.
                 new_pools.insert(PoolIdentifier::new(pool_name, &user.username), pool);
+            }
+        }
+
+        // Initialize plugins here if required.
+        if let Some(plugins) = config.general.query_router_plugins {
+            if plugins.contains(&String::from("intercept")) {
+                crate::plugins::intercept::configure(&new_pools);
             }
         }
 

@@ -1,7 +1,7 @@
 //! Errors.
 
 /// Various errors.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SocketError(String),
     ClientSocketError(String, ClientIdentifier),
@@ -26,7 +26,9 @@ pub enum Error {
     AuthPassthroughError(String),
     UnsupportedStatement,
     QueryRouterParserError(String),
+    PermissionDenied(String),
     PermissionDeniedTable(String),
+    QueryDenied(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]

@@ -302,6 +302,8 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    pub query_router_plugins: Option<Vec<String>>,
 }
 
 impl General {
@@ -402,6 +404,7 @@ impl Default for General {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: 1000 * 3600 * 24, // 24 hours,
+            query_router_plugins: None,
         }
     }
 }

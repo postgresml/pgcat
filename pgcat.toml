@@ -77,6 +77,9 @@ admin_username = "admin_user"
 # Password to access the virtual administrative database
 admin_password = "admin_pass"
 
+# Plugins!!
+# plugins = ["pg_table_access", "intercept"]
+
 # pool configs are structured as pool.<pool_name>
 # the pool_name is what clients use as database name when connecting.
 # For a pool named `sharded_db`, clients access that pool using connection string like

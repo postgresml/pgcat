@@ -61,37 +61,19 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-mod admin;
-mod auth_passthrough;
-mod client;
-mod config;
-mod constants;
-mod dns_cache;
-mod errors;
-mod messages;
-mod mirrors;
-mod multi_logger;
-mod pool;
-mod prometheus;
-mod query_router;
-mod scram;
-mod server;
-mod sharding;
-mod stats;
-mod tls;
-
-use crate::config::{get_config, reload_config, VERSION};
-use crate::messages::configure_socket;
-use crate::pool::{ClientServerMap, ConnectionPool};
-use crate::prometheus::start_metric_server;
-use crate::stats::{Collector, Reporter, REPORTER};
+use pgcat::config::{get_config, reload_config, VERSION};
+use pgcat::messages::configure_socket;
+use pgcat::pool::{ClientServerMap, ConnectionPool};
+use pgcat::prometheus::start_metric_server;
+use pgcat::stats::{Collector, Reporter, REPORTER};
+use pgcat::dns_cache;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    multi_logger::MultiLogger::init().unwrap();
+    pgcat::multi_logger::MultiLogger::init().unwrap();
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
-    if !query_router::QueryRouter::setup() {
+    if !pgcat::query_router::QueryRouter::setup() {
         error!("Could not setup query router");
         std::process::exit(exitcode::CONFIG);
     }
@@ -109,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
         runtime.block_on(async {
-            match config::parse(&config_file).await {
+            match pgcat::config::parse(&config_file).await {
                 Ok(_) => (),
                 Err(err) => {
                     error!("Config parse error: {:?}", err);
@@ -168,14 +150,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Statistics reporting.
         REPORTER.store(Arc::new(Reporter::default()));
 
-	// Starts (if enabled) dns cache before pools initialization
-	match dns_cache::CachedResolver::from_config().await {
-            Ok(_) => (),
-            Err(err) => error!("DNS cache initialization error: {:?}", err),
-	};
+        // Starts (if enabled) dns cache before pools initialization
+        match dns_cache::CachedResolver::from_config().await {
+                Ok(_) => (),
+                Err(err) => error!("DNS cache initialization error: {:?}", err),
+        };
 
-	// Connection pool that allows to query all shards and replicas.
-	match ConnectionPool::from_config(client_server_map.clone()).await {
+        // Connection pool that allows to query all shards and replicas.
+        match ConnectionPool::from_config(client_server_map.clone()).await {
             Ok(_) => (),
             Err(err) => {
                 error!("Pool error: {:?}", err);
@@ -303,7 +285,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::task::spawn(async move {
                         let start = chrono::offset::Utc::now().naive_utc();
 
-                        match client::client_entrypoint(
+                        match pgcat::client::client_entrypoint(
                             socket,
                             client_server_map,
                             shutdown_rx,
@@ -334,7 +316,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             Err(err) => {
                                 match err {
-                                    errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
+                                    pgcat::errors::Error::ClientBadStartup => debug!("Client disconnected with error {:?}", err),
                                     _ => warn!("Client disconnected with error {:?}", err),
                                 }
 
