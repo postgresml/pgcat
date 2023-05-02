@@ -766,7 +766,7 @@ where
 
         self.stats.register(self.stats.clone());
 
-        // Error returned by one of the plugins.
+        // Result returned by one of the plugins.
         let mut plugin_output = None;
 
         // Our custom protocol loop.
