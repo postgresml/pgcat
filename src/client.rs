@@ -815,7 +815,9 @@ where
 
                 'Q' => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer(&message);
+                        if let Ok(ast) = QueryRouter::parse(&message) {
+                            let _ = query_router.infer(&ast);
+                        }
                     }
                 }
 
@@ -823,7 +825,9 @@ where
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
-                        query_router.infer(&message);
+                        if let Ok(ast) = QueryRouter::parse(&message) {
+                            let _ = query_router.infer(&ast);
+                        }
                     }
 
                     continue;

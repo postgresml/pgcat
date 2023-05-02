@@ -12,6 +12,7 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use crate::config::Role;
+use crate::errors::Error;
 use crate::messages::BytesMutReader;
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
@@ -324,10 +325,7 @@ impl QueryRouter {
         Some((command, value))
     }
 
-    /// Try to infer which server to connect to based on the contents of the query.
-    pub fn infer(&mut self, message: &BytesMut) -> bool {
-        debug!("Inferring role");
-
+    pub fn parse(message: &BytesMut) -> Result<Vec<sqlparser::ast::Statement>, Error> {
         let mut message_cursor = Cursor::new(message);
 
         let code = message_cursor.get_u8() as char;
@@ -353,28 +351,33 @@ impl QueryRouter {
                 query
             }
 
-            _ => return false,
+            _ => return Err(Error::UnsupportedStatement),
         };
 
-        let ast = match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
-            Ok(ast) => ast,
-            Err(err) => {
-                // SELECT ... FOR UPDATE won't get parsed correctly.
-                debug!("{}: {}", err, query);
-                self.active_role = Some(Role::Primary);
-                return false;
+        match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
+            Ok(ast) => {
+                debug!("AST: {:?}", ast);
+                Ok(ast)
             }
-        };
 
-        debug!("AST: {:?}", ast);
+            Err(err) => {
+                debug!("{}: {}", err, query);
+                Err(Error::QueryRouterParserError(err.to_string()))
+            }
+        }
+    }
+
+    /// Try to infer which server to connect to based on the contents of the query.
+    pub fn infer(&mut self, ast: &Vec<sqlparser::ast::Statement>) -> Result<(), Error> {
+        debug!("Inferring role");
 
         if ast.is_empty() {
             // That's weird, no idea, let's go to primary
             self.active_role = Some(Role::Primary);
-            return false;
+            return Err(Error::QueryRouterParserError("empty query".into()));
         }
 
-        for q in &ast {
+        for q in ast {
             match q {
                 // All transactions go to the primary, probably a write.
                 StartTransaction { .. } => {
@@ -418,7 +421,7 @@ impl QueryRouter {
             };
         }
 
-        true
+        Ok(())
     }
 
     /// Parse the shard number from the Bind message
@@ -862,7 +865,7 @@ mod test {
 
         for query in queries {
             // It's a recognized query
-            assert!(qr.infer(&query));
+            assert!(qr.infer(&QueryRouter::parse(&query).unwrap()).is_ok());
             assert_eq!(qr.role(), Some(Role::Replica));
         }
     }
@@ -881,7 +884,7 @@ mod test {
 
         for query in queries {
             // It's a recognized query
-            assert!(qr.infer(&query));
+            assert!(qr.infer(&QueryRouter::parse(&query).unwrap()).is_ok());
             assert_eq!(qr.role(), Some(Role::Primary));
         }
     }
@@ -893,7 +896,7 @@ mod test {
         let query = simple_query("SELECT * FROM items WHERE id = 5");
         assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO on")) != None);
 
-        assert!(qr.infer(&query));
+        assert!(qr.infer(&QueryRouter::parse(&query).unwrap()).is_ok());
         assert_eq!(qr.role(), None);
     }
 
@@ -913,7 +916,7 @@ mod test {
         res.put(prepared_stmt);
         res.put_i16(0);
 
-        assert!(qr.infer(&res));
+        assert!(qr.infer(&QueryRouter::parse(&res).unwrap()).is_ok());
         assert_eq!(qr.role(), Some(Role::Replica));
     }
 
@@ -1077,11 +1080,11 @@ mod test {
         assert_eq!(qr.role(), None);
 
         let query = simple_query("INSERT INTO test_table VALUES (1)");
-        assert!(qr.infer(&query));
+        assert!(qr.infer(&QueryRouter::parse(&query).unwrap()).is_ok());
         assert_eq!(qr.role(), Some(Role::Primary));
 
         let query = simple_query("SELECT * FROM test_table");
-        assert!(qr.infer(&query));
+        assert!(qr.infer(&QueryRouter::parse(&query).unwrap()).is_ok());
         assert_eq!(qr.role(), Some(Role::Replica));
 
         assert!(qr.query_parser_enabled());
@@ -1142,15 +1145,24 @@ mod test {
         QueryRouter::setup();
 
         let mut qr = QueryRouter::new();
-        assert!(qr.infer(&simple_query("BEGIN; SELECT 1; COMMIT;")));
+        assert!(qr
+            .infer(&QueryRouter::parse(&simple_query("BEGIN; SELECT 1; COMMIT;")).unwrap())
+            .is_ok());
         assert_eq!(qr.role(), Role::Primary);
 
-        assert!(qr.infer(&simple_query("SELECT 1; SELECT 2;")));
+        assert!(qr
+            .infer(&QueryRouter::parse(&simple_query("SELECT 1; SELECT 2;")).unwrap())
+            .is_ok());
         assert_eq!(qr.role(), Role::Replica);
 
-        assert!(qr.infer(&simple_query(
-            "SELECT 123; INSERT INTO t VALUES (5); SELECT 1;"
-        )));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT 123; INSERT INTO t VALUES (5); SELECT 1;"
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.role(), Role::Primary);
     }
 
@@ -1208,47 +1220,84 @@ mod test {
         qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
         qr.pool_settings.shards = 3;
 
-        assert!(qr.infer(&simple_query("SELECT * FROM data WHERE id = 5")));
+        assert!(qr
+            .infer(&QueryRouter::parse(&simple_query("SELECT * FROM data WHERE id = 5")).unwrap())
+            .is_ok());
         assert_eq!(qr.shard(), 2);
 
-        assert!(qr.infer(&simple_query(
-            "SELECT one, two, three FROM public.data WHERE id = 6"
-        )));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT one, two, three FROM public.data WHERE id = 6"
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 0);
 
-        assert!(qr.infer(&simple_query(
-            "SELECT * FROM data
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT * FROM data
             INNER JOIN t2 ON data.id = 5
             AND t2.data_id = data.id
         WHERE data.id = 5"
-        )));
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 2);
 
         // Shard did not move because we couldn't determine the sharding key since it could be ambiguous
         // in the query.
-        assert!(qr.infer(&simple_query(
-            "SELECT * FROM t2 INNER JOIN data ON id = 6 AND data.id = t2.data_id"
-        )));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT * FROM t2 INNER JOIN data ON id = 6 AND data.id = t2.data_id"
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 2);
 
-        assert!(qr.infer(&simple_query(
-            r#"SELECT * FROM "public"."data" WHERE "id" = 6"#
-        )));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    r#"SELECT * FROM "public"."data" WHERE "id" = 6"#
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 0);
 
-        assert!(qr.infer(&simple_query(
-            r#"SELECT * FROM "public"."data" WHERE "data"."id" = 5"#
-        )));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    r#"SELECT * FROM "public"."data" WHERE "data"."id" = 5"#
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 2);
 
         // Super unique sharding key
         qr.pool_settings.automatic_sharding_key = Some("*.unique_enough_column_name".to_string());
-        assert!(qr.infer(&simple_query(
-            "SELECT * FROM table_x WHERE unique_enough_column_name = 6"
-        )));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT * FROM table_x WHERE unique_enough_column_name = 6"
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 0);
 
-        assert!(qr.infer(&simple_query("SELECT * FROM table_y WHERE another_key = 5")));
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query("SELECT * FROM table_y WHERE another_key = 5"))
+                    .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 0);
     }
 
@@ -1272,11 +1321,21 @@ mod test {
         qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
         qr.pool_settings.shards = 3;
 
-        assert!(qr.infer(&simple_query(stmt)));
+        assert!(qr
+            .infer(&QueryRouter::parse(&simple_query(stmt)).unwrap())
+            .is_ok());
         assert_eq!(qr.placeholders.len(), 1);
 
         assert!(qr.infer_shard_from_bind(&bind));
         assert_eq!(qr.shard(), 2);
         assert!(qr.placeholders.is_empty());
+    }
+
+    #[test]
+    fn test_parse() {
+        let query = simple_query("SELECT * FROM pg_database");
+        let ast = QueryRouter::parse(&query);
+
+        assert!(ast.is_ok());
     }
 }
