@@ -1155,6 +1155,8 @@ mod test {
             auth_query: None,
             auth_query_password: None,
             auth_query_user: None,
+            db: "test".to_string(),
+            plugins: None,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -1228,6 +1230,8 @@ mod test {
             auth_query: None,
             auth_query_password: None,
             auth_query_user: None,
+            db: "test".to_string(),
+            plugins: None,
         };
         let mut qr = QueryRouter::new();
         qr.update_pool_settings(pool_settings.clone());
