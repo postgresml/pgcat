@@ -188,6 +188,22 @@ default: "admin_pass"
 
 Password to access the virtual administrative database
 
+### dns_cache_enabled
+```
+path: general.dns_cache_enabled
+default: false
+```
+When enabled, ip resolutions for server connections specified using hostnames will be cached
+and checked for changes every `dns_max_ttl` seconds. If a change in the host resolution is found
+old ip connections are closed (gracefully) and new connections will start using new ip.
+
+### dns_max_ttl
+```
+path: general.dns_max_ttl
+default: 30
+```
+Specifies how often (in seconds) cached ip addresses for servers are rechecked (see `dns_cache_enabled`).
+
 ## `pools.<pool_name>` Section
 
 ### pool_mode
