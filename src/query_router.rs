@@ -341,7 +341,7 @@ impl QueryRouter {
             // Query
             'Q' => {
                 let query = message_cursor.read_string().unwrap();
-                error!("Query: '{}'", query);
+                debug!("Query: '{}'", query);
                 query
             }
 
@@ -353,7 +353,7 @@ impl QueryRouter {
                 // Reads query string
                 let query = message_cursor.read_string().unwrap();
 
-                error!("Prepared statement: '{}'", query);
+                debug!("Prepared statement: '{}'", query);
                 query
             }
 

@@ -400,8 +400,6 @@ impl ConnectionPool {
                     );
                 }
 
-                debug!("Query router: {}", pool_config.query_parser_enabled);
-
                 let pool = ConnectionPool {
                     databases: shards,
                     stats: pool_stats,

@@ -62,11 +62,11 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use pgcat::config::{get_config, reload_config, VERSION};
+use pgcat::dns_cache;
 use pgcat::messages::configure_socket;
 use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
-use pgcat::dns_cache;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     pgcat::multi_logger::MultiLogger::init().unwrap();
