@@ -78,7 +78,7 @@ admin_username = "admin_user"
 admin_password = "admin_pass"
 
 # Plugins!!
-# plugins = ["pg_table_access", "intercept"]
+# query_router_plugins = ["pg_table_access", "intercept"]
 
 # pool configs are structured as pool.<pool_name>
 # the pool_name is what clients use as database name when connecting.
