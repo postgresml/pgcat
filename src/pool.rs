@@ -61,6 +61,8 @@ pub struct PoolIdentifier {
     pub user: String,
 }
 
+static POOL_REAPER_RATE: u64 = 30_000; // 30 seconds by default
+
 impl PoolIdentifier {
     /// Create a new user/pool identifier.
     pub fn new(db: &str, user: &str) -> PoolIdentifier {
@@ -373,8 +375,12 @@ impl ConnectionPool {
                             },
                         };
 
-                        println!("\n\n\n\n");
-                        println!("Idle timeout({}): {}", pool_name, idle_timeout);
+                        let reaper_rate = *vec![idle_timeout, server_lifetime, POOL_REAPER_RATE]
+                            .iter()
+                            .min()
+                            .unwrap();
+
+                        debug!("Pool reaper rate: {}ms", reaper_rate);
 
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
@@ -382,10 +388,7 @@ impl ConnectionPool {
                             .connection_timeout(std::time::Duration::from_millis(connect_timeout))
                             .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                             .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
-                            .reaper_rate(std::time::Duration::from_millis(std::cmp::min(
-                                idle_timeout,
-                                server_lifetime,
-                            )))
+                            .reaper_rate(std::time::Duration::from_millis(reaper_rate))
                             .test_on_check_out(false)
                             .build(manager)
                             .await?;
