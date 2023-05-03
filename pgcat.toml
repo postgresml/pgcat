@@ -77,9 +77,6 @@ admin_username = "admin_user"
 # Password to access the virtual administrative database
 admin_password = "admin_pass"
 
-# Plugins!!
-# query_router_plugins = ["pg_table_access", "intercept"]
-
 # pool configs are structured as pool.<pool_name>
 # the pool_name is what clients use as database name when connecting.
 # For a pool named `sharded_db`, clients access that pool using connection string like
@@ -156,6 +153,33 @@ connect_timeout = 3000
 
 # Specifies how often (in seconds) cached ip addresses for servers are rechecked (see `dns_cache_enabled`).
 # dns_max_ttl = 30
+
+[plugins]
+
+[plugins.query_logger]
+enabled = false
+
+[plugins.table_access]
+enabled = false
+tables = [
+  "pg_user",
+  "pg_roles",
+  "pg_database",
+]
+
+[plugins.intercept]
+enabled = false
+
+[plugins.intercept.queries.0]
+
+query = "select current_database() as a, current_schemas(false) as b"
+schema = [
+  ["a", "text"],
+  ["b", "text"],
+]
+result = [
+  ["${DATABASE}", "{public}"],
+]
 
 # User configs are structured as pool.<pool_name>.users.<user_index>
 # This section holds the credentials for users that may connect to this cluster

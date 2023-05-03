@@ -453,7 +453,7 @@ impl ConnectionPool {
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
-                        plugins: config.general.query_router_plugins.clone(),
+                        plugins: pool_config.query_router_plugins.clone(),
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
@@ -473,10 +473,29 @@ impl ConnectionPool {
             }
         }
 
-        // Initialize plugins here if required.
-        if let Some(plugins) = config.general.query_router_plugins {
-            if plugins.contains(&String::from("intercept")) {
-                crate::plugins::intercept::configure(&new_pools);
+        if let Some(ref plugins) = config.plugins {
+            if let Some(ref intercept) = plugins.intercept {
+                if intercept.enabled {
+                    crate::plugins::intercept::setup(intercept, &new_pools);
+                } else {
+                    crate::plugins::intercept::disable();
+                }
+            }
+
+            if let Some(ref table_access) = plugins.table_access {
+                if table_access.enabled {
+                    crate::plugins::table_access::setup(table_access);
+                } else {
+                    crate::plugins::table_access::disable();
+                }
+            }
+
+            if let Some(ref query_logger) = plugins.query_logger {
+                if query_logger.enabled {
+                    crate::plugins::query_logger::setup();
+                } else {
+                    crate::plugins::query_logger::disable();
+                }
             }
         }
 
