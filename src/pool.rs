@@ -799,6 +799,7 @@ impl ConnectionPool {
         self.databases.len()
     }
 
+    /// Retrieve all bans for all servers.
     pub fn get_bans(&self) -> Vec<(Address, (BanReason, NaiveDateTime))> {
         let mut bans: Vec<(Address, (BanReason, NaiveDateTime))> = Vec::new();
         let guard = self.banlist.read();
@@ -810,7 +811,7 @@ impl ConnectionPool {
         return bans;
     }
 
-    /// Get the address from the host url
+    /// Get the address from the host url.
     pub fn get_addresses_from_host(&self, host: &str) -> Vec<Address> {
         let mut addresses = Vec::new();
         for shard in 0..self.shards() {
@@ -849,10 +850,13 @@ impl ConnectionPool {
         &self.addresses[shard][server]
     }
 
+    /// Get server settings retrieved at connection setup.
     pub fn server_info(&self) -> BytesMut {
         self.server_info.read().clone()
     }
 
+    /// Calculate how many used connections in the pool
+    /// for the given server.
     fn busy_connection_count(&self, address: &Address) -> u32 {
         let state = self.pool_state(address.shard, address.address_index);
         let idle = state.idle_connections;

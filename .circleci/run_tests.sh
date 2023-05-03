@@ -110,6 +110,10 @@ python3 tests/python/tests.py || exit 1
 
 start_pgcat "info"
 
+python3 tests/python/async_test.py
+
+start_pgcat "info"
+
 # Admin tests
 export PGPASSWORD=admin_pass
 psql -U admin_user -e -h 127.0.0.1 -p 6432 -d pgbouncer -c 'SHOW STATS' > /dev/null

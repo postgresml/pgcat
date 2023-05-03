@@ -114,6 +114,7 @@ pub struct Server {
 
     /// Our server response buffer. We buffer data before we give it to the client.
     buffer: BytesMut,
+    is_async: bool,
 
     /// Server information the server sent us over on startup.
     server_info: BytesMut,
@@ -624,6 +625,7 @@ impl Server {
                         address: address.clone(),
                         stream: BufStream::new(stream),
                         buffer: BytesMut::with_capacity(8196),
+                        is_async: false,
                         server_info,
                         process_id,
                         secret_key,
@@ -709,6 +711,16 @@ impl Server {
                 self.bad = true;
                 Err(err)
             }
+        }
+    }
+
+    /// Switch to async mode, flushing messages as soon
+    /// as we receive them without buffering or waiting for "ReadyForQuery".
+    pub fn switch_async(&mut self, on: bool) {
+        if on {
+            self.is_async = true;
+        } else {
+            self.is_async = false;
         }
     }
 
@@ -807,7 +819,10 @@ impl Server {
                 // DataRow
                 'D' => {
                     // More data is available after this message, this is not the end of the reply.
-                    self.data_available = true;
+                    // If we're async, flush to client now.
+                    if !self.is_async {
+                        self.data_available = true;
+                    }
 
                     // Don't flush yet, the more we buffer, the faster this goes...up to a limit.
                     if self.buffer.len() >= 8196 {
@@ -820,7 +835,10 @@ impl Server {
 
                 // CopyOutResponse: copy is starting from the server to the client.
                 'H' => {
-                    self.data_available = true;
+                    // If we're in async mode, flush now.
+                    if !self.is_async {
+                        self.data_available = true;
+                    }
                     break;
                 }
 
@@ -840,6 +858,10 @@ impl Server {
                 // Keep buffering until ReadyForQuery shows up.
                 _ => (),
             };
+
+            if self.is_async {
+                break;
+            }
         }
 
         let bytes = self.buffer.clone();
