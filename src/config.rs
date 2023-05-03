@@ -302,8 +302,6 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
-
-    pub query_router_plugins: Option<Vec<String>>,
 }
 
 impl General {
@@ -404,7 +402,6 @@ impl Default for General {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: 1000 * 3600 * 24, // 24 hours,
-            query_router_plugins: None,
         }
     }
 }
@@ -483,7 +480,6 @@ pub struct Pool {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
-    pub query_router_plugins: Option<Vec<String>>,
 
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -605,7 +601,6 @@ impl Default for Pool {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: None,
-            query_router_plugins: None,
         }
     }
 }
@@ -778,14 +773,6 @@ impl Config {
 
             if pool.auth_query_password.is_none() {
                 pool.auth_query_password = self.general.auth_query_password.clone();
-            }
-        }
-    }
-
-    pub fn fill_up_query_router_plugins(&mut self) {
-        for (_name, pool) in self.pools.iter_mut() {
-            if pool.query_router_plugins.is_none() {
-                pool.query_router_plugins = self.general.query_router_plugins.clone();
             }
         }
     }
@@ -1177,7 +1164,6 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     };
 
     config.fill_up_auth_query_config();
-    config.fill_up_query_router_plugins();
     config.validate()?;
 
     config.path = path.to_string();

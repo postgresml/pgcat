@@ -168,7 +168,7 @@ tables = [
 ]
 
 [plugins.intercept]
-enabled = false
+enabled = true
 
 [plugins.intercept.queries.0]
 
@@ -179,6 +179,18 @@ schema = [
 ]
 result = [
   ["${DATABASE}", "{public}"],
+]
+
+[plugins.intercept.queries.1]
+
+query = "select current_database(), current_schema(), current_user"
+schema = [
+  ["current_database", "text"],
+  ["current_schema", "text"],
+  ["current_user", "text"],
+]
+result = [
+  ["${DATABASE}", "public", "${USER}"],
 ]
 
 # User configs are structured as pool.<pool_name>.users.<user_index>
