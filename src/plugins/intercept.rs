@@ -11,10 +11,11 @@ use serde_json::{json, Value};
 use sqlparser::ast::Statement;
 use std::collections::HashMap;
 
-use log::debug;
+use log::{debug, info};
 use std::sync::Arc;
 
 use crate::{
+    config::Intercept as InterceptConfig,
     errors::Error,
     messages::{command_complete, data_row_nullable, row_description, DataType},
     plugins::{Plugin, PluginOutput},
@@ -22,19 +23,29 @@ use crate::{
     query_router::QueryRouter,
 };
 
-pub static CONFIG: Lazy<ArcSwap<HashMap<PoolIdentifier, Value>>> =
+pub static CONFIG: Lazy<ArcSwap<HashMap<PoolIdentifier, InterceptConfig>>> =
     Lazy::new(|| ArcSwap::from_pointee(HashMap::new()));
 
-/// Configure the intercept plugin.
-pub fn configure(pools: &PoolMap) {
+/// Check if the interceptor plugin has been enabled.
+pub fn enabled() -> bool {
+    !CONFIG.load().is_empty()
+}
+
+pub fn setup(intercept_config: &InterceptConfig, pools: &PoolMap) {
     let mut config = HashMap::new();
     for (identifier, _) in pools.iter() {
-        // TODO: make this configurable from a text config.
-        let value = fool_datagrip(&identifier.db, &identifier.user);
-        config.insert(identifier.clone(), value);
+        let mut intercept_config = intercept_config.clone();
+        intercept_config.substitute(&identifier.db, &identifier.user);
+        config.insert(identifier.clone(), intercept_config);
     }
 
     CONFIG.store(Arc::new(config));
+
+    info!("Intercepting {} queries", intercept_config.queries.len());
+}
+
+pub fn disable() {
+    CONFIG.store(Arc::new(HashMap::new()));
 }
 
 // TODO: use these structs for deserialization
@@ -78,19 +89,19 @@ impl Plugin for Intercept {
             // Normalization
             let q = q.to_string().to_ascii_lowercase();
 
-            for target in query_map.as_array().unwrap().iter() {
-                if target["query"].as_str().unwrap() == q {
-                    debug!("Query matched: {}", q);
+            for (_, target) in query_map.queries.iter() {
+                if target.query.as_str() == q {
+                    debug!("Intercepting query: {}", q);
 
-                    let rd = target["schema"]
-                        .as_array()
-                        .unwrap()
+                    let rd = target
+                        .schema
                         .iter()
                         .map(|row| {
-                            let row = row.as_object().unwrap();
+                            let name = &row[0];
+                            let data_type = &row[1];
                             (
-                                row["name"].as_str().unwrap(),
-                                match row["data_type"].as_str().unwrap() {
+                                name.as_str(),
+                                match data_type.as_str() {
                                     "text" => DataType::Text,
                                     "anyarray" => DataType::AnyArray,
                                     "oid" => DataType::Oid,
@@ -104,13 +115,11 @@ impl Plugin for Intercept {
 
                     result.put(row_description(&rd));
 
-                    target["result"].as_array().unwrap().iter().for_each(|row| {
+                    target.result.iter().for_each(|row| {
                         let row = row
-                            .as_array()
-                            .unwrap()
                             .iter()
                             .map(|s| {
-                                let s = s.as_str().unwrap().to_string();
+                                let s = s.as_str().to_string();
 
                                 if s == "" {
                                     None
@@ -141,6 +150,7 @@ impl Plugin for Intercept {
 
 /// Make IntelliJ SQL plugin believe it's talking to an actual database
 /// instead of PgCat.
+#[allow(dead_code)]
 fn fool_datagrip(database: &str, user: &str) -> Value {
     json!([
         {

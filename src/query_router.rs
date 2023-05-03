@@ -15,7 +15,10 @@ use sqlparser::parser::Parser;
 use crate::config::Role;
 use crate::errors::Error;
 use crate::messages::BytesMutReader;
-use crate::plugins::{Intercept, Plugin, PluginOutput, TableAccess};
+use crate::plugins::{
+    intercept, query_logger, table_access, Intercept, Plugin, PluginOutput, QueryLogger,
+    TableAccess,
+};
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
@@ -790,24 +793,26 @@ impl QueryRouter {
 
     /// Add your plugins here and execute them.
     pub async fn execute_plugins(&self, ast: &Vec<Statement>) -> Result<PluginOutput, Error> {
-        if let Some(plugins) = &self.pool_settings.plugins {
-            if plugins.contains(&String::from("intercept")) {
-                let mut intercept = Intercept {};
-                let result = intercept.run(&self, ast).await;
+        if query_logger::enabled() {
+            let mut query_logger = QueryLogger {};
+            let _ = query_logger.run(&self, ast).await;
+        }
 
-                if let Ok(PluginOutput::Intercept(output)) = result {
-                    return Ok(PluginOutput::Intercept(output));
-                }
+        if intercept::enabled() {
+            let mut intercept = Intercept {};
+            let result = intercept.run(&self, ast).await;
+
+            if let Ok(PluginOutput::Intercept(output)) = result {
+                return Ok(PluginOutput::Intercept(output));
             }
+        }
 
-            if plugins.contains(&String::from("pg_table_access")) {
-                let mut table_access = TableAccess {
-                    forbidden_tables: vec![String::from("pg_database"), String::from("pg_roles")],
-                };
+        if table_access::enabled() {
+            let mut table_access = TableAccess {};
+            let result = table_access.run(&self, ast).await;
 
-                if let Ok(PluginOutput::Deny(error)) = table_access.run(&self, ast).await {
-                    return Ok(PluginOutput::Deny(error));
-                }
+            if let Ok(PluginOutput::Deny(error)) = result {
+                return Ok(PluginOutput::Deny(error));
             }
         }
 
@@ -1156,7 +1161,6 @@ mod test {
             auth_query_password: None,
             auth_query_user: None,
             db: "test".to_string(),
-            plugins: None,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -1231,7 +1235,6 @@ mod test {
             auth_query_password: None,
             auth_query_user: None,
             db: "test".to_string(),
-            plugins: None,
         };
         let mut qr = QueryRouter::new();
         qr.update_pool_settings(pool_settings.clone());
@@ -1376,13 +1379,17 @@ mod test {
 
     #[tokio::test]
     async fn test_table_access_plugin() {
+        use crate::config::TableAccess;
+        let ta = TableAccess {
+            enabled: true,
+            tables: vec![String::from("pg_database")],
+        };
+
+        crate::plugins::table_access::setup(&ta);
+
         QueryRouter::setup();
 
-        let mut qr = QueryRouter::new();
-
-        let mut pool_settings = PoolSettings::default();
-        pool_settings.plugins = Some(vec![String::from("pg_table_access")]);
-        qr.update_pool_settings(pool_settings);
+        let qr = QueryRouter::new();
 
         let query = simple_query("SELECT * FROM pg_database");
         let ast = QueryRouter::parse(&query).unwrap();

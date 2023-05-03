@@ -9,6 +9,7 @@
 //!
 
 pub mod intercept;
+pub mod query_logger;
 pub mod table_access;
 
 use crate::{errors::Error, query_router::QueryRouter};
@@ -17,6 +18,7 @@ use bytes::BytesMut;
 use sqlparser::ast::Statement;
 
 pub use intercept::Intercept;
+pub use query_logger::QueryLogger;
 pub use table_access::TableAccess;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,12 +31,13 @@ pub enum PluginOutput {
 
 #[async_trait]
 pub trait Plugin {
-    // Custom output is allowed because we want to extend this system
-    // to rewriting queries some day. So an output of a plugin could be
-    // a rewritten AST.
+    // Run before the query is sent to the server.
     async fn run(
         &mut self,
         query_router: &QueryRouter,
         ast: &Vec<Statement>,
     ) -> Result<PluginOutput, Error>;
+
+    // TODO: run after the result is returned
+    // async fn callback(&mut self, query_router: &QueryRouter);
 }

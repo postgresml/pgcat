@@ -302,8 +302,6 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
-
-    pub query_router_plugins: Option<Vec<String>>,
 }
 
 impl General {
@@ -404,7 +402,6 @@ impl Default for General {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: 1000 * 3600 * 24, // 24 hours,
-            query_router_plugins: None,
         }
     }
 }
@@ -682,6 +679,55 @@ impl Default for Shard {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Plugins {
+    pub intercept: Option<Intercept>,
+    pub table_access: Option<TableAccess>,
+    pub query_logger: Option<QueryLogger>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Intercept {
+    pub enabled: bool,
+    pub queries: BTreeMap<String, Query>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct TableAccess {
+    pub enabled: bool,
+    pub tables: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct QueryLogger {
+    pub enabled: bool,
+}
+
+impl Intercept {
+    pub fn substitute(&mut self, db: &str, user: &str) {
+        for (_, query) in self.queries.iter_mut() {
+            query.substitute(db, user);
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Query {
+    pub query: String,
+    pub schema: Vec<Vec<String>>,
+    pub result: Vec<Vec<String>>,
+}
+
+impl Query {
+    pub fn substitute(&mut self, db: &str, user: &str) {
+        for col in self.result.iter_mut() {
+            for i in 0..col.len() {
+                col[i] = col[i].replace("${USER}", user).replace("${DATABASE}", db);
+            }
+        }
+    }
+}
+
 /// Configuration wrapper.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Config {
@@ -700,6 +746,7 @@ pub struct Config {
     pub path: String,
 
     pub general: General,
+    pub plugins: Option<Plugins>,
     pub pools: HashMap<String, Pool>,
 }
 
@@ -737,6 +784,7 @@ impl Default for Config {
             path: Self::default_path(),
             general: General::default(),
             pools: HashMap::default(),
+            plugins: None,
         }
     }
 }
@@ -1128,6 +1176,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
 
 pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
     let old_config = get_config();
+
     match parse(&old_config.path).await {
         Ok(()) => (),
         Err(err) => {
@@ -1135,17 +1184,17 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
             return Err(Error::BadConfig);
         }
     };
+
     let new_config = get_config();
+
     match CachedResolver::from_config().await {
         Ok(_) => (),
         Err(err) => error!("DNS cache reinitialization error: {:?}", err),
     };
 
-    if old_config.pools != new_config.pools {
-        info!("Pool configuration changed");
+    if old_config != new_config {
+        info!("Config changed, reloading");
         ConnectionPool::from_config(client_server_map).await?;
-        Ok(true)
-    } else if old_config != new_config {
         Ok(true)
     } else {
         Ok(false)
