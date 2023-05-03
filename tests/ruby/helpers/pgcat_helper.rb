@@ -27,6 +27,7 @@ module Helpers
       primary2 = PgInstance.new(8432, user["username"], user["password"], "shard2")
 
       pgcat_cfg = pgcat.current_config
+      pgcat_cfg["general"]["query_router_plugins"] = ["intercept"]
       pgcat_cfg["pools"] = {
         "#{pool_name}" => {
           "default_role" => "any",

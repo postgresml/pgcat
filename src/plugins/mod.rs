@@ -19,7 +19,7 @@ use sqlparser::ast::Statement;
 pub use intercept::Intercept;
 pub use table_access::TableAccess;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PluginOutput {
     Allow,
     Deny(String),

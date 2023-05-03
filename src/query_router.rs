@@ -1374,11 +1374,26 @@ mod test {
         assert!(qr.placeholders.is_empty());
     }
 
-    #[test]
-    fn test_parse() {
-        let query = simple_query("SELECT * FROM pg_database");
-        let ast = QueryRouter::parse(&query);
+    #[tokio::test]
+    async fn test_table_access_plugin() {
+        QueryRouter::setup();
 
-        assert!(ast.is_ok());
+        let mut qr = QueryRouter::new();
+
+        let mut pool_settings = PoolSettings::default();
+        pool_settings.plugins = Some(vec![String::from("pg_table_access")]);
+        qr.update_pool_settings(pool_settings);
+
+        let query = simple_query("SELECT * FROM pg_database");
+        let ast = QueryRouter::parse(&query).unwrap();
+
+        let res = qr.execute_plugins(&ast).await;
+
+        assert_eq!(
+            res,
+            Ok(PluginOutput::Deny(
+                "permission for table \"pg_database\" denied".to_string()
+            ))
+        );
     }
 }

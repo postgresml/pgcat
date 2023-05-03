@@ -6,6 +6,7 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
 use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlparser::ast::Statement;
 use std::collections::HashMap;
@@ -34,6 +35,20 @@ pub fn configure(pools: &PoolMap) {
     }
 
     CONFIG.store(Arc::new(config));
+}
+
+// TODO: use these structs for deserialization
+#[derive(Serialize, Deserialize)]
+pub struct Rule {
+    query: String,
+    schema: Vec<Column>,
+    result: Vec<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Column {
+    name: String,
+    data_type: String,
 }
 
 /// The intercept plugin.
