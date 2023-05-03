@@ -20,6 +20,10 @@ pub enum DataType {
     Text,
     Int4,
     Numeric,
+    Bool,
+    Oid,
+    AnyArray,
+    Any,
 }
 
 impl From<&DataType> for i32 {
@@ -28,6 +32,10 @@ impl From<&DataType> for i32 {
             DataType::Text => 25,
             DataType::Int4 => 23,
             DataType::Numeric => 1700,
+            DataType::Bool => 16,
+            DataType::Oid => 26,
+            DataType::AnyArray => 2277,
+            DataType::Any => 2276,
         }
     }
 }
@@ -443,6 +451,10 @@ pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
             DataType::Text => -1,
             DataType::Int4 => 4,
             DataType::Numeric => -1,
+            DataType::Bool => 1,
+            DataType::Oid => 4,
+            DataType::AnyArray => -1,
+            DataType::Any => -1,
         };
 
         row_desc.put_i16(type_size);
@@ -472,6 +484,29 @@ pub fn data_row(row: &Vec<String>) -> BytesMut {
         let column = column.as_bytes();
         data_row.put_i32(column.len() as i32);
         data_row.put_slice(column);
+    }
+
+    res.put_u8(b'D');
+    res.put_i32(data_row.len() as i32 + 4);
+    res.put(data_row);
+
+    res
+}
+
+pub fn data_row_nullable(row: &Vec<Option<String>>) -> BytesMut {
+    let mut res = BytesMut::new();
+    let mut data_row = BytesMut::new();
+
+    data_row.put_i16(row.len() as i16);
+
+    for column in row {
+        if let Some(column) = column {
+            let column = column.as_bytes();
+            data_row.put_i32(column.len() as i32);
+            data_row.put_slice(column);
+        } else {
+            data_row.put_i32(-1 as i32);
+        }
     }
 
     res.put_u8(b'D');

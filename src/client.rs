@@ -16,6 +16,7 @@ use crate::auth_passthrough::refetch_auth_hash;
 use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
 use crate::messages::*;
+use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
@@ -765,6 +766,9 @@ where
 
         self.stats.register(self.stats.clone());
 
+        // Result returned by one of the plugins.
+        let mut plugin_output = None;
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -815,7 +819,25 @@ where
 
                 'Q' => {
                     if query_router.query_parser_enabled() {
-                        query_router.infer(&message);
+                        if let Ok(ast) = QueryRouter::parse(&message) {
+                            let plugin_result = query_router.execute_plugins(&ast).await;
+
+                            match plugin_result {
+                                Ok(PluginOutput::Deny(error)) => {
+                                    error_response(&mut self.write, &error).await?;
+                                    continue;
+                                }
+
+                                Ok(PluginOutput::Intercept(result)) => {
+                                    write_all(&mut self.write, result).await?;
+                                    continue;
+                                }
+
+                                _ => (),
+                            };
+
+                            let _ = query_router.infer(&ast);
+                        }
                     }
                 }
 
@@ -823,7 +845,13 @@ where
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
-                        query_router.infer(&message);
+                        if let Ok(ast) = QueryRouter::parse(&message) {
+                            if let Ok(output) = query_router.execute_plugins(&ast).await {
+                                plugin_output = Some(output);
+                            }
+
+                            let _ = query_router.infer(&ast);
+                        }
                     }
 
                     continue;
@@ -856,6 +884,18 @@ where
                 handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
                 continue;
             }
+
+            // Check on plugin results.
+            match plugin_output {
+                Some(PluginOutput::Deny(error)) => {
+                    self.buffer.clear();
+                    error_response(&mut self.write, &error).await?;
+                    plugin_output = None;
+                    continue;
+                }
+
+                _ => (),
+            };
 
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
@@ -1085,6 +1125,27 @@ where
                 match code {
                     // Query
                     'Q' => {
+                        if query_router.query_parser_enabled() {
+                            if let Ok(ast) = QueryRouter::parse(&message) {
+                                let plugin_result = query_router.execute_plugins(&ast).await;
+
+                                match plugin_result {
+                                    Ok(PluginOutput::Deny(error)) => {
+                                        error_response(&mut self.write, &error).await?;
+                                        continue;
+                                    }
+
+                                    Ok(PluginOutput::Intercept(result)) => {
+                                        write_all(&mut self.write, result).await?;
+                                        continue;
+                                    }
+
+                                    _ => (),
+                                };
+
+                                let _ = query_router.infer(&ast);
+                            }
+                        }
                         debug!("Sending query to server");
 
                         self.send_and_receive_loop(
@@ -1124,6 +1185,14 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
+                        if query_router.query_parser_enabled() {
+                            if let Ok(ast) = QueryRouter::parse(&message) {
+                                if let Ok(output) = query_router.execute_plugins(&ast).await {
+                                    plugin_output = Some(output);
+                                }
+                            }
+                        }
+
                         self.buffer.put(&message[..]);
                     }
 
@@ -1154,6 +1223,24 @@ where
                     // Frontend (client) is asking for the query result now.
                     'S' => {
                         debug!("Sending query to server");
+
+                        match plugin_output {
+                            Some(PluginOutput::Deny(error)) => {
+                                error_response(&mut self.write, &error).await?;
+                                plugin_output = None;
+                                self.buffer.clear();
+                                continue;
+                            }
+
+                            Some(PluginOutput::Intercept(result)) => {
+                                write_all(&mut self.write, result).await?;
+                                plugin_output = None;
+                                self.buffer.clear();
+                                continue;
+                            }
+
+                            _ => (),
+                        };
 
                         self.buffer.put(&message[..]);
 

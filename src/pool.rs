@@ -61,6 +61,8 @@ pub struct PoolIdentifier {
     pub user: String,
 }
 
+static POOL_REAPER_RATE: u64 = 30_000; // 30 seconds by default
+
 impl PoolIdentifier {
     /// Create a new user/pool identifier.
     pub fn new(db: &str, user: &str) -> PoolIdentifier {
@@ -91,6 +93,7 @@ pub struct PoolSettings {
 
     // Connecting user.
     pub user: User,
+    pub db: String,
 
     // Default server role to connect to.
     pub default_role: Option<Role>,
@@ -129,6 +132,8 @@ pub struct PoolSettings {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    pub plugins: Option<Vec<String>>,
 }
 
 impl Default for PoolSettings {
@@ -138,6 +143,7 @@ impl Default for PoolSettings {
             load_balancing_mode: LoadBalancingMode::Random,
             shards: 1,
             user: User::default(),
+            db: String::default(),
             default_role: None,
             query_parser_enabled: false,
             primary_reads_enabled: true,
@@ -152,6 +158,7 @@ impl Default for PoolSettings {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            plugins: None,
         }
     }
 }
@@ -368,12 +375,20 @@ impl ConnectionPool {
                             },
                         };
 
+                        let reaper_rate = *vec![idle_timeout, server_lifetime, POOL_REAPER_RATE]
+                            .iter()
+                            .min()
+                            .unwrap();
+
+                        debug!("Pool reaper rate: {}ms", reaper_rate);
+
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
                             .min_idle(user.min_pool_size)
                             .connection_timeout(std::time::Duration::from_millis(connect_timeout))
                             .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                             .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
+                            .reaper_rate(std::time::Duration::from_millis(reaper_rate))
                             .test_on_check_out(false)
                             .build(manager)
                             .await?;
@@ -412,6 +427,7 @@ impl ConnectionPool {
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
                         user: user.clone(),
+                        db: pool_name.clone(),
                         default_role: match pool_config.default_role.as_str() {
                             "any" => None,
                             "replica" => Some(Role::Replica),
@@ -437,6 +453,7 @@ impl ConnectionPool {
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
+                        plugins: config.general.query_router_plugins.clone(),
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
@@ -453,6 +470,13 @@ impl ConnectionPool {
 
                 // There is one pool per database/user pair.
                 new_pools.insert(PoolIdentifier::new(pool_name, &user.username), pool);
+            }
+        }
+
+        // Initialize plugins here if required.
+        if let Some(plugins) = config.general.query_router_plugins {
+            if plugins.contains(&String::from("intercept")) {
+                crate::plugins::intercept::configure(&new_pools);
             }
         }
 
