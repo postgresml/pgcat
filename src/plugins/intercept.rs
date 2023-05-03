@@ -36,7 +36,6 @@ pub fn setup(intercept_config: &InterceptConfig, pools: &PoolMap) {
     for (identifier, _) in pools.iter() {
         let mut intercept_config = intercept_config.clone();
         intercept_config.substitute(&identifier.db, &identifier.user);
-        debug!("Intercept config: {:?}", intercept_config);
         config.insert(identifier.clone(), intercept_config);
     }
 
