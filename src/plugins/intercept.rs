@@ -150,6 +150,7 @@ impl Plugin for Intercept {
 
 /// Make IntelliJ SQL plugin believe it's talking to an actual database
 /// instead of PgCat.
+#[allow(dead_code)]
 fn fool_datagrip(database: &str, user: &str) -> Value {
     json!([
         {

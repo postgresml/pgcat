@@ -1161,7 +1161,6 @@ mod test {
             auth_query_password: None,
             auth_query_user: None,
             db: "test".to_string(),
-            plugins: None,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -1236,7 +1235,6 @@ mod test {
             auth_query_password: None,
             auth_query_user: None,
             db: "test".to_string(),
-            plugins: None,
         };
         let mut qr = QueryRouter::new();
         qr.update_pool_settings(pool_settings.clone());
@@ -1381,13 +1379,17 @@ mod test {
 
     #[tokio::test]
     async fn test_table_access_plugin() {
+        use crate::config::TableAccess;
+        let ta = TableAccess {
+            enabled: true,
+            tables: vec![String::from("pg_database")],
+        };
+
+        crate::plugins::table_access::setup(&ta);
+
         QueryRouter::setup();
 
-        let mut qr = QueryRouter::new();
-
-        let mut pool_settings = PoolSettings::default();
-        pool_settings.plugins = Some(vec![String::from("pg_table_access")]);
-        qr.update_pool_settings(pool_settings);
+        let qr = QueryRouter::new();
 
         let query = simple_query("SELECT * FROM pg_database");
         let ast = QueryRouter::parse(&query).unwrap();
