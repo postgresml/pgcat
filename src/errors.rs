@@ -26,9 +26,6 @@ pub enum Error {
     AuthPassthroughError(String),
     UnsupportedStatement,
     QueryRouterParserError(String),
-    PermissionDenied(String),
-    PermissionDeniedTable(String),
-    QueryDenied(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
