@@ -707,6 +707,7 @@ impl Intercept {
     pub fn substitute(&mut self, db: &str, user: &str) {
         for (_, query) in self.queries.iter_mut() {
             query.substitute(db, user);
+            query.query = query.query.to_ascii_lowercase();
         }
     }
 }
