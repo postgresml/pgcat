@@ -459,10 +459,12 @@ impl ConnectionPool {
                 // Connect to the servers to make sure pool configuration is valid
                 // before setting it globally.
                 // Do this async and somewhere else, we don't have to wait here.
-                let mut validate_pool = pool.clone();
-                tokio::task::spawn(async move {
-                    let _ = validate_pool.validate().await;
-                });
+                if config.general.validate_config {
+                    let mut validate_pool = pool.clone();
+                    tokio::task::spawn(async move {
+                        let _ = validate_pool.validate().await;
+                    });
+                }
 
                 // There is one pool per database/user pair.
                 new_pools.insert(PoolIdentifier::new(pool_name, &user.username), pool);

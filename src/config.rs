@@ -298,6 +298,9 @@ pub struct General {
     pub admin_username: String,
     pub admin_password: String,
 
+    #[serde(default = "General::default_validate_config")]
+    pub validate_config: bool,
+
     // Support for auth query
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -367,6 +370,10 @@ impl General {
     pub fn default_idle_client_in_transaction_timeout() -> u64 {
         0
     }
+
+    pub fn default_validate_config() -> bool {
+        true
+    }
 }
 
 impl Default for General {
@@ -402,6 +409,7 @@ impl Default for General {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: 1000 * 3600 * 24, // 24 hours,
+            validate_config: true,
         }
     }
 }
