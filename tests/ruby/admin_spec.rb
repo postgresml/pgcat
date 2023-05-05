@@ -73,7 +73,6 @@ describe "Admin" do
       it "only affects cl_idle stats" do
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
 
-        before_test = admin_conn.async_exec("SHOW POOLS")[0]["sv_idle"]
         connections = Array.new(20) { PG::connect(pgcat_conn_str) }
         sleep(1)
         results = admin_conn.async_exec("SHOW POOLS")[0]
@@ -81,7 +80,7 @@ describe "Admin" do
           raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
         end
         expect(results["cl_idle"]).to eq("20")
-        expect(results["sv_idle"]).to eq(before_test)
+        expect(results["sv_idle"]).to eq("1")
 
         connections.map(&:close)
         sleep(1.1)
@@ -89,7 +88,7 @@ describe "Admin" do
         %w[cl_active cl_idle cl_waiting cl_cancel_req sv_active sv_used sv_tested sv_login maxwait].each do |s|
           raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
         end
-        expect(results["sv_idle"]).to eq(before_test)
+        expect(results["sv_idle"]).to eq("1")
       end
     end
 

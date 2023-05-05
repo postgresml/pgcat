@@ -1176,6 +1176,7 @@ where
                     // Terminate
                     'X' => {
                         server.checkin_cleanup().await?;
+                        server.stats().idle();
                         self.stats.disconnect();
                         self.release();
 
