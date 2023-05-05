@@ -1001,6 +1001,7 @@ impl Server {
         if self.cleanup_state.needs_cleanup() {
             warn!("Server returned with session state altered, discarding state ({}) for application {}", self.cleanup_state, self.application_name);
             self.query("DISCARD ALL").await?;
+            self.query("RESET ROLE").await?;
             self.cleanup_state.reset();
         }
 
