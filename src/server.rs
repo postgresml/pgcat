@@ -1044,7 +1044,7 @@ impl Server {
 
     // Marks a connection as needing DISCARD ALL at checkin
     pub fn mark_dirty(&mut self) {
-        self.cleanup_state.set_true(true, true)
+        self.cleanup_state.set_true();
     }
 
     pub fn mirror_send(&mut self, bytes: &BytesMut) {
