@@ -963,6 +963,7 @@ impl Server {
         if self.needs_cleanup {
             warn!("Server returned with session state altered, discarding state");
             self.query("DISCARD ALL").await?;
+            self.query("RESET ROLE").await?;
             self.needs_cleanup = false;
         }
 
