@@ -705,10 +705,7 @@ impl Server {
                 Ok(())
             }
             Err(err) => {
-                error!(
-                    "Terminating server {:?} because of: {:?}",
-                    self.address, err
-                );
+                error!("Terminating server because of: {:?}", err);
                 self.bad = true;
                 Err(err)
             }
@@ -723,10 +720,7 @@ impl Server {
             let mut message = match read_message(&mut self.stream).await {
                 Ok(message) => message,
                 Err(err) => {
-                    error!(
-                        "Terminating server {:?} because of: {:?}",
-                        self.address, err
-                    );
+                    error!("Terminating server because of: {:?}", err);
                     self.bad = true;
                     return Err(err);
                 }
@@ -962,7 +956,8 @@ impl Server {
         // it before each checkin.
         if self.needs_cleanup {
             warn!("Server returned with session state altered, discarding state");
-            self.query("DISCARD ALL").await?;
+            self.query("DISCARD ALL;").await?;
+            self.query("RESET ROLE;").await?;
             self.needs_cleanup = false;
         }
 
@@ -1141,18 +1136,14 @@ impl Drop for Server {
             _ => debug!("Dirty shutdown"),
         };
 
+        // Should not matter.
+        self.bad = true;
+
         let now = chrono::offset::Utc::now().naive_utc();
         let duration = now - self.connected_at;
 
-        let message = if self.bad {
-            "Server connection terminated"
-        } else {
-            "Server connection closed"
-        };
-
         info!(
-            "{} {:?}, session duration: {}",
-            message,
+            "Server connection closed {:?}, session duration: {}",
             self.address,
             crate::format_duration(&duration)
         );

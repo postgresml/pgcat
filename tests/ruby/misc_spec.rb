@@ -241,6 +241,18 @@ describe "Miscellaneous" do
 
         expect(processes.primary.count_query("DISCARD ALL")).to eq(10)
       end
+
+      it "Resets server roles correctly" do
+        10.times do
+          conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+          conn.async_exec("SET SERVER ROLE to 'primary'")
+          conn.async_exec("SELECT 1")
+          conn.async_exec("SET statement_timeout to 5000")
+          conn.close
+        end
+
+        expect(processes.primary.count_query("RESET ROLE;")).to eq(10)
+      end 
     end
 
     context "transaction mode" do
