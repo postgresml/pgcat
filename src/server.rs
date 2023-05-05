@@ -137,7 +137,11 @@ impl CleanupState {
 
 impl std::fmt::Display for CleanupState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SET: {}, PREPARE: {}", self.needs_cleanup_set, self.needs_cleanup_prepare)
+        write!(
+            f,
+            "SET: {}, PREPARE: {}",
+            self.needs_cleanup_set, self.needs_cleanup_prepare
+        )
     }
 }
 
