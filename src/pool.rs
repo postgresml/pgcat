@@ -641,7 +641,10 @@ impl ConnectionPool {
             {
                 Ok(conn) => conn,
                 Err(err) => {
-                    error!("Banning instance {:?}, error: {:?}", address, err);
+                    error!(
+                        "Connection checkout error for instance {:?}, error: {:?}",
+                        address, err
+                    );
                     self.ban(address, BanReason::FailedCheckout, Some(client_stats));
                     address.stats.error();
                     client_stats.idle();
@@ -717,7 +720,7 @@ impl ConnectionPool {
                 // Health check failed.
                 Err(err) => {
                     error!(
-                        "Banning instance {:?} because of failed health check, {:?}",
+                        "Failed health check on instance {:?}, error: {:?}",
                         address, err
                     );
                 }
@@ -726,7 +729,7 @@ impl ConnectionPool {
             // Health check timed out.
             Err(err) => {
                 error!(
-                    "Banning instance {:?} because of health check timeout, {:?}",
+                    "Health check timeout on instance {:?}, error: {:?}",
                     address, err
                 );
             }
@@ -748,13 +751,16 @@ impl ConnectionPool {
             return;
         }
 
+        error!("Banning instance {:?}, reason: {:?}", address, reason);
+
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
-        error!("Banning {:?}", address);
+
         if let Some(client_info) = client_info {
             client_info.ban_error();
             address.stats.error();
         }
+
         guard[address.shard].insert(address.clone(), (reason, now));
     }
 
