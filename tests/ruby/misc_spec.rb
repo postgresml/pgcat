@@ -251,7 +251,7 @@ describe "Miscellaneous" do
           conn.close
         end
 
-        expect(processes.primary.count_query("RESET ROLE;")).to eq(10)
+        expect(processes.primary.count_query("RESET ROLE")).to eq(10)
       end 
     end
 
