@@ -705,7 +705,10 @@ impl Server {
                 Ok(())
             }
             Err(err) => {
-                error!("Terminating server because of: {:?}", err);
+                error!(
+                    "Terminating server {:?} because of: {:?}",
+                    self.address, err
+                );
                 self.bad = true;
                 Err(err)
             }
@@ -720,7 +723,10 @@ impl Server {
             let mut message = match read_message(&mut self.stream).await {
                 Ok(message) => message,
                 Err(err) => {
-                    error!("Terminating server because of: {:?}", err);
+                    error!(
+                        "Terminating server {:?} because of: {:?}",
+                        self.address, err
+                    );
                     self.bad = true;
                     return Err(err);
                 }
@@ -1135,14 +1141,18 @@ impl Drop for Server {
             _ => debug!("Dirty shutdown"),
         };
 
-        // Should not matter.
-        self.bad = true;
-
         let now = chrono::offset::Utc::now().naive_utc();
         let duration = now - self.connected_at;
 
+        let message = if self.bad {
+            "Server connection terminated"
+        } else {
+            "Server connection closed"
+        };
+
         info!(
-            "Server connection closed {:?}, session duration: {}",
+            "{} {:?}, session duration: {}",
+            message,
             self.address,
             crate::format_duration(&duration)
         );
