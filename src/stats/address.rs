@@ -114,6 +114,8 @@ impl AddressStats {
             }) {
                 warn!("Could not update averages for addresses stats, {:?}", err);
             }
+
+            total.store(0, Ordering::Relaxed);
         }
     }
 
