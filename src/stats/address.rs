@@ -1,4 +1,3 @@
-use log::warn;
 use std::sync::atomic::*;
 use std::sync::Arc;
 
@@ -13,6 +12,16 @@ pub struct AddressStats {
     pub total_query_time: Arc<AtomicU64>,
     pub total_wait_time: Arc<AtomicU64>,
     pub total_errors: Arc<AtomicU64>,
+
+    pub old_total_xact_count: Arc<AtomicU64>,
+    pub old_total_query_count: Arc<AtomicU64>,
+    pub old_total_received: Arc<AtomicU64>,
+    pub old_total_sent: Arc<AtomicU64>,
+    pub old_total_xact_time: Arc<AtomicU64>,
+    pub old_total_query_time: Arc<AtomicU64>,
+    pub old_total_wait_time: Arc<AtomicU64>,
+    pub old_total_errors: Arc<AtomicU64>,
+
     pub avg_query_count: Arc<AtomicU64>,
     pub avg_query_time: Arc<AtomicU64>,
     pub avg_recv: Arc<AtomicU64>,
@@ -104,18 +113,16 @@ impl AddressStats {
     }
 
     pub fn update_averages(&self) {
-        let (totals, averages) = self.fields_iterators();
-        for data in totals.iter().zip(averages.iter()) {
-            let (total, average) = data;
-            if let Err(err) = average.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |avg| {
-                let total = total.load(Ordering::Relaxed);
-                let avg = (total - avg) / (crate::stats::STAT_PERIOD / 1_000); // Avg / second
-                Some(avg)
-            }) {
-                warn!("Could not update averages for addresses stats, {:?}", err);
-            }
-
-            total.store(0, Ordering::Relaxed);
+        let (totals, averages, old_totals) = self.fields_iterators();
+        for data in itertools::izip!(totals, averages, old_totals) {
+            let (total, average, old_total) = data;
+            let total = total.load(Ordering::Relaxed);
+            let old = old_total.load(Ordering::Relaxed);
+            average.store(
+                (total - old) / (crate::stats::STAT_PERIOD / 1_000),
+                Ordering::Relaxed,
+            ); // Avg / second
+            old_total.store(total, Ordering::Relaxed);
         }
     }
 
@@ -125,27 +132,42 @@ impl AddressStats {
         }
     }
 
-    fn fields_iterators(&self) -> (Vec<Arc<AtomicU64>>, Vec<Arc<AtomicU64>>) {
+    fn fields_iterators(
+        &self,
+    ) -> (
+        Vec<Arc<AtomicU64>>,
+        Vec<Arc<AtomicU64>>,
+        Vec<Arc<AtomicU64>>,
+    ) {
         let mut totals: Vec<Arc<AtomicU64>> = Vec::new();
         let mut averages: Vec<Arc<AtomicU64>> = Vec::new();
+        let mut old_totals: Vec<Arc<AtomicU64>> = Vec::new();
 
         totals.push(self.total_xact_count.clone());
+        old_totals.push(self.old_total_xact_count.clone());
         averages.push(self.avg_xact_count.clone());
         totals.push(self.total_query_count.clone());
+        old_totals.push(self.old_total_query_count.clone());
         averages.push(self.avg_query_count.clone());
         totals.push(self.total_received.clone());
+        old_totals.push(self.old_total_received.clone());
         averages.push(self.avg_recv.clone());
         totals.push(self.total_sent.clone());
+        old_totals.push(self.old_total_sent.clone());
         averages.push(self.avg_sent.clone());
         totals.push(self.total_xact_time.clone());
+        old_totals.push(self.old_total_xact_time.clone());
         averages.push(self.avg_xact_time.clone());
         totals.push(self.total_query_time.clone());
+        old_totals.push(self.old_total_query_time.clone());
         averages.push(self.avg_query_time.clone());
         totals.push(self.total_wait_time.clone());
+        old_totals.push(self.old_total_wait_time.clone());
         averages.push(self.avg_wait_time.clone());
         totals.push(self.total_errors.clone());
+        old_totals.push(self.old_total_errors.clone());
         averages.push(self.avg_errors.clone());
 
-        (totals, averages)
+        (totals, averages, old_totals)
     }
 }
