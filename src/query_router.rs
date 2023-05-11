@@ -15,10 +15,7 @@ use sqlparser::parser::Parser;
 use crate::config::Role;
 use crate::errors::Error;
 use crate::messages::BytesMutReader;
-use crate::plugins::{
-    intercept, query_logger, table_access, Intercept, Plugin, PluginOutput, QueryLogger,
-    TableAccess,
-};
+use crate::plugins::{Intercept, Plugin, PluginOutput, QueryLogger, TableAccess};
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
@@ -793,13 +790,27 @@ impl QueryRouter {
 
     /// Add your plugins here and execute them.
     pub async fn execute_plugins(&self, ast: &Vec<Statement>) -> Result<PluginOutput, Error> {
-        if query_logger::enabled() {
-            let mut query_logger = QueryLogger {};
+        let plugins = match self.pool_settings.plugins {
+            Some(ref plugins) => plugins,
+            None => return Ok(PluginOutput::Allow),
+        };
+
+        if let Some(ref query_logger) = plugins.query_logger {
+            let mut query_logger = QueryLogger {
+                enabled: query_logger.enabled,
+                user: &self.pool_settings.user.username,
+                db: &self.pool_settings.db,
+            };
+
             let _ = query_logger.run(&self, ast).await;
         }
 
-        if intercept::enabled() {
-            let mut intercept = Intercept {};
+        if let Some(ref intercept) = plugins.intercept {
+            let mut intercept = Intercept {
+                enabled: intercept.enabled,
+                config: &intercept,
+            };
+
             let result = intercept.run(&self, ast).await;
 
             if let Ok(PluginOutput::Intercept(output)) = result {
@@ -807,8 +818,12 @@ impl QueryRouter {
             }
         }
 
-        if table_access::enabled() {
-            let mut table_access = TableAccess {};
+        if let Some(ref table_access) = plugins.table_access {
+            let mut table_access = TableAccess {
+                enabled: table_access.enabled,
+                tables: &table_access.tables,
+            };
+
             let result = table_access.run(&self, ast).await;
 
             if let Ok(PluginOutput::Deny(error)) = result {

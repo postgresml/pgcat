@@ -1,48 +1,28 @@
 //! Prewarm new connections before giving them to the client.
 use crate::{errors::Error, server::Server};
-use arc_swap::ArcSwap;
-// use async_trait::async_trait;
 use log::info;
-use once_cell::sync::Lazy;
-use std::sync::Arc;
 
-static QUERIES: Lazy<ArcSwap<Vec<String>>> = Lazy::new(|| ArcSwap::from_pointee(Vec::new()));
-
-pub struct Prewarmer;
-
-pub fn setup(queries: &Vec<String>) {
-    QUERIES.store(Arc::new(queries.clone()));
-
-    info!("Query prewarmer enabled.");
-
-    for query in queries {
-        info!("Prewarming query: {}", query);
-    }
+pub struct Prewarmer<'a> {
+    pub enabled: bool,
+    pub server: &'a mut Server,
+    pub queries: &'a Vec<String>,
 }
 
-pub fn disable() {
-    QUERIES.store(Arc::new(vec![]));
-}
-
-pub fn enabled() -> bool {
-    !QUERIES.load().is_empty()
-}
-
-// TODO: come up with a decent interface for server plugins.
-
-pub async fn run(server: &mut Server) -> Result<(), Error> {
-    let mut queries = Vec::new();
-
-    // Don't want  to hold arcswap while we run these potentially slow queries.
-    {
-        for query in QUERIES.load().iter() {
-            queries.push(query.clone());
+impl<'a> Prewarmer<'a> {
+    pub async fn run(&mut self) -> Result<(), Error> {
+        if !self.enabled {
+            return Ok(());
         }
-    }
 
-    for query in queries {
-        server.query(&query).await?;
-    }
+        for query in self.queries {
+            info!(
+                "Prewarning {:?} with query: `{}`",
+                self.server.address(),
+                query
+            );
+            self.server.query(&query).await?;
+        }
 
-    Ok(())
+        Ok(())
+    }
 }

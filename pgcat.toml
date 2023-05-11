@@ -154,29 +154,29 @@ connect_timeout = 3000
 # Specifies how often (in seconds) cached ip addresses for servers are rechecked (see `dns_cache_enabled`).
 # dns_max_ttl = 30
 
-[plugins]
+[pool.sharded_db.plugins]
 
-[plugins.prewarmer]
-enabled = false
+[pools.sharded_db.plugins.prewarmer]
+enabled = true
 queries = [
   "SELECT pg_prewarm('pgbench_accounts')",
 ]
 
-[plugins.query_logger]
+[pools.sharded_db.plugins.query_logger]
 enabled = true
 
-[plugins.table_access]
-enabled = false
+[pools.sharded_db.plugins.table_access]
+enabled = true
 tables = [
   "pg_user",
   "pg_roles",
   "pg_database",
 ]
 
-[plugins.intercept]
+[pools.sharded_db.plugins.intercept]
 enabled = true
 
-[plugins.intercept.queries.0]
+[pools.sharded_db.plugins.intercept.queries.0]
 
 query = "select current_database() as a, current_schemas(false) as b"
 schema = [
@@ -187,7 +187,7 @@ result = [
   ["${DATABASE}", "{public}"],
 ]
 
-[plugins.intercept.queries.1]
+[pools.sharded_db.plugins.intercept.queries.1]
 
 query = "select current_database(), current_schema(), current_user"
 schema = [

@@ -17,7 +17,9 @@ use std::sync::{
 use std::time::Instant;
 use tokio::sync::Notify;
 
-use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, Role, User};
+use crate::config::{
+    get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
+};
 use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
@@ -133,6 +135,9 @@ pub struct PoolSettings {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    /// Plugins
+    pub plugins: Option<Plugins>,
 }
 
 impl Default for PoolSettings {
@@ -157,6 +162,7 @@ impl Default for PoolSettings {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            plugins: None,
         }
     }
 }
@@ -196,6 +202,7 @@ pub struct ConnectionPool {
     paused: Arc<AtomicBool>,
     paused_waiter: Arc<Notify>,
 
+    /// Statistics.
     pub stats: Arc<PoolStats>,
 
     /// AuthInfo
@@ -209,41 +216,6 @@ impl ConnectionPool {
 
         let mut new_pools = HashMap::new();
         let mut address_id: usize = 0;
-
-        // Enable plugins, if configured
-        if let Some(ref plugins) = config.plugins {
-            if let Some(ref intercept) = plugins.intercept {
-                if intercept.enabled {
-                    crate::plugins::intercept::setup(intercept, &new_pools);
-                } else {
-                    crate::plugins::intercept::disable();
-                }
-            }
-
-            if let Some(ref table_access) = plugins.table_access {
-                if table_access.enabled {
-                    crate::plugins::table_access::setup(table_access);
-                } else {
-                    crate::plugins::table_access::disable();
-                }
-            }
-
-            if let Some(ref query_logger) = plugins.query_logger {
-                if query_logger.enabled {
-                    crate::plugins::query_logger::setup();
-                } else {
-                    crate::plugins::query_logger::disable();
-                }
-            }
-
-            if let Some(ref prewarmer) = plugins.prewarmer {
-                if prewarmer.enabled {
-                    crate::plugins::prewarmer::setup(&prewarmer.queries);
-                } else {
-                    crate::plugins::prewarmer::disable();
-                }
-            }
-        }
 
         for (pool_name, pool_config) in &config.pools {
             let new_pool_hash_value = pool_config.hash_value();
@@ -388,6 +360,7 @@ impl ConnectionPool {
                             client_server_map.clone(),
                             pool_stats.clone(),
                             pool_auth_hash.clone(),
+                            pool_config.plugins.clone(),
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -413,7 +386,10 @@ impl ConnectionPool {
                             .min()
                             .unwrap();
 
-                        debug!("Pool reaper rate: {}ms", reaper_rate);
+                        debug!(
+                            "[pool: {}][user: {}] Pool reaper rate: {}ms",
+                            pool_name, user.username, reaper_rate
+                        );
 
                         let pool = Pool::builder()
                             .max_size(user.pool_size)
@@ -486,6 +462,7 @@ impl ConnectionPool {
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
+                        plugins: pool_config.plugins.clone(),
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
@@ -933,6 +910,7 @@ pub struct ServerPool {
     client_server_map: ClientServerMap,
     stats: Arc<PoolStats>,
     auth_hash: Arc<RwLock<Option<String>>>,
+    plugins: Option<Plugins>,
 }
 
 impl ServerPool {
@@ -943,6 +921,7 @@ impl ServerPool {
         client_server_map: ClientServerMap,
         stats: Arc<PoolStats>,
         auth_hash: Arc<RwLock<Option<String>>>,
+        plugins: Option<Plugins>,
     ) -> ServerPool {
         ServerPool {
             address,
@@ -951,6 +930,7 @@ impl ServerPool {
             client_server_map,
             stats,
             auth_hash,
+            plugins,
         }
     }
 }
@@ -984,8 +964,16 @@ impl ManageConnection for ServerPool {
         .await
         {
             Ok(mut conn) => {
-                if prewarmer::enabled() {
-                    prewarmer::run(&mut conn).await?;
+                if let Some(ref plugins) = self.plugins {
+                    if let Some(ref prewarmer) = plugins.prewarmer {
+                        let mut prewarmer = prewarmer::Prewarmer {
+                            enabled: prewarmer.enabled,
+                            server: &mut conn,
+                            queries: &prewarmer.queries,
+                        };
+
+                        prewarmer.run().await?;
+                    }
                 }
 
                 stats.idle();

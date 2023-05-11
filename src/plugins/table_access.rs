@@ -34,24 +34,30 @@ pub fn disable() {
     CONFIG.store(Arc::new(vec![]));
 }
 
-pub struct TableAccess;
+pub struct TableAccess<'a> {
+    pub enabled: bool,
+    pub tables: &'a Vec<String>,
+}
 
 #[async_trait]
-impl Plugin for TableAccess {
+impl<'a> Plugin for TableAccess<'a> {
     async fn run(
         &mut self,
         _query_router: &QueryRouter,
         ast: &Vec<Statement>,
     ) -> Result<PluginOutput, Error> {
+        if !self.enabled {
+            return Ok(PluginOutput::Allow);
+        }
+
         let mut found = None;
-        let forbidden_tables = CONFIG.load();
 
         visit_relations(ast, |relation| {
             let relation = relation.to_string();
             let parts = relation.split(".").collect::<Vec<&str>>();
             let table_name = parts.last().unwrap();
 
-            if forbidden_tables.contains(&table_name.to_string()) {
+            if self.tables.contains(&table_name.to_string()) {
                 found = Some(table_name.to_string());
                 ControlFlow::<()>::Break(())
             } else {

@@ -235,6 +235,8 @@ pub struct General {
     pub port: u16,
 
     pub enable_prometheus_exporter: Option<bool>,
+
+    #[serde(default = "General::default_prometheus_exporter_port")]
     pub prometheus_exporter_port: i16,
 
     #[serde(default = "General::default_connect_timeout")]
@@ -374,6 +376,10 @@ impl General {
     pub fn default_validate_config() -> bool {
         true
     }
+
+    pub fn default_prometheus_exporter_port() -> i16 {
+        9930
+    }
 }
 
 impl Default for General {
@@ -462,6 +468,7 @@ pub struct Pool {
     #[serde(default = "Pool::default_load_balancing_mode")]
     pub load_balancing_mode: LoadBalancingMode,
 
+    #[serde(default = "Pool::default_default_role")]
     pub default_role: String,
 
     #[serde(default)] // False
@@ -476,6 +483,7 @@ pub struct Pool {
 
     pub server_lifetime: Option<u64>,
 
+    #[serde(default = "Pool::default_sharding_function")]
     pub sharding_function: ShardingFunction,
 
     #[serde(default = "Pool::default_automatic_sharding_key")]
@@ -489,6 +497,7 @@ pub struct Pool {
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
 
+    pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
     // Note, don't put simple fields below these configs. There's a compatibility issue with TOML that makes it
@@ -519,6 +528,14 @@ impl Pool {
 
     pub fn default_automatic_sharding_key() -> Option<String> {
         None
+    }
+
+    pub fn default_default_role() -> String {
+        "any".into()
+    }
+
+    pub fn default_sharding_function() -> ShardingFunction {
+        ShardingFunction::PgBigintHash
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -609,6 +626,7 @@ impl Default for Pool {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: None,
+            plugins: None,
         }
     }
 }
@@ -687,7 +705,7 @@ impl Default for Shard {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Plugins {
     pub intercept: Option<Intercept>,
     pub table_access: Option<TableAccess>,
@@ -695,24 +713,24 @@ pub struct Plugins {
     pub prewarmer: Option<Prewarmer>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Intercept {
     pub enabled: bool,
     pub queries: BTreeMap<String, Query>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct TableAccess {
     pub enabled: bool,
     pub tables: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct QueryLogger {
     pub enabled: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Prewarmer {
     pub enabled: bool,
     pub queries: Vec<String>,
@@ -727,7 +745,7 @@ impl Intercept {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Query {
     pub query: String,
     pub schema: Vec<Vec<String>>,
