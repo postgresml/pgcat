@@ -156,8 +156,14 @@ connect_timeout = 3000
 
 [plugins]
 
-[plugins.query_logger]
+[plugins.prewarmer]
 enabled = false
+queries = [
+  "SELECT pg_prewarm('pgbench_accounts')",
+]
+
+[plugins.query_logger]
+enabled = true
 
 [plugins.table_access]
 enabled = false

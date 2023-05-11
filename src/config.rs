@@ -692,6 +692,7 @@ pub struct Plugins {
     pub intercept: Option<Intercept>,
     pub table_access: Option<TableAccess>,
     pub query_logger: Option<QueryLogger>,
+    pub prewarmer: Option<Prewarmer>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -709,6 +710,12 @@ pub struct TableAccess {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct QueryLogger {
     pub enabled: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Prewarmer {
+    pub enabled: bool,
+    pub queries: Vec<String>,
 }
 
 impl Intercept {

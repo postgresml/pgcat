@@ -21,6 +21,7 @@ use crate::config::{get_config, Address, General, LoadBalancingMode, PoolMode, R
 use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
+use crate::plugins::prewarmer;
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
 use crate::stats::{AddressStats, ClientStats, PoolStats, ServerStats};
@@ -208,6 +209,41 @@ impl ConnectionPool {
 
         let mut new_pools = HashMap::new();
         let mut address_id: usize = 0;
+
+        // Enable plugins, if configured
+        if let Some(ref plugins) = config.plugins {
+            if let Some(ref intercept) = plugins.intercept {
+                if intercept.enabled {
+                    crate::plugins::intercept::setup(intercept, &new_pools);
+                } else {
+                    crate::plugins::intercept::disable();
+                }
+            }
+
+            if let Some(ref table_access) = plugins.table_access {
+                if table_access.enabled {
+                    crate::plugins::table_access::setup(table_access);
+                } else {
+                    crate::plugins::table_access::disable();
+                }
+            }
+
+            if let Some(ref query_logger) = plugins.query_logger {
+                if query_logger.enabled {
+                    crate::plugins::query_logger::setup();
+                } else {
+                    crate::plugins::query_logger::disable();
+                }
+            }
+
+            if let Some(ref prewarmer) = plugins.prewarmer {
+                if prewarmer.enabled {
+                    crate::plugins::prewarmer::setup(&prewarmer.queries);
+                } else {
+                    crate::plugins::prewarmer::disable();
+                }
+            }
+        }
 
         for (pool_name, pool_config) in &config.pools {
             let new_pool_hash_value = pool_config.hash_value();
@@ -468,32 +504,6 @@ impl ConnectionPool {
 
                 // There is one pool per database/user pair.
                 new_pools.insert(PoolIdentifier::new(pool_name, &user.username), pool);
-            }
-        }
-
-        if let Some(ref plugins) = config.plugins {
-            if let Some(ref intercept) = plugins.intercept {
-                if intercept.enabled {
-                    crate::plugins::intercept::setup(intercept, &new_pools);
-                } else {
-                    crate::plugins::intercept::disable();
-                }
-            }
-
-            if let Some(ref table_access) = plugins.table_access {
-                if table_access.enabled {
-                    crate::plugins::table_access::setup(table_access);
-                } else {
-                    crate::plugins::table_access::disable();
-                }
-            }
-
-            if let Some(ref query_logger) = plugins.query_logger {
-                if query_logger.enabled {
-                    crate::plugins::query_logger::setup();
-                } else {
-                    crate::plugins::query_logger::disable();
-                }
             }
         }
 
@@ -973,7 +983,11 @@ impl ManageConnection for ServerPool {
         )
         .await
         {
-            Ok(conn) => {
+            Ok(mut conn) => {
+                if prewarmer::enabled() {
+                    prewarmer::run(&mut conn).await?;
+                }
+
                 stats.idle();
                 Ok(conn)
             }

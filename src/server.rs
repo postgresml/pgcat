@@ -928,6 +928,8 @@ impl Server {
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
+        debug!("Running `{}` on server {:?}", query, self.address);
+
         let query = simple_query(query);
 
         self.send(&query).await?;
