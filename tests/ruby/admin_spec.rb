@@ -20,15 +20,17 @@ describe "Admin" do
         connection.async_exec("SELECT pg_sleep(0.25)")
         connection.close
 
-        # wait for averages to be calculated, we shouldn't do this too often
-        sleep(15.5)
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
         results = admin_conn.async_exec("SHOW STATS")[0]
-        admin_conn.close
+        # Totals will be updated immediately, averages will be updated after 15 seconds
         expect(results["total_query_time"].to_i).to be_within(200).of(750)
-        expect(results["avg_query_time"].to_i).to_not eq(0)
-
         expect(results["total_wait_time"].to_i).to_not eq(0)
+
+        # wait for averages to be calculated, we shouldn't do this too often
+        sleep(15.5)
+        results = admin_conn.async_exec("SHOW STATS")[0]
+        admin_conn.close
+        expect(results["avg_query_time"].to_i).to_not eq(0)
         expect(results["avg_wait_time"].to_i).to_not eq(0)
       end
     end
