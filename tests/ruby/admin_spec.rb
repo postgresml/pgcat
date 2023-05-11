@@ -26,7 +26,7 @@ describe "Admin" do
         results = admin_conn.async_exec("SHOW STATS")[0]
         admin_conn.close
         expect(results["total_query_time"].to_i).to be_within(200).of(750)
-        expect(results["avg_query_time"].to_i).to_not eq(0)
+        expect(results["avg_query_time"].to_i).to be_within(20).of(50)
 
         expect(results["total_wait_time"].to_i).to_not eq(0)
         expect(results["avg_wait_time"].to_i).to_not eq(0)
