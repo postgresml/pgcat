@@ -139,6 +139,17 @@ impl ServerStats {
         self.address.stats.clone()
     }
 
+    pub fn check_address_stat_average_is_updated_status(&self) -> bool {
+        self.address.stats.averages_updated.load(Ordering::Relaxed)
+    }
+
+    pub fn set_address_stat_average_is_updated_status(&self, is_checked: bool) {
+        self.address
+            .stats
+            .averages_updated
+            .store(is_checked, Ordering::Relaxed);
+    }
+
     // Helper methods for show_servers
     pub fn pool_name(&self) -> String {
         self.pool_stats.database()
