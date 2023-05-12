@@ -14,11 +14,12 @@ describe "Admin" do
   describe "SHOW STATS" do
     context "clients connect and make one query" do
       it "updates *_query_time and *_wait_time" do
-        connection = PG::connect("#{pgcat_conn_str}?application_name=one_query")
-        connection.async_exec("SELECT pg_sleep(0.25)")
-        connection.async_exec("SELECT pg_sleep(0.25)")
-        connection.async_exec("SELECT pg_sleep(0.25)")
-        connection.close
+        connections = Array.new(3) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          Thread.new { c.async_exec("SELECT pg_sleep(0.25)") }
+        end
+        sleep(1)
+        connections.map(&:close)
 
         # wait for averages to be calculated, we shouldn't do this too often
         sleep(15.5)
@@ -26,7 +27,7 @@ describe "Admin" do
         results = admin_conn.async_exec("SHOW STATS")[0]
         admin_conn.close
         expect(results["total_query_time"].to_i).to be_within(200).of(750)
-        expect(results["avg_query_time"].to_i).to_not eq(0)
+        expect(results["avg_query_time"].to_i).to be_within(20).of(50)
 
         expect(results["total_wait_time"].to_i).to_not eq(0)
         expect(results["avg_wait_time"].to_i).to_not eq(0)

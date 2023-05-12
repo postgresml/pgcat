@@ -107,8 +107,19 @@ impl Collector {
             loop {
                 interval.tick().await;
 
-                for stats in SERVER_STATS.read().values() {
-                    stats.address_stats().update_averages();
+                // Hold read lock for duration of update to retain all server stats
+                let server_stats = SERVER_STATS.read();
+
+                for stats in server_stats.values() {
+                    if !stats.check_address_stat_average_is_updated_status() {
+                        stats.address_stats().update_averages();
+                        stats.set_address_stat_average_is_updated_status(true);
+                    }
+                }
+
+                // Reset to false for next update
+                for stats in server_stats.values() {
+                    stats.set_address_stat_average_is_updated_status(false);
                 }
             }
         });

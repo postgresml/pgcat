@@ -30,6 +30,9 @@ pub struct AddressStats {
     pub avg_xact_time: Arc<AtomicU64>,
     pub avg_xact_count: Arc<AtomicU64>,
     pub avg_wait_time: Arc<AtomicU64>,
+
+    // Determines if the averages have been updated since the last time they were reported
+    pub averages_updated: Arc<AtomicBool>,
 }
 
 impl IntoIterator for AddressStats {
@@ -114,15 +117,14 @@ impl AddressStats {
 
     pub fn update_averages(&self) {
         let (totals, averages, old_totals) = self.fields_iterators();
-        for data in itertools::izip!(totals, averages, old_totals) {
-            let (total, average, old_total) = data;
-            let total = total.load(Ordering::Relaxed);
-            let old = old_total.load(Ordering::Relaxed);
+        for (total, average, old_total) in itertools::izip!(totals, averages, old_totals) {
+            let total_value = total.load(Ordering::Relaxed);
+            let old_total_value = old_total.load(Ordering::Relaxed);
             average.store(
-                (total - old) / (crate::stats::STAT_PERIOD / 1_000),
+                (total_value - old_total_value) / (crate::stats::STAT_PERIOD / 1_000),
                 Ordering::Relaxed,
             ); // Avg / second
-            old_total.store(total, Ordering::Relaxed);
+            old_total.store(total_value, Ordering::Relaxed);
         }
     }
 
