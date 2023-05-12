@@ -41,7 +41,24 @@ module Helpers
             "1" => { "database" => "shard1", "servers" => [["localhost", primary1.port.to_s, "primary"]] },
             "2" => { "database" => "shard2", "servers" => [["localhost", primary2.port.to_s, "primary"]] },
           },
-          "users" => { "0" => user }
+          "users" => { "0" => user },
+          "plugins" => {
+            "intercept" => {
+              "enabled" => true,
+              "queries" => {
+                "0" => {
+                  "query" => "select current_database() as a, current_schemas(false) as b",
+                  "schema" => [
+                      ["a", "text"],
+                      ["b", "text"],
+                  ],
+                  "result" => [
+                    ["${DATABASE}", "{public}"],
+                  ]
+                }
+              }
+            }
+          }
         }
       }
       pgcat.update_config(pgcat_cfg)
