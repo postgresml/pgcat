@@ -9,6 +9,7 @@
 //!
 
 pub mod intercept;
+pub mod prewarmer;
 pub mod query_logger;
 pub mod table_access;
 

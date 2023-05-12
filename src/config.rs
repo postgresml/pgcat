@@ -122,6 +122,16 @@ impl Default for Address {
     }
 }
 
+impl std::fmt::Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "[address: {}:{}][database: {}][user: {}]",
+            self.host, self.port, self.database, self.username
+        )
+    }
+}
+
 // We need to implement PartialEq by ourselves so we skip stats in the comparison
 impl PartialEq for Address {
     fn eq(&self, other: &Self) -> bool {
@@ -235,6 +245,8 @@ pub struct General {
     pub port: u16,
 
     pub enable_prometheus_exporter: Option<bool>,
+
+    #[serde(default = "General::default_prometheus_exporter_port")]
     pub prometheus_exporter_port: i16,
 
     #[serde(default = "General::default_connect_timeout")]
@@ -374,6 +386,10 @@ impl General {
     pub fn default_validate_config() -> bool {
         true
     }
+
+    pub fn default_prometheus_exporter_port() -> i16 {
+        9930
+    }
 }
 
 impl Default for General {
@@ -462,6 +478,7 @@ pub struct Pool {
     #[serde(default = "Pool::default_load_balancing_mode")]
     pub load_balancing_mode: LoadBalancingMode,
 
+    #[serde(default = "Pool::default_default_role")]
     pub default_role: String,
 
     #[serde(default)] // False
@@ -476,6 +493,7 @@ pub struct Pool {
 
     pub server_lifetime: Option<u64>,
 
+    #[serde(default = "Pool::default_sharding_function")]
     pub sharding_function: ShardingFunction,
 
     #[serde(default = "Pool::default_automatic_sharding_key")]
@@ -489,6 +507,7 @@ pub struct Pool {
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
 
+    pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
     // Note, don't put simple fields below these configs. There's a compatibility issue with TOML that makes it
@@ -519,6 +538,14 @@ impl Pool {
 
     pub fn default_automatic_sharding_key() -> Option<String> {
         None
+    }
+
+    pub fn default_default_role() -> String {
+        "any".into()
+    }
+
+    pub fn default_sharding_function() -> ShardingFunction {
+        ShardingFunction::PgBigintHash
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -609,6 +636,7 @@ impl Default for Pool {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: None,
+            plugins: None,
         }
     }
 }
@@ -687,28 +715,48 @@ impl Default for Shard {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Plugins {
     pub intercept: Option<Intercept>,
     pub table_access: Option<TableAccess>,
     pub query_logger: Option<QueryLogger>,
+    pub prewarmer: Option<Prewarmer>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+impl std::fmt::Display for Plugins {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "interceptor: {}, table_access: {}, query_logger: {}, prewarmer: {}",
+            self.intercept.is_some(),
+            self.table_access.is_some(),
+            self.query_logger.is_some(),
+            self.prewarmer.is_some(),
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Intercept {
     pub enabled: bool,
     pub queries: BTreeMap<String, Query>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct TableAccess {
     pub enabled: bool,
     pub tables: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct QueryLogger {
     pub enabled: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+pub struct Prewarmer {
+    pub enabled: bool,
+    pub queries: Vec<String>,
 }
 
 impl Intercept {
@@ -720,7 +768,7 @@ impl Intercept {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Query {
     pub query: String,
     pub schema: Vec<Vec<String>>,
@@ -754,8 +802,13 @@ pub struct Config {
     #[serde(default = "Config::default_path")]
     pub path: String,
 
+    // General and global settings.
     pub general: General,
+
+    // Plugins that should run in all pools.
     pub plugins: Option<Plugins>,
+
+    // Connection pools.
     pub pools: HashMap<String, Pool>,
 }
 
@@ -940,6 +993,13 @@ impl Config {
             "Server TLS certificate verification: {}",
             self.general.verify_server_certificate
         );
+        info!(
+            "Plugins: {}",
+            match self.plugins {
+                Some(ref plugins) => plugins.to_string(),
+                None => "not configured".into(),
+            }
+        );
 
         for (pool_name, pool_config) in &self.pools {
             // TODO: Make this output prettier (maybe a table?)
@@ -1004,6 +1064,14 @@ impl Config {
                 match pool_config.server_lifetime {
                     Some(server_lifetime) => format!("{}ms", server_lifetime),
                     None => "default".to_string(),
+                }
+            );
+            info!(
+                "[pool: {}] Plugins: {}",
+                pool_name,
+                match pool_config.plugins {
+                    Some(ref plugins) => plugins.to_string(),
+                    None => "not configured".into(),
                 }
             );
 
