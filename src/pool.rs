@@ -360,7 +360,10 @@ impl ConnectionPool {
                             client_server_map.clone(),
                             pool_stats.clone(),
                             pool_auth_hash.clone(),
-                            pool_config.plugins.clone(),
+                            match pool_config.plugins {
+                                Some(ref plugins) => Some(plugins.clone()),
+                                None => config.plugins.clone(),
+                            },
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -462,7 +465,10 @@ impl ConnectionPool {
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
-                        plugins: pool_config.plugins.clone(),
+                        plugins: match pool_config.plugins {
+                            Some(ref plugins) => Some(plugins.clone()),
+                            None => config.plugins.clone(),
+                        },
                     },
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),

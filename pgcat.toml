@@ -77,6 +77,58 @@ admin_username = "admin_user"
 # Password to access the virtual administrative database
 admin_password = "admin_pass"
 
+# Default plugins that are configured on all pools.
+[plugins]
+
+# Prewarmer plugin that runs queries on server startup, before giving the connection
+# to the client.
+[plugins.prewarmer]
+enabled = false
+queries = [
+  "SELECT pg_prewarm('pgbench_accounts')",
+]
+
+# Log all queries to stdout.
+[plugins.query_logger]
+enabled = false
+
+# Block access to tables that Postgres does not allow us to control.
+[plugins.table_access]
+enabled = false
+tables = [
+  "pg_user",
+  "pg_roles",
+  "pg_database",
+]
+
+# Intercept user queries and give a fake reply.
+[plugins.intercept]
+enabled = true
+
+[plugins.intercept.queries.0]
+
+query = "select current_database() as a, current_schemas(false) as b"
+schema = [
+  ["a", "text"],
+  ["b", "text"],
+]
+result = [
+  ["${DATABASE}", "{public}"],
+]
+
+[plugins.intercept.queries.1]
+
+query = "select current_database(), current_schema(), current_user"
+schema = [
+  ["current_database", "text"],
+  ["current_schema", "text"],
+  ["current_user", "text"],
+]
+result = [
+  ["${DATABASE}", "public", "${USER}"],
+]
+
+
 # pool configs are structured as pool.<pool_name>
 # the pool_name is what clients use as database name when connecting.
 # For a pool named `sharded_db`, clients access that pool using connection string like
@@ -154,10 +206,12 @@ connect_timeout = 3000
 # Specifies how often (in seconds) cached ip addresses for servers are rechecked (see `dns_cache_enabled`).
 # dns_max_ttl = 30
 
+# Plugins can be configured on a pool-per-pool basis. This overrides the global plugins setting,
+# so all plugins have to be configured here again.
 [pool.sharded_db.plugins]
 
 [pools.sharded_db.plugins.prewarmer]
-enabled = false
+enabled = true
 queries = [
   "SELECT pg_prewarm('pgbench_accounts')",
 ]

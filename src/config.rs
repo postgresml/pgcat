@@ -122,6 +122,16 @@ impl Default for Address {
     }
 }
 
+impl std::fmt::Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "[address: {}:{}][database: {}][user: {}]",
+            self.host, self.port, self.database, self.username
+        )
+    }
+}
+
 // We need to implement PartialEq by ourselves so we skip stats in the comparison
 impl PartialEq for Address {
     fn eq(&self, other: &Self) -> bool {
@@ -713,6 +723,19 @@ pub struct Plugins {
     pub prewarmer: Option<Prewarmer>,
 }
 
+impl std::fmt::Display for Plugins {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "interceptor: {}, table_access: {}, query_logger: {}, prewarmer: {}",
+            self.intercept.is_some(),
+            self.table_access.is_some(),
+            self.query_logger.is_some(),
+            self.prewarmer.is_some(),
+        )
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Intercept {
     pub enabled: bool,
@@ -779,8 +802,13 @@ pub struct Config {
     #[serde(default = "Config::default_path")]
     pub path: String,
 
+    // General and global settings.
     pub general: General,
+
+    // Plugins that should run in all pools.
     pub plugins: Option<Plugins>,
+
+    // Connection pools.
     pub pools: HashMap<String, Pool>,
 }
 
@@ -965,6 +993,13 @@ impl Config {
             "Server TLS certificate verification: {}",
             self.general.verify_server_certificate
         );
+        info!(
+            "Plugins: {}",
+            match self.plugins {
+                Some(ref plugins) => plugins.to_string(),
+                None => "not configured".into(),
+            }
+        );
 
         for (pool_name, pool_config) in &self.pools {
             // TODO: Make this output prettier (maybe a table?)
@@ -1029,6 +1064,14 @@ impl Config {
                 match pool_config.server_lifetime {
                     Some(server_lifetime) => format!("{}ms", server_lifetime),
                     None => "default".to_string(),
+                }
+            );
+            info!(
+                "[pool: {}] Plugins: {}",
+                pool_name,
+                match pool_config.plugins {
+                    Some(ref plugins) => plugins.to_string(),
+                    None => "not configured".into(),
                 }
             );
 

@@ -16,7 +16,7 @@ impl<'a> Prewarmer<'a> {
 
         for query in self.queries {
             info!(
-                "Prewarning {:?} with query: `{}`",
+                "{} Prewarning with query: `{}`",
                 self.server.address(),
                 query
             );
