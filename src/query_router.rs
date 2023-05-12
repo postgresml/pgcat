@@ -1176,6 +1176,7 @@ mod test {
             auth_query_password: None,
             auth_query_user: None,
             db: "test".to_string(),
+            plugins: None,
         };
         let mut qr = QueryRouter::new();
         assert_eq!(qr.active_role, None);
@@ -1250,7 +1251,9 @@ mod test {
             auth_query_password: None,
             auth_query_user: None,
             db: "test".to_string(),
+            plugins: None,
         };
+
         let mut qr = QueryRouter::new();
         qr.update_pool_settings(pool_settings.clone());
 
@@ -1394,17 +1397,25 @@ mod test {
 
     #[tokio::test]
     async fn test_table_access_plugin() {
-        use crate::config::TableAccess;
-        let ta = TableAccess {
+        use crate::config::{Plugins, TableAccess};
+        let table_access = TableAccess {
             enabled: true,
             tables: vec![String::from("pg_database")],
         };
-
-        crate::plugins::table_access::setup(&ta);
+        let plugins = Plugins {
+            table_access: Some(table_access),
+            intercept: None,
+            query_logger: None,
+            prewarmer: None,
+        };
 
         QueryRouter::setup();
+        let mut pool_settings = PoolSettings::default();
+        pool_settings.query_parser_enabled = true;
+        pool_settings.plugins = Some(plugins);
 
-        let qr = QueryRouter::new();
+        let mut qr = QueryRouter::new();
+        qr.update_pool_settings(pool_settings);
 
         let query = simple_query("SELECT * FROM pg_database");
         let ast = QueryRouter::parse(&query).unwrap();
@@ -1417,5 +1428,18 @@ mod test {
                 "permission for table \"pg_database\" denied".to_string()
             ))
         );
+    }
+
+    #[tokio::test]
+    async fn test_plugins_disabled_by_defaault() {
+        QueryRouter::setup();
+        let qr = QueryRouter::new();
+
+        let query = simple_query("SELECT * FROM pg_database");
+        let ast = QueryRouter::parse(&query).unwrap();
+
+        let res = qr.execute_plugins(&ast).await;
+
+        assert_eq!(res, Ok(PluginOutput::Allow));
     }
 }
