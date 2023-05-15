@@ -165,9 +165,13 @@ impl AddressStats {
                 // This means we should average by some corresponding field, ie. number of queries
                 Some(corresponding_stat) => {
                     let corresponding_stat_value = corresponding_stat.load(Ordering::Relaxed);
-                    count_field
-                        .average
-                        .store(current_value / corresponding_stat_value, Ordering::Relaxed);
+                    if corresponding_stat_value == 0 {
+                        count_field.average.store(0, Ordering::Relaxed);
+                    } else {
+                        count_field
+                            .average
+                            .store(current_value / corresponding_stat_value, Ordering::Relaxed);
+                    }
                 }
             };
         }
