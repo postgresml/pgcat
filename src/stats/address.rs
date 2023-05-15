@@ -119,7 +119,7 @@ impl AddressStats {
     }
 
     pub fn bytes_received_add(&self, bytes: u64) {
-        self.totals
+        self.total
             .bytes_received
             .fetch_add(bytes, Ordering::Relaxed);
         self.current
