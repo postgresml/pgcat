@@ -101,12 +101,6 @@ impl IntoIterator for AddressStats {
     }
 }
 
-struct CountStatField {
-    current: Arc<AtomicU64>,
-    corresponding_stat: Option<Arc<AtomicU64>>,
-    average: Arc<AtomicU64>,
-}
-
 impl AddressStats {
     pub fn xact_count_add(&self) {
         self.total.xact_count.fetch_add(1, Ordering::Relaxed);
@@ -153,92 +147,72 @@ impl AddressStats {
     }
 
     pub fn update_averages(&self) {
-        for count_field in self.count_fields_iterator() {
-            let current_value = count_field.current.load(Ordering::Relaxed);
+        let stat_period_per_second = crate::stats::STAT_PERIOD / 1_000;
 
-            match count_field.corresponding_stat {
-                // This means that averaging by time makes sense here
-                None => count_field.average.store(
-                    current_value / (crate::stats::STAT_PERIOD / 1_000),
-                    Ordering::Relaxed,
-                ),
-                // This means we should average by some corresponding field, ie. number of queries
-                Some(corresponding_stat) => {
-                    let corresponding_stat_value = corresponding_stat.load(Ordering::Relaxed);
-                    if corresponding_stat_value == 0 {
-                        count_field.average.store(0, Ordering::Relaxed);
-                    } else {
-                        count_field
-                            .average
-                            .store(current_value / corresponding_stat_value, Ordering::Relaxed);
-                    }
-                }
-            };
-        }
+        // xact_count
+        let current_xact_count = self.current.xact_count.load(Ordering::Relaxed);
+        let current_xact_time = self.current.xact_time.load(Ordering::Relaxed);
+        self.averages.xact_count.store(
+            current_xact_count / stat_period_per_second,
+            Ordering::Relaxed,
+        );
+        self.averages
+            .xact_time
+            .store(current_xact_time / current_xact_count, Ordering::Relaxed);
 
-        // Reset current counts to 0
-        for count_field in self.count_fields_iterator() {
-            count_field.current.store(0, Ordering::Relaxed);
-        }
+        // query_count
+        let current_query_count = self.current.query_count.load(Ordering::Relaxed);
+        let current_query_time = self.current.query_time.load(Ordering::Relaxed);
+        self.averages.query_count.store(
+            current_query_count / stat_period_per_second,
+            Ordering::Relaxed,
+        );
+        self.averages
+            .query_time
+            .store(current_query_time / current_query_count, Ordering::Relaxed);
+
+        // bytes_received
+        let current_bytes_received = self.current.bytes_received.load(Ordering::Relaxed);
+        self.averages.bytes_received.store(
+            current_bytes_received / stat_period_per_second,
+            Ordering::Relaxed,
+        );
+
+        // bytes_sent
+        let current_bytes_sent = self.current.bytes_sent.load(Ordering::Relaxed);
+        self.averages.bytes_sent.store(
+            current_bytes_sent / stat_period_per_second,
+            Ordering::Relaxed,
+        );
+
+        // wait_time
+        let current_wait_time = self.current.wait_time.load(Ordering::Relaxed);
+        self.averages.wait_time.store(
+            current_wait_time / stat_period_per_second,
+            Ordering::Relaxed,
+        );
+
+        // errors
+        let current_errors = self.current.errors.load(Ordering::Relaxed);
+        self.averages
+            .errors
+            .store(current_errors / stat_period_per_second, Ordering::Relaxed);
+    }
+
+    pub fn reset_current_counts(&self) {
+        self.current.xact_count.store(0, Ordering::Relaxed);
+        self.current.xact_time.store(0, Ordering::Relaxed);
+        self.current.query_count.store(0, Ordering::Relaxed);
+        self.current.query_time.store(0, Ordering::Relaxed);
+        self.current.bytes_received.store(0, Ordering::Relaxed);
+        self.current.bytes_sent.store(0, Ordering::Relaxed);
+        self.current.wait_time.store(0, Ordering::Relaxed);
+        self.current.errors.store(0, Ordering::Relaxed);
     }
 
     pub fn populate_row(&self, row: &mut Vec<String>) {
         for (_key, value) in self.clone() {
             row.push(value.to_string());
         }
-    }
-
-    fn count_fields_iterator(&self) -> Vec<CountStatField> {
-        let mut count_fields: Vec<CountStatField> = Vec::new();
-
-        count_fields.push(CountStatField {
-            current: self.current.xact_count.clone(),
-            corresponding_stat: None,
-            average: self.averages.xact_count.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.query_count.clone(),
-            corresponding_stat: None,
-            average: self.averages.query_count.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.bytes_received.clone(),
-            corresponding_stat: None,
-            average: self.averages.bytes_received.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.bytes_sent.clone(),
-            corresponding_stat: None,
-            average: self.averages.bytes_sent.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.xact_time.clone(),
-            corresponding_stat: Some(self.total.xact_count.clone()),
-            average: self.averages.xact_time.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.query_time.clone(),
-            corresponding_stat: Some(self.total.query_count.clone()),
-            average: self.averages.query_time.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.wait_time.clone(),
-            corresponding_stat: None,
-            average: self.averages.wait_time.clone(),
-        });
-
-        count_fields.push(CountStatField {
-            current: self.current.errors.clone(),
-            corresponding_stat: None,
-            average: self.averages.errors.clone(),
-        });
-
-        count_fields
     }
 }
