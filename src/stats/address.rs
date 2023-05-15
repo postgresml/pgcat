@@ -156,9 +156,13 @@ impl AddressStats {
             current_xact_count / stat_period_per_second,
             Ordering::Relaxed,
         );
-        self.averages
-            .xact_time
-            .store(current_xact_time / current_xact_count, Ordering::Relaxed);
+        if current_xact_count == 0 {
+            self.averages.xact_time.store(0, Ordering::Relaxed);
+        } else {
+            self.averages
+                .xact_time
+                .store(current_xact_time / current_xact_count, Ordering::Relaxed);
+        }
 
         // query_count
         let current_query_count = self.current.query_count.load(Ordering::Relaxed);
@@ -167,9 +171,13 @@ impl AddressStats {
             current_query_count / stat_period_per_second,
             Ordering::Relaxed,
         );
-        self.averages
-            .query_time
-            .store(current_query_time / current_query_count, Ordering::Relaxed);
+        if current_query_count == 0 {
+            self.averages.query_time.store(0, Ordering::Relaxed);
+        } else {
+            self.averages
+                .query_time
+                .store(current_query_time / current_query_count, Ordering::Relaxed);
+        }
 
         // bytes_received
         let current_bytes_received = self.current.bytes_received.load(Ordering::Relaxed);
