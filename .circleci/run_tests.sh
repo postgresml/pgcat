@@ -32,82 +32,81 @@ sleep 1
 # Create a database at port 5433, forward it to Postgres
 toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
 
-# start_pgcat "info"
+start_pgcat "info"
 
-# # Check that prometheus is running
-# curl --fail localhost:9930/metrics
+# Check that prometheus is running
+curl --fail localhost:9930/metrics
 
-# export PGPASSWORD=sharding_user
-# export PGDATABASE=sharded_db
+export PGPASSWORD=sharding_user
+export PGDATABASE=sharded_db
 
-# # pgbench test
-# pgbench -U sharding_user -i -h 127.0.0.1 -p 6432
-# pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/simple.sql
-# pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
+# pgbench test
+pgbench -U sharding_user -i -h 127.0.0.1 -p 6432
+pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol simple -f tests/pgbench/simple.sql
+pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended
 
-# # COPY TO STDOUT test
-# psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
+# COPY TO STDOUT test
+psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'COPY (SELECT * FROM pgbench_accounts LIMIT 15) TO STDOUT;' > /dev/null
 
-# # Query cancellation test
-# (psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
-# sleep 1
-# killall psql -s SIGINT
+# Query cancellation test
+(psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+sleep 1
+killall psql -s SIGINT
 
-# # Pause/resume test.
-# # Running benches before, during, and after pause/resume.
-# pgbench -U sharding_user -t 500 -c 2 -h 127.0.0.1 -p 6432 --protocol extended &
-# BENCH_ONE=$!
-# PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'PAUSE sharded_db,sharding_user'
-# pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended &
-# BENCH_TWO=$!
-# PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RESUME sharded_db,sharding_user'
-# wait ${BENCH_ONE}
-# wait ${BENCH_TWO}
+# Pause/resume test.
+# Running benches before, during, and after pause/resume.
+pgbench -U sharding_user -t 500 -c 2 -h 127.0.0.1 -p 6432 --protocol extended &
+BENCH_ONE=$!
+PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'PAUSE sharded_db,sharding_user'
+pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol extended &
+BENCH_TWO=$!
+PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RESUME sharded_db,sharding_user'
+wait ${BENCH_ONE}
+wait ${BENCH_TWO}
 
-# # Reload pool (closing unused server connections)
-# PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD'
+# Reload pool (closing unused server connections)
+PGPASSWORD=admin_pass psql -U admin_user -h 127.0.0.1 -p 6432 -d pgbouncer -c 'RELOAD'
 
-# (psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
-# sleep 1
-# killall psql -s SIGINT
+(psql -U sharding_user -h 127.0.0.1 -p 6432 -c 'SELECT pg_sleep(50)' || true) &
+sleep 1
+killall psql -s SIGINT
 
-# # Sharding insert
-# psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_insert.sql
+# Sharding insert
+psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_insert.sql
 
-# # Sharding select
-# psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /dev/null
+# Sharding select
+psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_select.sql > /dev/null
 
-# # Replica/primary selection & more sharding tests
-# psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
+# Replica/primary selection & more sharding tests
+psql -U sharding_user -e -h 127.0.0.1 -p 6432 -f tests/sharding/query_routing_test_primary_replica.sql > /dev/null
 
-# # Statement timeout tests
-# sed -i 's/statement_timeout = 0/statement_timeout = 100/' .circleci/pgcat.toml
-# kill -SIGHUP $(pgrep pgcat) # Reload config
-# sleep 0.2
+# Statement timeout tests
+sed -i 's/statement_timeout = 0/statement_timeout = 100/' .circleci/pgcat.toml
+kill -SIGHUP $(pgrep pgcat) # Reload config
+sleep 0.2
 
-# # This should timeout
-# (! psql -U sharding_user -e -h 127.0.0.1 -p 6432 -c 'select pg_sleep(0.5)')
+# This should timeout
+(! psql -U sharding_user -e -h 127.0.0.1 -p 6432 -c 'select pg_sleep(0.5)')
 
-# # Disable statement timeout
-# sed -i 's/statement_timeout = 100/statement_timeout = 0/' .circleci/pgcat.toml
-# kill -SIGHUP $(pgrep pgcat) # Reload config again
+# Disable statement timeout
+sed -i 's/statement_timeout = 100/statement_timeout = 0/' .circleci/pgcat.toml
+kill -SIGHUP $(pgrep pgcat) # Reload config again
 
 #
 # Integration tests and ActiveRecord tests
 #
 cd tests/ruby
 sudo bundle install
-bundle exec rspec admin_spec.rb --format documentation || exit 1
-# bundle exec ruby tests.rb --format documentation || exit 1
-# bundle exec rspec *_spec.rb --format documentation || exit 1
+bundle exec ruby tests.rb --format documentation || exit 1
+bundle exec rspec *_spec.rb --format documentation || exit 1
 cd ../..
 
 #
 # Python tests
 # These tests will start and stop the pgcat server so it will need to be restarted after the tests
 #
-# pip3 install -r tests/python/requirements.txt
-# python3 tests/python/tests.py || exit 1
+pip3 install -r tests/python/requirements.txt
+python3 tests/python/tests.py || exit 1
 
 start_pgcat "info"
 
