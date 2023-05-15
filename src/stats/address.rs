@@ -1,35 +1,26 @@
 use std::sync::atomic::*;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Default)]
+struct AddressStatFields {
+    xact_count: Arc<AtomicU64>,
+    query_count: Arc<AtomicU64>,
+    bytes_received: Arc<AtomicU64>,
+    bytes_sent: Arc<AtomicU64>,
+    xact_time: Arc<AtomicU64>,
+    query_time: Arc<AtomicU64>,
+    wait_time: Arc<AtomicU64>,
+    errors: Arc<AtomicU64>,
+}
+
 /// Internal address stats
 #[derive(Debug, Clone, Default)]
 pub struct AddressStats {
-    pub total_xact_count: Arc<AtomicU64>,
-    pub total_query_count: Arc<AtomicU64>,
-    pub total_received: Arc<AtomicU64>,
-    pub total_sent: Arc<AtomicU64>,
-    pub total_xact_time: Arc<AtomicU64>,
-    pub total_query_time: Arc<AtomicU64>,
-    pub total_wait_time: Arc<AtomicU64>,
-    pub total_errors: Arc<AtomicU64>,
+    total: AddressStatFields,
 
-    pub old_total_xact_count: Arc<AtomicU64>,
-    pub old_total_query_count: Arc<AtomicU64>,
-    pub old_total_received: Arc<AtomicU64>,
-    pub old_total_sent: Arc<AtomicU64>,
-    pub old_total_xact_time: Arc<AtomicU64>,
-    pub old_total_query_time: Arc<AtomicU64>,
-    pub old_total_wait_time: Arc<AtomicU64>,
-    pub old_total_errors: Arc<AtomicU64>,
+    current: AddressStatFields,
 
-    pub avg_query_count: Arc<AtomicU64>,
-    pub avg_query_time: Arc<AtomicU64>,
-    pub avg_recv: Arc<AtomicU64>,
-    pub avg_sent: Arc<AtomicU64>,
-    pub avg_errors: Arc<AtomicU64>,
-    pub avg_xact_time: Arc<AtomicU64>,
-    pub avg_xact_count: Arc<AtomicU64>,
-    pub avg_wait_time: Arc<AtomicU64>,
+    averages: AddressStatFields,
 
     // Determines if the averages have been updated since the last time they were reported
     pub averages_updated: Arc<AtomicBool>,
@@ -43,88 +34,147 @@ impl IntoIterator for AddressStats {
         vec![
             (
                 "total_xact_count".to_string(),
-                self.total_xact_count.load(Ordering::Relaxed),
+                self.total.xact_count.load(Ordering::Relaxed),
             ),
             (
                 "total_query_count".to_string(),
-                self.total_query_count.load(Ordering::Relaxed),
+                self.total.query_count.load(Ordering::Relaxed),
             ),
             (
                 "total_received".to_string(),
-                self.total_received.load(Ordering::Relaxed),
+                self.total.bytes_received.load(Ordering::Relaxed),
             ),
             (
                 "total_sent".to_string(),
-                self.total_sent.load(Ordering::Relaxed),
+                self.total.bytes_sent.load(Ordering::Relaxed),
             ),
             (
                 "total_xact_time".to_string(),
-                self.total_xact_time.load(Ordering::Relaxed),
+                self.total.xact_time.load(Ordering::Relaxed),
             ),
             (
                 "total_query_time".to_string(),
-                self.total_query_time.load(Ordering::Relaxed),
+                self.total.query_time.load(Ordering::Relaxed),
             ),
             (
                 "total_wait_time".to_string(),
-                self.total_wait_time.load(Ordering::Relaxed),
+                self.total.wait_time.load(Ordering::Relaxed),
             ),
             (
                 "total_errors".to_string(),
-                self.total_errors.load(Ordering::Relaxed),
+                self.total.errors.load(Ordering::Relaxed),
             ),
             (
                 "avg_xact_count".to_string(),
-                self.avg_xact_count.load(Ordering::Relaxed),
+                self.averages.xact_count.load(Ordering::Relaxed),
             ),
             (
                 "avg_query_count".to_string(),
-                self.avg_query_count.load(Ordering::Relaxed),
+                self.averages.query_count.load(Ordering::Relaxed),
             ),
             (
                 "avg_recv".to_string(),
-                self.avg_recv.load(Ordering::Relaxed),
+                self.averages.bytes_received.load(Ordering::Relaxed),
             ),
             (
                 "avg_sent".to_string(),
-                self.avg_sent.load(Ordering::Relaxed),
+                self.averages.bytes_sent.load(Ordering::Relaxed),
             ),
             (
                 "avg_errors".to_string(),
-                self.avg_errors.load(Ordering::Relaxed),
+                self.averages.errors.load(Ordering::Relaxed),
             ),
             (
                 "avg_xact_time".to_string(),
-                self.avg_xact_time.load(Ordering::Relaxed),
+                self.averages.xact_time.load(Ordering::Relaxed),
             ),
             (
                 "avg_query_time".to_string(),
-                self.avg_query_time.load(Ordering::Relaxed),
+                self.averages.query_time.load(Ordering::Relaxed),
             ),
             (
                 "avg_wait_time".to_string(),
-                self.avg_wait_time.load(Ordering::Relaxed),
+                self.averages.wait_time.load(Ordering::Relaxed),
             ),
         ]
         .into_iter()
     }
 }
 
+struct CountStatField {
+    current: Arc<AtomicU64>,
+    corresponding_stat: Option<Arc<AtomicU64>>,
+    average: Arc<AtomicU64>,
+}
+
 impl AddressStats {
+    pub fn xact_count_add(&self) {
+        self.total.xact_count.fetch_add(1, Ordering::Relaxed);
+        self.current.xact_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn query_count_add(&self) {
+        self.total.query_count.fetch_add(1, Ordering::Relaxed);
+        self.current.query_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn bytes_received_add(&self, bytes: u64) {
+        self.totals
+            .bytes_received
+            .fetch_add(bytes, Ordering::Relaxed);
+        self.current
+            .bytes_received
+            .fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn bytes_sent_add(&self, bytes: u64) {
+        self.total.bytes_sent.fetch_add(bytes, Ordering::Relaxed);
+        self.current.bytes_sent.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn xact_time_add(&self, time: u64) {
+        self.total.xact_time.fetch_add(time, Ordering::Relaxed);
+        self.current.xact_time.fetch_add(time, Ordering::Relaxed);
+    }
+
+    pub fn query_time_add(&self, time: u64) {
+        self.total.query_time.fetch_add(time, Ordering::Relaxed);
+        self.current.query_time.fetch_add(time, Ordering::Relaxed);
+    }
+
+    pub fn wait_time_add(&self, time: u64) {
+        self.total.wait_time.fetch_add(time, Ordering::Relaxed);
+        self.current.wait_time.fetch_add(time, Ordering::Relaxed);
+    }
+
     pub fn error(&self) {
-        self.total_errors.fetch_add(1, Ordering::Relaxed);
+        self.total.errors.fetch_add(1, Ordering::Relaxed);
+        self.current.errors.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn update_averages(&self) {
-        let (totals, averages, old_totals) = self.fields_iterators();
-        for (total, average, old_total) in itertools::izip!(totals, averages, old_totals) {
-            let total_value = total.load(Ordering::Relaxed);
-            let old_total_value = old_total.load(Ordering::Relaxed);
-            average.store(
-                (total_value - old_total_value) / (crate::stats::STAT_PERIOD / 1_000),
-                Ordering::Relaxed,
-            ); // Avg / second
-            old_total.store(total_value, Ordering::Relaxed);
+        for count_field in self.count_fields_iterator() {
+            let current_value = count_field.current.load(Ordering::Relaxed);
+
+            match count_field.corresponding_stat {
+                // This means that averaging by time makes sense here
+                None => count_field.average.store(
+                    current_value / (crate::stats::STAT_PERIOD / 1_000),
+                    Ordering::Relaxed,
+                ),
+                // This means we should average by some corresponding field, ie. number of queries
+                Some(corresponding_stat) => {
+                    let corresponding_stat_value = corresponding_stat.load(Ordering::Relaxed);
+                    count_field
+                        .average
+                        .store(current_value / corresponding_stat_value, Ordering::Relaxed);
+                }
+            };
+        }
+
+        // Reset current counts to 0
+        for count_field in self.count_fields_iterator() {
+            count_field.current.store(0, Ordering::Relaxed);
         }
     }
 
@@ -134,42 +184,57 @@ impl AddressStats {
         }
     }
 
-    fn fields_iterators(
-        &self,
-    ) -> (
-        Vec<Arc<AtomicU64>>,
-        Vec<Arc<AtomicU64>>,
-        Vec<Arc<AtomicU64>>,
-    ) {
-        let mut totals: Vec<Arc<AtomicU64>> = Vec::new();
-        let mut averages: Vec<Arc<AtomicU64>> = Vec::new();
-        let mut old_totals: Vec<Arc<AtomicU64>> = Vec::new();
+    fn count_fields_iterator(&self) -> Vec<CountStatField> {
+        let mut count_fields: Vec<CountStatField> = Vec::new();
 
-        totals.push(self.total_xact_count.clone());
-        old_totals.push(self.old_total_xact_count.clone());
-        averages.push(self.avg_xact_count.clone());
-        totals.push(self.total_query_count.clone());
-        old_totals.push(self.old_total_query_count.clone());
-        averages.push(self.avg_query_count.clone());
-        totals.push(self.total_received.clone());
-        old_totals.push(self.old_total_received.clone());
-        averages.push(self.avg_recv.clone());
-        totals.push(self.total_sent.clone());
-        old_totals.push(self.old_total_sent.clone());
-        averages.push(self.avg_sent.clone());
-        totals.push(self.total_xact_time.clone());
-        old_totals.push(self.old_total_xact_time.clone());
-        averages.push(self.avg_xact_time.clone());
-        totals.push(self.total_query_time.clone());
-        old_totals.push(self.old_total_query_time.clone());
-        averages.push(self.avg_query_time.clone());
-        totals.push(self.total_wait_time.clone());
-        old_totals.push(self.old_total_wait_time.clone());
-        averages.push(self.avg_wait_time.clone());
-        totals.push(self.total_errors.clone());
-        old_totals.push(self.old_total_errors.clone());
-        averages.push(self.avg_errors.clone());
+        count_fields.push(CountStatField {
+            current: self.current.xact_count.clone(),
+            corresponding_stat: None,
+            average: self.averages.xact_count.clone(),
+        });
 
-        (totals, averages, old_totals)
+        count_fields.push(CountStatField {
+            current: self.current.query_count.clone(),
+            corresponding_stat: None,
+            average: self.averages.query_count.clone(),
+        });
+
+        count_fields.push(CountStatField {
+            current: self.current.bytes_received.clone(),
+            corresponding_stat: None,
+            average: self.averages.bytes_received.clone(),
+        });
+
+        count_fields.push(CountStatField {
+            current: self.current.bytes_sent.clone(),
+            corresponding_stat: None,
+            average: self.averages.bytes_sent.clone(),
+        });
+
+        count_fields.push(CountStatField {
+            current: self.current.xact_time.clone(),
+            corresponding_stat: Some(self.total.xact_count.clone()),
+            average: self.averages.xact_time.clone(),
+        });
+
+        count_fields.push(CountStatField {
+            current: self.current.query_time.clone(),
+            corresponding_stat: Some(self.total.query_count.clone()),
+            average: self.averages.query_time.clone(),
+        });
+
+        count_fields.push(CountStatField {
+            current: self.current.wait_time.clone(),
+            corresponding_stat: None,
+            average: self.averages.wait_time.clone(),
+        });
+
+        count_fields.push(CountStatField {
+            current: self.current.errors.clone(),
+            corresponding_stat: None,
+            average: self.averages.errors.clone(),
+        });
+
+        count_fields
     }
 }
