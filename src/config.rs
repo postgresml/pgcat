@@ -313,6 +313,9 @@ pub struct General {
     #[serde(default = "General::default_validate_config")]
     pub validate_config: bool,
 
+    #[serde(default = "General::default_cleanup_server_connections")]
+    pub cleanup_server_connections: bool,
+
     // Support for auth query
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -390,6 +393,10 @@ impl General {
     pub fn default_prometheus_exporter_port() -> i16 {
         9930
     }
+
+    pub fn default_cleanup_server_connections() -> bool {
+        true
+    }
 }
 
 impl Default for General {
@@ -426,6 +433,7 @@ impl Default for General {
             auth_query_password: None,
             server_lifetime: 1000 * 3600 * 24, // 24 hours,
             validate_config: true,
+            cleanup_server_connections: true,
         }
     }
 }
@@ -487,10 +495,15 @@ pub struct Pool {
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
+    /// Maximum time to allow for establishing a new server connection.
     pub connect_timeout: Option<u64>,
 
+    /// Close idle connections that have been opened for longer than this.
     pub idle_timeout: Option<u64>,
 
+    /// Close server connections that have been opened for longer than this.
+    /// Only applied to idle connections. If the connection is actively used for
+    /// longer than this period, the pool will not interrupt it.
     pub server_lifetime: Option<u64>,
 
     #[serde(default = "Pool::default_sharding_function")]

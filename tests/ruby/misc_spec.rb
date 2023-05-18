@@ -320,6 +320,26 @@ describe "Miscellaneous" do
         expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
       end
     end
+
+    context "server cleanup disabled" do
+      let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 1, "transaction", "random", "info", { "cleanup_server_connections": false }) }
+
+      it "will not clean up connection state" do
+        conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        conn.async_exec("SET statement_timeout TO 1000")
+        conn.close
+
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
+      end
+
+      it "will not clean up prepared statements" do
+        conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        conn.async_exec("PREPARE prepared_q (int) AS SELECT $1")
+        conn.close
+
+        expect(processes.primary.count_query("DISCARD ALL")).to eq(0)
+      end
+    end
   end
 
   describe "Idle client timeout" do
