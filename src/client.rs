@@ -1313,7 +1313,7 @@ where
                             .receive_server_message(server, &address, &pool, &self.stats.clone())
                             .await?;
 
-                        match write_all_half(&mut self.write, &response).await {
+                        match write_all_flush(&mut self.write, &response).await {
                             Ok(_) => (),
                             Err(err) => {
                                 server.mark_bad();
