@@ -188,13 +188,16 @@ pub struct Server {
     /// Application name using the server at the moment.
     application_name: String,
 
-    // Last time that a successful server send or response happened
+    /// Last time that a successful server send or response happened
     last_activity: SystemTime,
 
     mirror_manager: Option<MirroringManager>,
 
-    // Associated addresses used
+    /// Associated addresses used
     addr_set: Option<AddrSet>,
+
+    /// Should clean up dirty connections?
+    cleanup_connections: bool,
 }
 
 impl Server {
@@ -207,6 +210,7 @@ impl Server {
         client_server_map: ClientServerMap,
         stats: Arc<ServerStats>,
         auth_hash: Arc<RwLock<Option<String>>>,
+        cleanup_connections: bool,
     ) -> Result<Server, Error> {
         let cached_resolver = CACHED_RESOLVER.load();
         let mut addr_set: Option<AddrSet> = None;
@@ -687,6 +691,7 @@ impl Server {
                                 address.mirrors.clone(),
                             )),
                         },
+                        cleanup_connections,
                     };
 
                     server.set_name("pgcat").await?;
@@ -1004,7 +1009,7 @@ impl Server {
         // to avoid leaking state between clients. For performance reasons we only
         // send `DISCARD ALL` if we think the session is altered instead of just sending
         // it before each checkin.
-        if self.cleanup_state.needs_cleanup() {
+        if self.cleanup_state.needs_cleanup() && self.cleanup_connections {
             warn!("Server returned with session state altered, discarding state ({}) for application {}", self.cleanup_state, self.application_name);
             self.query("DISCARD ALL").await?;
             self.query("RESET ROLE").await?;
@@ -1084,6 +1089,7 @@ impl Server {
             client_server_map,
             Arc::new(ServerStats::default()),
             Arc::new(RwLock::new(None)),
+            true,
         )
         .await?;
         debug!("Connected!, sending query.");

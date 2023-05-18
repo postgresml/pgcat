@@ -363,6 +363,7 @@ impl ConnectionPool {
                                 Some(ref plugins) => Some(plugins.clone()),
                                 None => config.plugins.clone(),
                             },
+                            pool_config.cleanup_server_connections,
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -913,12 +914,26 @@ impl ConnectionPool {
 
 /// Wrapper for the bb8 connection pool.
 pub struct ServerPool {
+    /// Server address.
     address: Address,
+
+    /// Server Postgres user.
     user: User,
+
+    /// Server database.
     database: String,
+
+    /// Client/server mapping.
     client_server_map: ClientServerMap,
+
+    /// Server auth hash (for auth passthrough).
     auth_hash: Arc<RwLock<Option<String>>>,
+
+    /// Server plugins.
     plugins: Option<Plugins>,
+
+    /// Should we clean up dirty connections before putting them into the pool?
+    cleanup_connections: bool,
 }
 
 impl ServerPool {
@@ -929,6 +944,7 @@ impl ServerPool {
         client_server_map: ClientServerMap,
         auth_hash: Arc<RwLock<Option<String>>>,
         plugins: Option<Plugins>,
+        cleanup_connections: bool,
     ) -> ServerPool {
         ServerPool {
             address,
@@ -937,6 +953,7 @@ impl ServerPool {
             client_server_map,
             auth_hash,
             plugins,
+            cleanup_connections,
         }
     }
 }
@@ -965,6 +982,7 @@ impl ManageConnection for ServerPool {
             self.client_server_map.clone(),
             stats.clone(),
             self.auth_hash.clone(),
+            self.cleanup_connections,
         )
         .await
         {

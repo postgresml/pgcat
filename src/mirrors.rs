@@ -40,6 +40,7 @@ impl MirroredClient {
             ClientServerMap::default(),
             Arc::new(RwLock::new(None)),
             None,
+            true,
         );
 
         Pool::builder()
