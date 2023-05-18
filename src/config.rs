@@ -1079,7 +1079,10 @@ impl Config {
                     None => "default".to_string(),
                 }
             );
-            info!("[pool: {}] Cleanup server connections: {}", pool_name, pool_config.cleanup_server_connections);
+            info!(
+                "[pool: {}] Cleanup server connections: {}",
+                pool_name, pool_config.cleanup_server_connections
+            );
             info!(
                 "[pool: {}] Plugins: {}",
                 pool_name,
