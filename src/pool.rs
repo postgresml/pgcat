@@ -364,7 +364,7 @@ impl ConnectionPool {
                                 Some(ref plugins) => Some(plugins.clone()),
                                 None => config.plugins.clone(),
                             },
-                            config.general.cleanup_server_connections,
+                            pool_config.cleanup_server_connections,
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {

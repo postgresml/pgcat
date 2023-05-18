@@ -118,7 +118,7 @@ module Helpers
       end
     end
 
-    def self.single_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info", general_settings={})
+    def self.single_shard_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="info", pool_settings={})
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -157,8 +157,8 @@ module Helpers
           "users" => { "0" => user }
         }
       }
+      pgcat_cfg[pool_name].merge(pool_settings)
       pgcat_cfg["general"]["port"] = pgcat.port
-      pgcat_cfg["general"].merge(general_settings)
       pgcat.update_config(pgcat_cfg)
       pgcat.start
       pgcat.wait_until_ready

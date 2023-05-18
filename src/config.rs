@@ -313,9 +313,6 @@ pub struct General {
     #[serde(default = "General::default_validate_config")]
     pub validate_config: bool,
 
-    #[serde(default = "General::default_cleanup_server_connections")]
-    pub cleanup_server_connections: bool,
-
     // Support for auth query
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -393,10 +390,6 @@ impl General {
     pub fn default_prometheus_exporter_port() -> i16 {
         9930
     }
-
-    pub fn default_cleanup_server_connections() -> bool {
-        true
-    }
 }
 
 impl Default for General {
@@ -433,7 +426,6 @@ impl Default for General {
             auth_query_password: None,
             server_lifetime: 1000 * 3600 * 24, // 24 hours,
             validate_config: true,
-            cleanup_server_connections: true,
         }
     }
 }
@@ -520,6 +512,9 @@ pub struct Pool {
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
 
+    #[serde(default = "Pool::default_cleanup_server_connections")]
+    pub cleanup_server_connections: bool,
+
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -559,6 +554,10 @@ impl Pool {
 
     pub fn default_sharding_function() -> ShardingFunction {
         ShardingFunction::PgBigintHash
+    }
+
+    pub fn default_cleanup_server_connections() -> bool {
+        true
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -650,6 +649,7 @@ impl Default for Pool {
             auth_query_password: None,
             server_lifetime: None,
             plugins: None,
+            cleanup_server_connections: true,
         }
     }
 }
