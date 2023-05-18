@@ -134,30 +134,33 @@ module Helpers
       replica1 = PgInstance.new(8432, user["username"], user["password"], "shard0")
       replica2 = PgInstance.new(9432, user["username"], user["password"], "shard0")
 
+      pool_config = {
+        "default_role" => "any",
+        "pool_mode" => pool_mode,
+        "load_balancing_mode" => lb_mode,
+        "primary_reads_enabled" => false,
+        "query_parser_enabled" => false,
+        "sharding_function" => "pg_bigint_hash",
+        "shards" => {
+          "0" => {
+            "database" => "shard0",
+            "servers" => [
+              ["localhost", primary.port.to_s, "primary"],
+              ["localhost", replica0.port.to_s, "replica"],
+              ["localhost", replica1.port.to_s, "replica"],
+              ["localhost", replica2.port.to_s, "replica"]
+            ]
+          },
+        },
+        "users" => { "0" => user }
+      }
+
+      pool_config = pool_config.merge(pool_settings)
+
       # Main proxy configs
       pgcat_cfg["pools"] = {
-        "#{pool_name}" => {
-          "default_role" => "any",
-          "pool_mode" => pool_mode,
-          "load_balancing_mode" => lb_mode,
-          "primary_reads_enabled" => false,
-          "query_parser_enabled" => false,
-          "sharding_function" => "pg_bigint_hash",
-          "shards" => {
-            "0" => {
-              "database" => "shard0",
-              "servers" => [
-                ["localhost", primary.port.to_s, "primary"],
-                ["localhost", replica0.port.to_s, "replica"],
-                ["localhost", replica1.port.to_s, "replica"],
-                ["localhost", replica2.port.to_s, "replica"]
-              ]
-            },
-          },
-          "users" => { "0" => user }
-        }
+        "#{pool_name}" => pool_config,
       }
-      pgcat_cfg["pools"][pool_name].merge(pool_settings)
       pgcat_cfg["general"]["port"] = pgcat.port
       pgcat.update_config(pgcat_cfg)
       pgcat.start
