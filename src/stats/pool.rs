@@ -110,6 +110,9 @@ impl PoolStats {
 
     pub fn generate_row(&self) -> Vec<String> {
         return vec![
+            self.identifier.db.clone(),
+            self.identifier.user.clone(),
+            self.mode.to_string(),
             self.cl_idle.to_string(),
             self.cl_active.to_string(),
             self.cl_waiting.to_string(),
