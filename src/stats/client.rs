@@ -38,6 +38,9 @@ pub struct ClientStats {
     /// Total time spent waiting for a connection from pool, measures in microseconds
     pub total_wait_time: Arc<AtomicU64>,
 
+    /// Maximum time spent waiting for a connection from pool, measures in microseconds
+    pub max_wait_time: Arc<AtomicU64>,
+
     /// Current state of the client
     pub state: Arc<AtomicClientState>,
 
@@ -60,6 +63,7 @@ impl Default for ClientStats {
             username: String::new(),
             pool_name: String::new(),
             total_wait_time: Arc::new(AtomicU64::new(0)),
+            max_wait_time: Arc::new(AtomicU64::new(0)),
             state: Arc::new(AtomicClientState::new(ClientState::Idle)),
             transaction_count: Arc::new(AtomicU64::new(0)),
             query_count: Arc::new(AtomicU64::new(0)),
@@ -130,6 +134,8 @@ impl ClientStats {
     pub fn checkout_time(&self, microseconds: u64) {
         self.total_wait_time
             .fetch_add(microseconds, Ordering::Relaxed);
+        self.max_wait_time
+            .fetch_max(microseconds, Ordering::Relaxed);
     }
 
     /// Report a query executed by a client against a server

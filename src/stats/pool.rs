@@ -58,11 +58,15 @@ impl PoolStats {
                 db: client.pool_name(),
                 user: client.username(),
             }) {
-                Some(pool_stats) => match client.state.load(Ordering::Relaxed) {
-                    ClientState::Active => pool_stats.cl_active += 1,
-                    ClientState::Idle => pool_stats.cl_idle += 1,
-                    ClientState::Waiting => pool_stats.cl_waiting += 1,
-                },
+                Some(pool_stats) => {
+                    match client.state.load(Ordering::Relaxed) {
+                        ClientState::Active => pool_stats.cl_active += 1,
+                        ClientState::Idle => pool_stats.cl_idle += 1,
+                        ClientState::Waiting => pool_stats.cl_waiting += 1,
+                    }
+                    let max_wait = client.max_wait_time.load(Ordering::Relaxed);
+                    pool_stats.maxwait = std::cmp::max(pool_stats.maxwait, max_wait);
+                }
                 None => debug!("Client from an obselete pool"),
             }
         }
