@@ -659,7 +659,7 @@ where
             application_name,
             username,
             pool_name,
-            tokio::time::Instant::now()
+            tokio::time::Instant::now(),
         ));
 
         Ok(Client {

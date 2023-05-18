@@ -31,7 +31,6 @@ static CLIENT_STATS: Lazy<Arc<RwLock<ClientStatesLookup>>> =
 static SERVER_STATS: Lazy<Arc<RwLock<ServerStatesLookup>>> =
     Lazy::new(|| Arc::new(RwLock::new(ServerStatesLookup::default())));
 
-
 /// The statistics reporter. An instance is given to each possible source of statistics,
 /// e.g. client stats, server stats, connection pool stats.
 pub static REPORTER: Lazy<ArcSwap<Reporter>> =

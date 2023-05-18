@@ -1,5 +1,5 @@
 use crate::pool::BanReason;
-use crate::stats::pool::{PoolStats};
+use crate::stats::pool::PoolStats;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
@@ -258,11 +258,9 @@ where
     let pool_lookup = PoolStats::construct_pool_lookup();
     let mut res = BytesMut::new();
     res.put(row_description(&PoolStats::generate_header()));
-    pool_lookup
-        .iter()
-        .for_each(|(_identifier, pool_stats)| {
-            res.put(data_row(&pool_stats.generate_row()));
-        });
+    pool_lookup.iter().for_each(|(_identifier, pool_stats)| {
+        res.put(data_row(&pool_stats.generate_row()));
+    });
     res.put(command_complete("SHOW"));
 
     // ReadyForQuery

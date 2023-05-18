@@ -288,14 +288,12 @@ fn push_pool_stats(lines: &mut Vec<String>) {
     let pool_stats = PoolStats::construct_pool_lookup();
     for (pool_id, stats) in pool_stats.iter() {
         for (name, value) in stats.clone() {
-            if let Some(prometheus_metric) = PrometheusMetric::<u64>::from_pool(pool_id.clone(), &name, value)
+            if let Some(prometheus_metric) =
+                PrometheusMetric::<u64>::from_pool(pool_id.clone(), &name, value)
             {
                 lines.push(prometheus_metric.to_string());
             } else {
-                warn!(
-                    "Metric {} not implemented for ({})",
-                    name, *pool_id
-                );
+                warn!("Metric {} not implemented for ({})", name, *pool_id);
             }
         }
     }

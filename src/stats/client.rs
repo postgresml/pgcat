@@ -75,7 +75,7 @@ impl ClientStats {
         application_name: &str,
         username: &str,
         pool_name: &str,
-        connect_time: Instant
+        connect_time: Instant,
     ) -> Self {
         Self {
             client_id,

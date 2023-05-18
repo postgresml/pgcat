@@ -1,9 +1,9 @@
 use log::debug;
 
-use crate::{pool::PoolIdentifier, config::PoolMode, messages::DataType};
+use super::{ClientState, ServerState};
+use crate::{config::PoolMode, messages::DataType, pool::PoolIdentifier};
 use std::collections::HashMap;
 use std::sync::atomic::*;
-use super::{ClientState, ServerState};
 
 use crate::pool::get_all_pools;
 
@@ -21,7 +21,7 @@ pub struct PoolStats {
     pub sv_used: u64,
     pub sv_tested: u64,
     pub sv_login: u64,
-    pub maxwait: u64
+    pub maxwait: u64,
 }
 impl PoolStats {
     pub fn new(identifier: PoolIdentifier, mode: PoolMode) -> Self {
@@ -47,37 +47,42 @@ impl PoolStats {
         let server_map = super::get_server_stats();
 
         for (identifier, pool) in get_all_pools() {
-            map.insert(identifier.clone(), PoolStats::new(identifier, pool.settings.pool_mode));
+            map.insert(
+                identifier.clone(),
+                PoolStats::new(identifier, pool.settings.pool_mode),
+            );
         }
 
         for client in client_map.values() {
-            match map.get_mut(&PoolIdentifier { db: client.pool_name(), user: client.username() })  {
-                Some(pool_stats) => {
-                    match client.state.load(Ordering::Relaxed) {
-                        ClientState::Active => pool_stats.cl_active += 1,
-                        ClientState::Idle => pool_stats.cl_idle += 1,
-                        ClientState::Waiting => pool_stats.cl_waiting += 1,
-                    }
-                }
+            match map.get_mut(&PoolIdentifier {
+                db: client.pool_name(),
+                user: client.username(),
+            }) {
+                Some(pool_stats) => match client.state.load(Ordering::Relaxed) {
+                    ClientState::Active => pool_stats.cl_active += 1,
+                    ClientState::Idle => pool_stats.cl_idle += 1,
+                    ClientState::Waiting => pool_stats.cl_waiting += 1,
+                },
                 None => debug!("Client from an obselete pool"),
             }
         }
 
         for server in server_map.values() {
-            match map.get_mut(&PoolIdentifier { db: server.pool_name(), user: server.username() })  {
-                Some(pool_stats) => {
-                    match server.state.load(Ordering::Relaxed) {
-                        ServerState::Active => pool_stats.sv_active += 1,
-                        ServerState::Idle => pool_stats.sv_idle += 1,
-                        ServerState::Login => pool_stats.sv_login += 1,
-                        ServerState::Tested => pool_stats.sv_tested += 1,
-                    }
-                }
+            match map.get_mut(&PoolIdentifier {
+                db: server.pool_name(),
+                user: server.username(),
+            }) {
+                Some(pool_stats) => match server.state.load(Ordering::Relaxed) {
+                    ServerState::Active => pool_stats.sv_active += 1,
+                    ServerState::Idle => pool_stats.sv_idle += 1,
+                    ServerState::Login => pool_stats.sv_login += 1,
+                    ServerState::Tested => pool_stats.sv_tested += 1,
+                },
                 None => debug!("Server from an obselete pool"),
             }
         }
 
-        return map
+        return map;
     }
 
     pub fn generate_header() -> Vec<(&'static str, DataType)> {
@@ -112,11 +117,9 @@ impl PoolStats {
             self.sv_login.to_string(),
             (self.maxwait / 1_000_000).to_string(),
             (self.maxwait % 1_000_000).to_string(),
-        ]
+        ];
     }
-
 }
-
 
 impl IntoIterator for PoolStats {
     type Item = (String, u64);
