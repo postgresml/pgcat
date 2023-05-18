@@ -487,10 +487,15 @@ pub struct Pool {
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
+    /// Maximum time to allow for establishing a new server connection.
     pub connect_timeout: Option<u64>,
 
+    /// Close idle connections that have been opened for longer than this.
     pub idle_timeout: Option<u64>,
 
+    /// Close server connections that have been opened for longer than this.
+    /// Only applied to idle connections. If the connection is actively used for
+    /// longer than this period, the pool will not interrupt it.
     pub server_lifetime: Option<u64>,
 
     #[serde(default = "Pool::default_sharding_function")]
@@ -506,6 +511,9 @@ pub struct Pool {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    #[serde(default = "Pool::default_cleanup_server_connections")]
+    pub cleanup_server_connections: bool,
 
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
@@ -546,6 +554,10 @@ impl Pool {
 
     pub fn default_sharding_function() -> ShardingFunction {
         ShardingFunction::PgBigintHash
+    }
+
+    pub fn default_cleanup_server_connections() -> bool {
+        true
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -637,6 +649,7 @@ impl Default for Pool {
             auth_query_password: None,
             server_lifetime: None,
             plugins: None,
+            cleanup_server_connections: true,
         }
     }
 }
@@ -1065,6 +1078,10 @@ impl Config {
                     Some(server_lifetime) => format!("{}ms", server_lifetime),
                     None => "default".to_string(),
                 }
+            );
+            info!(
+                "[pool: {}] Cleanup server connections: {}",
+                pool_name, pool_config.cleanup_server_connections
             );
             info!(
                 "[pool: {}] Plugins: {}",

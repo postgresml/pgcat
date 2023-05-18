@@ -44,6 +44,7 @@ impl MirroredClient {
             Arc::new(PoolStats::new(identifier, cfg.clone())),
             Arc::new(RwLock::new(None)),
             None,
+            true,
         );
 
         Pool::builder()
