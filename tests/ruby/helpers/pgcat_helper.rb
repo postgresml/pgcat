@@ -157,7 +157,7 @@ module Helpers
           "users" => { "0" => user }
         }
       }
-      pgcat_cfg[pool_name].merge(pool_settings)
+      pgcat_cfg["pools"][pool_name].merge(pool_settings)
       pgcat_cfg["general"]["port"] = pgcat.port
       pgcat.update_config(pgcat_cfg)
       pgcat.start
