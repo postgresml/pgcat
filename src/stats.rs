@@ -113,6 +113,7 @@ impl Collector {
                 for stats in server_stats.values() {
                     if !stats.check_address_stat_average_is_updated_status() {
                         stats.address_stats().update_averages();
+                        stats.address_stats().reset_current_counts();
                         stats.set_address_stat_average_is_updated_status(true);
                     }
                 }

@@ -177,12 +177,9 @@ impl ServerStats {
     }
 
     pub fn checkout_time(&self, microseconds: u64, application_name: String) {
-        // Update server stats and address aggergation stats
+        // Update server stats and address aggregation stats
         self.set_application(application_name);
-        self.address
-            .stats
-            .total_wait_time
-            .fetch_add(microseconds, Ordering::Relaxed);
+        self.address.stats.wait_time_add(microseconds);
         self.pool_stats
             .maxwait
             .fetch_max(microseconds, Ordering::Relaxed);
@@ -191,13 +188,8 @@ impl ServerStats {
     /// Report a query executed by a client against a server
     pub fn query(&self, milliseconds: u64, application_name: &str) {
         self.set_application(application_name.to_string());
-        let address_stats = self.address_stats();
-        address_stats
-            .total_query_count
-            .fetch_add(1, Ordering::Relaxed);
-        address_stats
-            .total_query_time
-            .fetch_add(milliseconds, Ordering::Relaxed);
+        self.address.stats.query_count_add();
+        self.address.stats.query_time_add(milliseconds);
     }
 
     /// Report a transaction executed by a client a server
@@ -208,29 +200,20 @@ impl ServerStats {
         self.set_application(application_name.to_string());
 
         self.transaction_count.fetch_add(1, Ordering::Relaxed);
-        self.address
-            .stats
-            .total_xact_count
-            .fetch_add(1, Ordering::Relaxed);
+        self.address.stats.xact_count_add();
     }
 
     /// Report data sent to a server
     pub fn data_sent(&self, amount_bytes: usize) {
         self.bytes_sent
             .fetch_add(amount_bytes as u64, Ordering::Relaxed);
-        self.address
-            .stats
-            .total_sent
-            .fetch_add(amount_bytes as u64, Ordering::Relaxed);
+        self.address.stats.bytes_sent_add(amount_bytes as u64);
     }
 
     /// Report data received from a server
     pub fn data_received(&self, amount_bytes: usize) {
         self.bytes_received
             .fetch_add(amount_bytes as u64, Ordering::Relaxed);
-        self.address
-            .stats
-            .total_received
-            .fetch_add(amount_bytes as u64, Ordering::Relaxed);
+        self.address.stats.bytes_received_add(amount_bytes as u64);
     }
 }
