@@ -9,8 +9,9 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::config::Address;
-use crate::pool::get_all_pools;
-use crate::stats::{get_pool_stats, get_server_stats, ServerStats};
+use crate::pool::{get_all_pools, PoolIdentifier};
+use crate::stats::pool::PoolStats;
+use crate::stats::{get_server_stats, ServerStats};
 
 struct MetricHelpType {
     help: &'static str,
@@ -233,10 +234,10 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         Self::from_name(&format!("stats_{}", name), value, labels)
     }
 
-    fn from_pool(pool: &(String, String), name: &str, value: u64) -> Option<PrometheusMetric<u64>> {
+    fn from_pool(pool_id: PoolIdentifier, name: &str, value: u64) -> Option<PrometheusMetric<u64>> {
         let mut labels = HashMap::new();
-        labels.insert("pool", pool.0.clone());
-        labels.insert("user", pool.1.clone());
+        labels.insert("pool", pool_id.db);
+        labels.insert("user", pool_id.user);
 
         Self::from_name(&format!("pools_{}", name), value, labels)
     }
@@ -284,17 +285,16 @@ fn push_address_stats(lines: &mut Vec<String>) {
 
 // Adds relevant metrics shown in a SHOW POOLS admin command.
 fn push_pool_stats(lines: &mut Vec<String>) {
-    let pool_stats = get_pool_stats();
-    for (pool, stats) in pool_stats.iter() {
-        let stats = &**stats;
+    let pool_stats = PoolStats::construct_pool_lookup();
+    for (pool_id, stats) in pool_stats.iter() {
         for (name, value) in stats.clone() {
-            if let Some(prometheus_metric) = PrometheusMetric::<u64>::from_pool(pool, &name, value)
+            if let Some(prometheus_metric) = PrometheusMetric::<u64>::from_pool(pool_id.clone(), &name, value)
             {
                 lines.push(prometheus_metric.to_string());
             } else {
                 warn!(
-                    "Metric {} not implemented for ({},{})",
-                    name, pool.0, pool.1
+                    "Metric {} not implemented for ({})",
+                    name, *pool_id
                 );
             }
         }

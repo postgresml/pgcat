@@ -1,4 +1,3 @@
-use super::PoolStats;
 use super::{get_reporter, Reporter};
 use atomic_enum::atomic_enum;
 use std::sync::atomic::*;
@@ -34,7 +33,6 @@ pub struct ClientStats {
     pool_name: String,
     connect_time: Instant,
 
-    pool_stats: Arc<PoolStats>,
     reporter: Reporter,
 
     /// Total time spent waiting for a connection from pool, measures in microseconds
@@ -61,7 +59,6 @@ impl Default for ClientStats {
             application_name: String::new(),
             username: String::new(),
             pool_name: String::new(),
-            pool_stats: Arc::new(PoolStats::default()),
             total_wait_time: Arc::new(AtomicU64::new(0)),
             state: Arc::new(AtomicClientState::new(ClientState::Idle)),
             transaction_count: Arc::new(AtomicU64::new(0)),
@@ -78,12 +75,10 @@ impl ClientStats {
         application_name: &str,
         username: &str,
         pool_name: &str,
-        connect_time: Instant,
-        pool_stats: Arc<PoolStats>,
+        connect_time: Instant
     ) -> Self {
         Self {
             client_id,
-            pool_stats,
             connect_time,
             application_name: application_name.to_string(),
             username: username.to_string(),
@@ -96,8 +91,6 @@ impl ClientStats {
     /// update metrics on the corresponding pool.
     pub fn disconnect(&self) {
         self.reporter.client_disconnecting(self.client_id);
-        self.pool_stats
-            .client_disconnect(self.state.load(Ordering::Relaxed))
     }
 
     /// Register a client with the stats system. The stats system uses client_id
@@ -105,27 +98,20 @@ impl ClientStats {
     pub fn register(&self, stats: Arc<ClientStats>) {
         self.reporter.client_register(self.client_id, stats);
         self.state.store(ClientState::Idle, Ordering::Relaxed);
-        self.pool_stats.cl_idle.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Reports a client is done querying the server and is no longer assigned a server connection
     pub fn idle(&self) {
-        self.pool_stats
-            .client_idle(self.state.load(Ordering::Relaxed));
         self.state.store(ClientState::Idle, Ordering::Relaxed);
     }
 
     /// Reports a client is waiting for a connection
     pub fn waiting(&self) {
-        self.pool_stats
-            .client_waiting(self.state.load(Ordering::Relaxed));
         self.state.store(ClientState::Waiting, Ordering::Relaxed);
     }
 
     /// Reports a client is done waiting for a connection and is about to query the server.
     pub fn active(&self) {
-        self.pool_stats
-            .client_active(self.state.load(Ordering::Relaxed));
         self.state.store(ClientState::Active, Ordering::Relaxed);
     }
 

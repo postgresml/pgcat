@@ -1,4 +1,3 @@
-use crate::pool::PoolIdentifier;
 /// Statistics and reporting.
 use arc_swap::ArcSwap;
 
@@ -16,13 +15,11 @@ pub mod pool;
 pub mod server;
 pub use address::AddressStats;
 pub use client::{ClientState, ClientStats};
-pub use pool::PoolStats;
 pub use server::{ServerState, ServerStats};
 
 /// Convenience types for various stats
 type ClientStatesLookup = HashMap<i32, Arc<ClientStats>>;
 type ServerStatesLookup = HashMap<i32, Arc<ServerStats>>;
-type PoolStatsLookup = HashMap<(String, String), Arc<PoolStats>>;
 
 /// Stats for individual client connections
 /// Used in SHOW CLIENTS.
@@ -34,10 +31,6 @@ static CLIENT_STATS: Lazy<Arc<RwLock<ClientStatesLookup>>> =
 static SERVER_STATS: Lazy<Arc<RwLock<ServerStatesLookup>>> =
     Lazy::new(|| Arc::new(RwLock::new(ServerStatesLookup::default())));
 
-/// Aggregate stats for each pool (a pool is identified by database name and username)
-/// Used in SHOW POOLS.
-static POOL_STATS: Lazy<Arc<RwLock<PoolStatsLookup>>> =
-    Lazy::new(|| Arc::new(RwLock::new(PoolStatsLookup::default())));
 
 /// The statistics reporter. An instance is given to each possible source of statistics,
 /// e.g. client stats, server stats, connection pool stats.
@@ -79,13 +72,6 @@ impl Reporter {
     /// Reports a server connection is disconnecting from the pooler.
     fn server_disconnecting(&self, server_id: i32) {
         SERVER_STATS.write().remove(&server_id);
-    }
-
-    /// Register a pool with the stats system.
-    fn pool_register(&self, identifier: PoolIdentifier, stats: Arc<PoolStats>) {
-        POOL_STATS
-            .write()
-            .insert((identifier.db, identifier.user), stats);
     }
 }
 
@@ -137,12 +123,6 @@ pub fn get_client_stats() -> ClientStatesLookup {
 /// by the `Collector`.
 pub fn get_server_stats() -> ServerStatesLookup {
     SERVER_STATS.read().clone()
-}
-
-/// Get a snapshot of pool statistics.
-/// by the `Collector`.
-pub fn get_pool_stats() -> PoolStatsLookup {
-    POOL_STATS.read().clone()
 }
 
 /// Get the statistics reporter used to update stats across the pools/clients.

@@ -1,37 +1,122 @@
-use crate::config::Pool;
-use crate::config::PoolMode;
-use crate::pool::PoolIdentifier;
-use std::sync::atomic::*;
-use std::sync::Arc;
+use log::debug;
 
-use super::get_reporter;
-use super::Reporter;
+use crate::{pool::PoolIdentifier, config::PoolMode, messages::DataType};
+use std::collections::HashMap;
+use std::sync::atomic::*;
 use super::{ClientState, ServerState};
 
-#[derive(Debug, Clone, Default)]
+use crate::pool::get_all_pools;
+
+#[derive(Debug, Clone)]
 /// A struct that holds information about a Pool .
 pub struct PoolStats {
-    // Pool identifier, cannot be changed after creating the instance
-    identifier: PoolIdentifier,
-
-    // Pool Config, cannot be changed after creating the instance
-    config: Pool,
-
-    // A reference to the global reporter.
-    reporter: Reporter,
-
-    /// Counters (atomics)
-    pub cl_idle: Arc<AtomicU64>,
-    pub cl_active: Arc<AtomicU64>,
-    pub cl_waiting: Arc<AtomicU64>,
-    pub cl_cancel_req: Arc<AtomicU64>,
-    pub sv_active: Arc<AtomicU64>,
-    pub sv_idle: Arc<AtomicU64>,
-    pub sv_used: Arc<AtomicU64>,
-    pub sv_tested: Arc<AtomicU64>,
-    pub sv_login: Arc<AtomicU64>,
-    pub maxwait: Arc<AtomicU64>,
+    pub identifier: PoolIdentifier,
+    pub mode: PoolMode,
+    pub cl_idle: u64,
+    pub cl_active: u64,
+    pub cl_waiting: u64,
+    pub cl_cancel_req: u64,
+    pub sv_active: u64,
+    pub sv_idle: u64,
+    pub sv_used: u64,
+    pub sv_tested: u64,
+    pub sv_login: u64,
+    pub maxwait: u64
 }
+impl PoolStats {
+    pub fn new(identifier: PoolIdentifier, mode: PoolMode) -> Self {
+        PoolStats {
+            identifier,
+            mode,
+            cl_idle: 0,
+            cl_active: 0,
+            cl_waiting: 0,
+            cl_cancel_req: 0,
+            sv_active: 0,
+            sv_idle: 0,
+            sv_used: 0,
+            sv_tested: 0,
+            sv_login: 0,
+            maxwait: 0,
+        }
+    }
+
+    pub fn construct_pool_lookup() -> HashMap<PoolIdentifier, PoolStats> {
+        let mut map: HashMap<PoolIdentifier, PoolStats> = HashMap::new();
+        let client_map = super::get_client_stats();
+        let server_map = super::get_server_stats();
+
+        for (identifier, pool) in get_all_pools() {
+            map.insert(identifier.clone(), PoolStats::new(identifier, pool.settings.pool_mode));
+        }
+
+        for client in client_map.values() {
+            match map.get_mut(&PoolIdentifier { db: client.pool_name(), user: client.username() })  {
+                Some(pool_stats) => {
+                    match client.state.load(Ordering::Relaxed) {
+                        ClientState::Active => pool_stats.cl_active += 1,
+                        ClientState::Idle => pool_stats.cl_idle += 1,
+                        ClientState::Waiting => pool_stats.cl_waiting += 1,
+                    }
+                }
+                None => debug!("Client from an obselete pool"),
+            }
+        }
+
+        for server in server_map.values() {
+            match map.get_mut(&PoolIdentifier { db: server.pool_name(), user: server.username() })  {
+                Some(pool_stats) => {
+                    match server.state.load(Ordering::Relaxed) {
+                        ServerState::Active => pool_stats.sv_active += 1,
+                        ServerState::Idle => pool_stats.sv_idle += 1,
+                        ServerState::Login => pool_stats.sv_login += 1,
+                        ServerState::Tested => pool_stats.sv_tested += 1,
+                    }
+                }
+                None => debug!("Server from an obselete pool"),
+            }
+        }
+
+        return map
+    }
+
+    pub fn generate_header() -> Vec<(&'static str, DataType)> {
+        return vec![
+            ("database", DataType::Text),
+            ("user", DataType::Text),
+            ("pool_mode", DataType::Text),
+            ("cl_idle", DataType::Numeric),
+            ("cl_active", DataType::Numeric),
+            ("cl_waiting", DataType::Numeric),
+            ("cl_cancel_req", DataType::Numeric),
+            ("sv_active", DataType::Numeric),
+            ("sv_idle", DataType::Numeric),
+            ("sv_used", DataType::Numeric),
+            ("sv_tested", DataType::Numeric),
+            ("sv_login", DataType::Numeric),
+            ("maxwait", DataType::Numeric),
+            ("maxwait_us", DataType::Numeric),
+        ];
+    }
+
+    pub fn generate_row(&self) -> Vec<String> {
+        return vec![
+            self.cl_idle.to_string(),
+            self.cl_active.to_string(),
+            self.cl_waiting.to_string(),
+            self.cl_cancel_req.to_string(),
+            self.sv_active.to_string(),
+            self.sv_idle.to_string(),
+            self.sv_used.to_string(),
+            self.sv_tested.to_string(),
+            self.sv_login.to_string(),
+            (self.maxwait / 1_000_000).to_string(),
+            (self.maxwait % 1_000_000).to_string(),
+        ]
+    }
+
+}
+
 
 impl IntoIterator for PoolStats {
     type Item = (String, u64);
@@ -39,236 +124,18 @@ impl IntoIterator for PoolStats {
 
     fn into_iter(self) -> Self::IntoIter {
         vec![
-            ("cl_idle".to_string(), self.cl_idle.load(Ordering::Relaxed)),
-            (
-                "cl_active".to_string(),
-                self.cl_active.load(Ordering::Relaxed),
-            ),
-            (
-                "cl_waiting".to_string(),
-                self.cl_waiting.load(Ordering::Relaxed),
-            ),
-            (
-                "cl_cancel_req".to_string(),
-                self.cl_cancel_req.load(Ordering::Relaxed),
-            ),
-            (
-                "sv_active".to_string(),
-                self.sv_active.load(Ordering::Relaxed),
-            ),
-            ("sv_idle".to_string(), self.sv_idle.load(Ordering::Relaxed)),
-            ("sv_used".to_string(), self.sv_used.load(Ordering::Relaxed)),
-            (
-                "sv_tested".to_string(),
-                self.sv_tested.load(Ordering::Relaxed),
-            ),
-            (
-                "sv_login".to_string(),
-                self.sv_login.load(Ordering::Relaxed),
-            ),
-            (
-                "maxwait".to_string(),
-                self.maxwait.load(Ordering::Relaxed) / 1_000_000,
-            ),
-            (
-                "maxwait_us".to_string(),
-                self.maxwait.load(Ordering::Relaxed) % 1_000_000,
-            ),
+            ("cl_idle".to_string(), self.cl_idle),
+            ("cl_active".to_string(), self.cl_active),
+            ("cl_waiting".to_string(), self.cl_waiting),
+            ("cl_cancel_req".to_string(), self.cl_cancel_req),
+            ("sv_active".to_string(), self.sv_active),
+            ("sv_idle".to_string(), self.sv_idle),
+            ("sv_used".to_string(), self.sv_used),
+            ("sv_tested".to_string(), self.sv_tested),
+            ("sv_login".to_string(), self.sv_login),
+            ("maxwait".to_string(), self.maxwait / 1_000_000),
+            ("maxwait_us".to_string(), self.maxwait % 1_000_000),
         ]
         .into_iter()
-    }
-}
-
-impl PoolStats {
-    pub fn new(identifier: PoolIdentifier, config: Pool) -> Self {
-        Self {
-            identifier,
-            config,
-            reporter: get_reporter(),
-            ..Default::default()
-        }
-    }
-
-    // Getters
-    pub fn register(&self, stats: Arc<PoolStats>) {
-        self.reporter.pool_register(self.identifier.clone(), stats);
-    }
-
-    pub fn database(&self) -> String {
-        self.identifier.db.clone()
-    }
-
-    pub fn user(&self) -> String {
-        self.identifier.user.clone()
-    }
-
-    pub fn pool_mode(&self) -> PoolMode {
-        self.config.pool_mode
-    }
-
-    /// Populates an array of strings with counters (used by admin in show pools)
-    pub fn populate_row(&self, row: &mut Vec<String>) {
-        for (_key, value) in self.clone() {
-            row.push(value.to_string());
-        }
-    }
-
-    /// Deletes the maxwait counter, this is done everytime we obtain metrics
-    pub fn clear_maxwait(&self) {
-        self.maxwait.store(0, Ordering::Relaxed);
-    }
-
-    /// Notified when a server of the pool enters login state.
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the server that notifies.
-    pub fn server_login(&self, from: ServerState) {
-        self.sv_login.fetch_add(1, Ordering::Relaxed);
-        if from != ServerState::Login {
-            self.decrease_from_server_state(from);
-        }
-    }
-
-    /// Notified when a server of the pool become 'active'
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the server that notifies.
-    pub fn server_active(&self, from: ServerState) {
-        self.sv_active.fetch_add(1, Ordering::Relaxed);
-        if from != ServerState::Active {
-            self.decrease_from_server_state(from);
-        }
-    }
-
-    /// Notified when a server of the pool become 'tested'
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the server that notifies.
-    pub fn server_tested(&self, from: ServerState) {
-        self.sv_tested.fetch_add(1, Ordering::Relaxed);
-        if from != ServerState::Tested {
-            self.decrease_from_server_state(from);
-        }
-    }
-
-    /// Notified when a server of the pool become 'idle'
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the server that notifies.
-    pub fn server_idle(&self, from: ServerState) {
-        self.sv_idle.fetch_add(1, Ordering::Relaxed);
-        if from != ServerState::Idle {
-            self.decrease_from_server_state(from);
-        }
-    }
-
-    /// Notified when a client of the pool become 'waiting'
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the client that notifies.
-    pub fn client_waiting(&self, from: ClientState) {
-        if from != ClientState::Waiting {
-            self.cl_waiting.fetch_add(1, Ordering::Relaxed);
-            self.decrease_from_client_state(from);
-        }
-    }
-
-    /// Notified when a client of the pool become 'active'
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the client that notifies.
-    pub fn client_active(&self, from: ClientState) {
-        if from != ClientState::Active {
-            self.cl_active.fetch_add(1, Ordering::Relaxed);
-            self.decrease_from_client_state(from);
-        }
-    }
-
-    /// Notified when a client of the pool become 'idle'
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the client that notifies.
-    pub fn client_idle(&self, from: ClientState) {
-        if from != ClientState::Idle {
-            self.cl_idle.fetch_add(1, Ordering::Relaxed);
-            self.decrease_from_client_state(from);
-        }
-    }
-
-    /// Notified when a client disconnects.
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the client that notifies.
-    pub fn client_disconnect(&self, from: ClientState) {
-        let counter = match from {
-            ClientState::Idle => &self.cl_idle,
-            ClientState::Waiting => &self.cl_waiting,
-            ClientState::Active => &self.cl_active,
-        };
-
-        Self::decrease_counter(counter.clone());
-    }
-
-    /// Notified when a server disconnects.
-    ///
-    /// Arguments:
-    ///
-    /// `from`: The state of the client that notifies.
-    pub fn server_disconnect(&self, from: ServerState) {
-        let counter = match from {
-            ServerState::Active => &self.sv_active,
-            ServerState::Idle => &self.sv_idle,
-            ServerState::Login => &self.sv_login,
-            ServerState::Tested => &self.sv_tested,
-        };
-        Self::decrease_counter(counter.clone());
-    }
-
-    // helpers for counter decrease
-    fn decrease_from_server_state(&self, from: ServerState) {
-        let counter = match from {
-            ServerState::Tested => &self.sv_tested,
-            ServerState::Active => &self.sv_active,
-            ServerState::Idle => &self.sv_idle,
-            ServerState::Login => &self.sv_login,
-        };
-        Self::decrease_counter(counter.clone());
-    }
-
-    fn decrease_from_client_state(&self, from: ClientState) {
-        let counter = match from {
-            ClientState::Active => &self.cl_active,
-            ClientState::Idle => &self.cl_idle,
-            ClientState::Waiting => &self.cl_waiting,
-        };
-        Self::decrease_counter(counter.clone());
-    }
-
-    fn decrease_counter(value: Arc<AtomicU64>) {
-        if value.load(Ordering::Relaxed) > 0 {
-            value.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_decrease() {
-        let stat: PoolStats = PoolStats::default();
-        stat.server_login(ServerState::Login);
-        stat.server_idle(ServerState::Login);
-        assert_eq!(stat.sv_login.load(Ordering::Relaxed), 0);
-        assert_eq!(stat.sv_idle.load(Ordering::Relaxed), 1);
     }
 }
