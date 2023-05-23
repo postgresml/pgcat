@@ -20,7 +20,7 @@ use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
-use crate::stats::{ClientStats, PoolStats, ServerStats};
+use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
@@ -654,24 +654,12 @@ where
         ready_for_query(&mut write).await?;
 
         trace!("Startup OK");
-        let pool_stats = match get_pool(pool_name, username) {
-            Some(pool) => {
-                if !admin {
-                    pool.stats
-                } else {
-                    Arc::new(PoolStats::default())
-                }
-            }
-            None => Arc::new(PoolStats::default()),
-        };
-
         let stats = Arc::new(ClientStats::new(
             process_id,
             application_name,
             username,
             pool_name,
             tokio::time::Instant::now(),
-            pool_stats,
         ));
 
         Ok(Client {

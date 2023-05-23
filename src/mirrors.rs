@@ -7,8 +7,7 @@ use bytes::{Bytes, BytesMut};
 use parking_lot::RwLock;
 
 use crate::config::{get_config, Address, Role, User};
-use crate::pool::{ClientServerMap, PoolIdentifier, ServerPool};
-use crate::stats::PoolStats;
+use crate::pool::{ClientServerMap, ServerPool};
 use log::{error, info, trace, warn};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -24,7 +23,7 @@ impl MirroredClient {
     async fn create_pool(&self) -> Pool<ServerPool> {
         let config = get_config();
         let default = std::time::Duration::from_millis(10_000).as_millis() as u64;
-        let (connection_timeout, idle_timeout, cfg) =
+        let (connection_timeout, idle_timeout, _cfg) =
             match config.pools.get(&self.address.pool_name) {
                 Some(cfg) => (
                     cfg.connect_timeout.unwrap_or(default),
@@ -34,14 +33,11 @@ impl MirroredClient {
                 None => (default, default, crate::config::Pool::default()),
             };
 
-        let identifier = PoolIdentifier::new(&self.database, &self.user.username);
-
         let manager = ServerPool::new(
             self.address.clone(),
             self.user.clone(),
             self.database.as_str(),
             ClientServerMap::default(),
-            Arc::new(PoolStats::new(identifier, cfg.clone())),
             Arc::new(RwLock::new(None)),
             None,
             true,

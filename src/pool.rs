@@ -10,6 +10,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use regex::Regex;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -26,7 +27,7 @@ use crate::auth_passthrough::AuthPassthrough;
 use crate::plugins::prewarmer;
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
-use crate::stats::{AddressStats, ClientStats, PoolStats, ServerStats};
+use crate::stats::{AddressStats, ClientStats, ServerStats};
 
 pub type ProcessId = i32;
 pub type SecretKey = i32;
@@ -73,6 +74,12 @@ impl PoolIdentifier {
             db: db.to_string(),
             user: user.to_string(),
         }
+    }
+}
+
+impl Display for PoolIdentifier {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}@{}", self.user, self.db)
     }
 }
 
@@ -202,9 +209,6 @@ pub struct ConnectionPool {
     paused: Arc<AtomicBool>,
     paused_waiter: Arc<Notify>,
 
-    /// Statistics.
-    pub stats: Arc<PoolStats>,
-
     /// AuthInfo
     pub auth_hash: Arc<RwLock<Option<String>>>,
 }
@@ -254,10 +258,6 @@ impl ConnectionPool {
                     .clone()
                     .into_keys()
                     .collect::<Vec<String>>();
-                let pool_stats = Arc::new(PoolStats::new(identifier, pool_config.clone()));
-
-                // Allow the pool to be seen in statistics
-                pool_stats.register(pool_stats.clone());
 
                 // Sort by shard number to ensure consistency.
                 shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
@@ -358,7 +358,6 @@ impl ConnectionPool {
                             user.clone(),
                             &shard.database,
                             client_server_map.clone(),
-                            pool_stats.clone(),
                             pool_auth_hash.clone(),
                             match pool_config.plugins {
                                 Some(ref plugins) => Some(plugins.clone()),
@@ -429,7 +428,6 @@ impl ConnectionPool {
 
                 let pool = ConnectionPool {
                     databases: shards,
-                    stats: pool_stats,
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     config_hash: new_pool_hash_value,
@@ -610,6 +608,10 @@ impl ConnectionPool {
             });
         }
 
+        // Indicate we're waiting on a server connection from a pool.
+        let now = Instant::now();
+        client_stats.waiting();
+
         while !candidates.is_empty() {
             // Get the next candidate
             let address = match candidates.pop() {
@@ -627,10 +629,6 @@ impl ConnectionPool {
                     continue;
                 }
             }
-
-            // Indicate we're waiting on a server connection from a pool.
-            let now = Instant::now();
-            client_stats.waiting();
 
             // Check if we can connect
             let mut conn = match self.databases[address.shard][address.address_index]
@@ -669,7 +667,7 @@ impl ConnectionPool {
                     .stats()
                     .checkout_time(checkout_time, client_stats.application_name());
                 server.stats().active(client_stats.application_name());
-
+                client_stats.active();
                 return Ok((conn, address.clone()));
             }
 
@@ -677,11 +675,19 @@ impl ConnectionPool {
                 .run_health_check(address, server, now, client_stats)
                 .await
             {
+                let checkout_time: u64 = now.elapsed().as_micros() as u64;
+                client_stats.checkout_time(checkout_time);
+                server
+                    .stats()
+                    .checkout_time(checkout_time, client_stats.application_name());
+                server.stats().active(client_stats.application_name());
+                client_stats.active();
                 return Ok((conn, address.clone()));
             } else {
                 continue;
             }
         }
+        client_stats.idle();
         Err(Error::AllServersDown)
     }
 
@@ -927,9 +933,6 @@ pub struct ServerPool {
     /// Client/server mapping.
     client_server_map: ClientServerMap,
 
-    /// Server statistics.
-    stats: Arc<PoolStats>,
-
     /// Server auth hash (for auth passthrough).
     auth_hash: Arc<RwLock<Option<String>>>,
 
@@ -946,7 +949,6 @@ impl ServerPool {
         user: User,
         database: &str,
         client_server_map: ClientServerMap,
-        stats: Arc<PoolStats>,
         auth_hash: Arc<RwLock<Option<String>>>,
         plugins: Option<Plugins>,
         cleanup_connections: bool,
@@ -956,7 +958,6 @@ impl ServerPool {
             user: user.clone(),
             database: database.to_string(),
             client_server_map,
-            stats,
             auth_hash,
             plugins,
             cleanup_connections,
@@ -975,7 +976,6 @@ impl ManageConnection for ServerPool {
 
         let stats = Arc::new(ServerStats::new(
             self.address.clone(),
-            self.stats.clone(),
             tokio::time::Instant::now(),
         ));
 

@@ -1,4 +1,5 @@
 use crate::pool::BanReason;
+use crate::stats::pool::PoolStats;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
@@ -14,7 +15,7 @@ use crate::errors::Error;
 use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
-use crate::stats::{get_client_stats, get_pool_stats, get_server_stats, ClientState, ServerState};
+use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
@@ -254,39 +255,12 @@ async fn show_pools<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let all_pool_stats = get_pool_stats();
-
-    let columns = vec![
-        ("database", DataType::Text),
-        ("user", DataType::Text),
-        ("pool_mode", DataType::Text),
-        ("cl_idle", DataType::Numeric),
-        ("cl_active", DataType::Numeric),
-        ("cl_waiting", DataType::Numeric),
-        ("cl_cancel_req", DataType::Numeric),
-        ("sv_active", DataType::Numeric),
-        ("sv_idle", DataType::Numeric),
-        ("sv_used", DataType::Numeric),
-        ("sv_tested", DataType::Numeric),
-        ("sv_login", DataType::Numeric),
-        ("maxwait", DataType::Numeric),
-        ("maxwait_us", DataType::Numeric),
-    ];
-
+    let pool_lookup = PoolStats::construct_pool_lookup();
     let mut res = BytesMut::new();
-    res.put(row_description(&columns));
-
-    for ((_user_pool, _pool), pool_stats) in all_pool_stats {
-        let mut row = vec![
-            pool_stats.database(),
-            pool_stats.user(),
-            pool_stats.pool_mode().to_string(),
-        ];
-        pool_stats.populate_row(&mut row);
-        pool_stats.clear_maxwait();
-        res.put(data_row(&row));
-    }
-
+    res.put(row_description(&PoolStats::generate_header()));
+    pool_lookup.iter().for_each(|(_identifier, pool_stats)| {
+        res.put(data_row(&pool_stats.generate_row()));
+    });
     res.put(command_complete("SHOW"));
 
     // ReadyForQuery

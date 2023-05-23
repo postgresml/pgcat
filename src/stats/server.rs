@@ -1,5 +1,4 @@
 use super::AddressStats;
-use super::PoolStats;
 use super::{get_reporter, Reporter};
 use crate::config::Address;
 use atomic_enum::atomic_enum;
@@ -38,7 +37,6 @@ pub struct ServerStats {
     address: Address,
     connect_time: Instant,
 
-    pool_stats: Arc<PoolStats>,
     reporter: Reporter,
 
     /// Data
@@ -57,7 +55,6 @@ impl Default for ServerStats {
             server_id: 0,
             application_name: Arc::new(RwLock::new(String::new())),
             address: Address::default(),
-            pool_stats: Arc::new(PoolStats::default()),
             connect_time: Instant::now(),
             state: Arc::new(AtomicServerState::new(ServerState::Login)),
             bytes_sent: Arc::new(AtomicU64::new(0)),
@@ -71,10 +68,9 @@ impl Default for ServerStats {
 }
 
 impl ServerStats {
-    pub fn new(address: Address, pool_stats: Arc<PoolStats>, connect_time: Instant) -> Self {
+    pub fn new(address: Address, connect_time: Instant) -> Self {
         Self {
             address,
-            pool_stats,
             connect_time,
             server_id: rand::random::<i32>(),
             ..Default::default()
@@ -96,9 +92,6 @@ impl ServerStats {
     /// Reports a server connection is no longer assigned to a client
     /// and is available for the next client to pick it up
     pub fn idle(&self) {
-        self.pool_stats
-            .server_idle(self.state.load(Ordering::Relaxed));
-
         self.state.store(ServerState::Idle, Ordering::Relaxed);
     }
 
@@ -106,22 +99,16 @@ impl ServerStats {
     /// Also updates metrics on the pool regarding server usage.
     pub fn disconnect(&self) {
         self.reporter.server_disconnecting(self.server_id);
-        self.pool_stats
-            .server_disconnect(self.state.load(Ordering::Relaxed))
     }
 
     /// Reports a server connection is being tested before being given to a client.
     pub fn tested(&self) {
         self.set_undefined_application();
-        self.pool_stats
-            .server_tested(self.state.load(Ordering::Relaxed));
         self.state.store(ServerState::Tested, Ordering::Relaxed);
     }
 
     /// Reports a server connection is attempting to login.
     pub fn login(&self) {
-        self.pool_stats
-            .server_login(self.state.load(Ordering::Relaxed));
         self.state.store(ServerState::Login, Ordering::Relaxed);
         self.set_undefined_application();
     }
@@ -129,8 +116,6 @@ impl ServerStats {
     /// Reports a server connection has been assigned to a client that
     /// is about to query the server
     pub fn active(&self, application_name: String) {
-        self.pool_stats
-            .server_active(self.state.load(Ordering::Relaxed));
         self.state.store(ServerState::Active, Ordering::Relaxed);
         self.set_application(application_name);
     }
@@ -152,11 +137,11 @@ impl ServerStats {
 
     // Helper methods for show_servers
     pub fn pool_name(&self) -> String {
-        self.pool_stats.database()
+        self.address.pool_name.clone()
     }
 
     pub fn username(&self) -> String {
-        self.pool_stats.user()
+        self.address.username.clone()
     }
 
     pub fn address_name(&self) -> String {
@@ -180,9 +165,6 @@ impl ServerStats {
         // Update server stats and address aggregation stats
         self.set_application(application_name);
         self.address.stats.wait_time_add(microseconds);
-        self.pool_stats
-            .maxwait
-            .fetch_max(microseconds, Ordering::Relaxed);
     }
 
     /// Report a query executed by a client against a server
