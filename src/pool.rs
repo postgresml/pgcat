@@ -667,7 +667,7 @@ impl ConnectionPool {
                     .stats()
                     .checkout_time(checkout_time, client_stats.application_name());
                 server.stats().active(client_stats.application_name());
-
+                client_stats.active();
                 return Ok((conn, address.clone()));
             }
 
@@ -675,6 +675,13 @@ impl ConnectionPool {
                 .run_health_check(address, server, now, client_stats)
                 .await
             {
+                let checkout_time: u64 = now.elapsed().as_micros() as u64;
+                client_stats.checkout_time(checkout_time);
+                server
+                    .stats()
+                    .checkout_time(checkout_time, client_stats.application_name());
+                server.stats().active(client_stats.application_name());
+                client_stats.active();
                 return Ok((conn, address.clone()));
             } else {
                 continue;
