@@ -1,6 +1,6 @@
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use bb8::{ManageConnection, Pool, PooledConnection};
+use bb8::{ManageConnection, Pool, PooledConnection, QueueStrategy};
 use bytes::{BufMut, BytesMut};
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
@@ -401,6 +401,7 @@ impl ConnectionPool {
                             .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                             .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
                             .reaper_rate(std::time::Duration::from_millis(reaper_rate))
+                            .queue_strategy(QueueStrategy::Lifo)
                             .test_on_check_out(false);
 
                         let pool = if config.general.validate_config {

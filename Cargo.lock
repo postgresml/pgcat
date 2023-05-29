@@ -84,8 +84,7 @@ checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
 [[package]]
 name = "bb8"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1627eccf3aa91405435ba240be23513eeca466b5dc33866422672264de061582"
+source = "git+https://github.com/djc/bb8.git?rev=ad653e0#ad653e021607eb1f90ed6ce554d1766920308ffa"
 dependencies = [
  "async-trait",
  "futures-channel",

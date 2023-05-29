@@ -8,7 +8,7 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
 md-5 = "0.10"
-bb8 = "0.8.0"
+bb8 = { git = "https://github.com/djc/bb8.git", rev = "ad653e0" } # https://github.com/djc/bb8/commit/ad653e021607eb1f90ed6ce554d1766920308ffa
 async-trait = "0.1"
 rand = "0.8"
 chrono = "0.4"
