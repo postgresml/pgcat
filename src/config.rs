@@ -329,7 +329,7 @@ impl General {
     }
 
     pub fn default_server_lifetime() -> u64 {
-        1000 * 60 * 60 * 24 // 24 hours
+        1000 * 60 * 60 // 1 hour
     }
 
     pub fn default_connect_timeout() -> u64 {
@@ -352,7 +352,7 @@ impl General {
     }
 
     pub fn default_idle_timeout() -> u64 {
-        60000 // 10 minutes
+        60000 // 1 minute
     }
 
     pub fn default_shutdown_timeout() -> u64 {
