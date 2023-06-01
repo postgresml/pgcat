@@ -355,7 +355,7 @@ impl General {
     }
 
     pub fn default_idle_timeout() -> u64 {
-        600000 // 10 minutes
+        60000 // 10 minutes
     }
 
     pub fn default_shutdown_timeout() -> u64 {
