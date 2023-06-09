@@ -292,6 +292,9 @@ pub struct General {
     #[serde(default = "General::default_server_lifetime")]
     pub server_lifetime: u64,
 
+    #[serde(default = "General::default_server_round_robin")] // False
+    pub server_round_robin: bool,
+
     #[serde(default = "General::default_worker_threads")]
     pub worker_threads: usize,
 
@@ -352,7 +355,7 @@ impl General {
     }
 
     pub fn default_idle_timeout() -> u64 {
-        60000 // 1 minute
+        600000 // 10 minutes
     }
 
     pub fn default_shutdown_timeout() -> u64 {
@@ -390,6 +393,10 @@ impl General {
     pub fn default_prometheus_exporter_port() -> i16 {
         9930
     }
+
+    pub fn default_server_round_robin() -> bool {
+        true
+    }
 }
 
 impl Default for General {
@@ -424,7 +431,8 @@ impl Default for General {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
-            server_lifetime: 1000 * 3600 * 24, // 24 hours,
+            server_lifetime: Self::default_server_lifetime(),
+            server_round_robin: false,
             validate_config: true,
         }
     }
@@ -983,6 +991,7 @@ impl Config {
             "Default max server lifetime: {}ms",
             self.general.server_lifetime
         );
+        info!("Sever round robin: {}", self.general.server_round_robin);
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);

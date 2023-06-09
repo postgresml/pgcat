@@ -63,6 +63,7 @@ def cleanup_conn(conn: psycopg2.extensions.connection, cur: psycopg2.extensions.
 
 
 def test_normal_db_access():
+    pgcat_start()
     conn, cur = connect_db(autocommit=False)
     cur.execute("SELECT 1")
     res = cur.fetchall()

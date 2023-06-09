@@ -389,6 +389,11 @@ impl ConnectionPool {
                             .min()
                             .unwrap();
 
+                        let queue_strategy = match config.general.server_round_robin {
+                            true => QueueStrategy::Fifo,
+                            false => QueueStrategy::Lifo,
+                        };
+
                         debug!(
                             "[pool: {}][user: {}] Pool reaper rate: {}ms",
                             pool_name, user.username, reaper_rate
@@ -401,7 +406,7 @@ impl ConnectionPool {
                             .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
                             .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
                             .reaper_rate(std::time::Duration::from_millis(reaper_rate))
-                            .queue_strategy(QueueStrategy::Lifo)
+                            .queue_strategy(queue_strategy)
                             .test_on_check_out(false);
 
                         let pool = if config.general.validate_config {
