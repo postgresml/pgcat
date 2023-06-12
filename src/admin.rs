@@ -308,17 +308,17 @@ where
                 let paused = pool.paused();
 
                 res.put(data_row(&vec![
-                    address.name(),                         // name
-                    address.host.to_string(),               // host
-                    address.port.to_string(),               // port
-                    database_name.to_string(),              // database
-                    pool_config.user.username.to_string(),  // force_user
-                    pool_config.user.pool_size.to_string(), // pool_size
-                    "0".to_string(),                        // min_pool_size
-                    "0".to_string(),                        // reserve_pool
-                    pool_config.pool_mode.to_string(),      // pool_mode
-                    pool_config.user.pool_size.to_string(), // max_connections
-                    pool_state.connections.to_string(),     // current_connections
+                    address.name(),                                          // name
+                    address.host.to_string(),                                // host
+                    address.port.to_string(),                                // port
+                    database_name.to_string(),                               // database
+                    pool_config.user.username.to_string(),                   // force_user
+                    pool_config.user.pool_size.to_string(),                  // pool_size
+                    pool_config.user.min_pool_size.unwrap_or(0).to_string(), // min_pool_size
+                    "0".to_string(),                                         // reserve_pool
+                    pool_config.pool_mode.to_string(),                       // pool_mode
+                    pool_config.user.pool_size.to_string(),                  // max_connections
+                    pool_state.connections.to_string(),                      // current_connections
                     match paused {
                         // paused
                         true => "1".to_string(),
