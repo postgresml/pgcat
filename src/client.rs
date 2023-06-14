@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
 
-use crate::admin::{generate_server_info_for_admin, handle_admin};
+use crate::admin::{generate_server_parameters_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
 use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
@@ -491,7 +491,7 @@ where
         };
 
         // Authenticate admin user.
-        let (transaction_mode, server_info) = if admin {
+        let (transaction_mode, server_parameters) = if admin {
             let config = get_config();
 
             // Compare server and client hashes.
@@ -510,7 +510,7 @@ where
                 return Err(error);
             }
 
-            (false, generate_server_info_for_admin())
+            (false, generate_server_parameters_for_admin())
         }
         // Authenticate normal user.
         else {
@@ -643,13 +643,13 @@ where
                 }
             }
 
-            (transaction_mode, pool.server_info())
+            (transaction_mode, pool.server_parameters())
         };
 
         debug!("Password authentication successful");
 
         auth_ok(&mut write).await?;
-        write_all(&mut write, server_info).await?;
+        write_all(&mut write, server_parameters.get_bytes()).await?;
         backend_key_data(&mut write, process_id, secret_key).await?;
         ready_for_query(&mut write).await?;
 

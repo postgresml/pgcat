@@ -6,7 +6,8 @@ use log::{debug, error, info, trace, warn};
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Cursor, Read};
+use std::mem;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -19,6 +20,7 @@ use crate::config::{get_config, Address, User};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
+use crate::messages::BytesMutReader;
 use crate::messages::*;
 use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
@@ -145,6 +147,124 @@ impl std::fmt::Display for CleanupState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ServerParameters {
+    base_original: BytesMut,
+    client_encoding: String,
+    date_style: String,
+    timezone: String,
+    standard_conforming_strings: String,
+    application_name: String,
+}
+
+impl Default for ServerParameters {
+    fn default() -> Self {
+        ServerParameters::new()
+    }
+}
+
+impl ServerParameters {
+    pub fn new() -> Self {
+        ServerParameters {
+            base_original: BytesMut::new(),
+            client_encoding: "UTF8".to_string(),
+            date_style: "ISO".to_string(),
+            timezone: "UTC".to_string(),
+            standard_conforming_strings: "on".to_string(),
+            application_name: "pgcat".to_string(),
+        }
+    }
+
+    pub fn set_dynamic_param(&mut self, key: String, value: String) {
+        match key.as_str() {
+            "client_encoding" => {
+                self.client_encoding = value;
+            }
+            "date_style" => {
+                self.date_style = value;
+            }
+            "timezone" => {
+                self.timezone = value;
+            }
+            "standard_conforming_strings" => {
+                self.standard_conforming_strings = value;
+            }
+            "application_name" => {
+                self.application_name = value;
+            }
+            _ => {}
+        }
+    }
+
+    fn set_param_from_bytes(&mut self, raw_bytes: BytesMut) {
+        let mut message_cursor = Cursor::new(&raw_bytes);
+
+        message_cursor.get_u8();
+        message_cursor.get_i32();
+
+        let key = match message_cursor.read_string() {
+            Ok(key) => key,
+            Err(_) => {
+                return;
+            },
+        };
+        let value = message_cursor.read_string().unwrap();
+
+        match key.as_str() {
+            "client_encoding" => {
+                self.client_encoding = value;
+            }
+            "date_style" => {
+                self.date_style = value;
+            }
+            "timezone" => {
+                self.timezone = value;
+            }
+            "standard_conforming_strings" => {
+                self.standard_conforming_strings = value;
+            }
+            "application_name" => {
+                self.application_name = value;
+            }
+            _ => {
+                self.base_original.extend(raw_bytes);
+            }
+        }
+    }
+
+    pub fn get_bytes(&self) -> BytesMut {
+        let mut bytes = self.base_original.clone();
+
+        self.add_parameter_message("client_encoding", &self.client_encoding, &mut bytes);
+        self.add_parameter_message("date_style", &self.date_style, &mut bytes);
+        self.add_parameter_message("timezone", &self.timezone, &mut bytes);
+        self.add_parameter_message(
+            "standard_conforming_strings",
+            &self.standard_conforming_strings,
+            &mut bytes,
+        );
+        self.add_parameter_message("application_name", &self.application_name, &mut bytes);
+
+        bytes
+    }
+
+    fn add_parameter_message(&self, key: &str, value: &str, buffer: &mut BytesMut) {
+        buffer.put_u8(b'S');
+
+        // 4 is len of i32, the plus for the null terminator
+        let len = 4 + key.len() + 1 + value.len() + 1;
+
+        buffer.put_i32(len as i32);
+
+        buffer.put_slice(key.as_bytes());
+        buffer.put_u8(0);
+        buffer.put_slice(value.as_bytes());
+        buffer.put_u8(0);
+    }
+}
+
+// pub fn compare
+
 /// Server state.
 pub struct Server {
     /// Server host, e.g. localhost,
@@ -158,7 +278,7 @@ pub struct Server {
     buffer: BytesMut,
 
     /// Server information the server sent us over on startup.
-    server_info: BytesMut,
+    server_parameters: ServerParameters,
 
     /// Backend id and secret key used for query cancellation.
     process_id: i32,
@@ -341,7 +461,6 @@ impl Server {
 
         startup(&mut stream, username, database).await?;
 
-        let mut server_info = BytesMut::new();
         let mut process_id: i32 = 0;
         let mut secret_key: i32 = 0;
         let server_identifier = ServerIdentifier::new(username, &database);
@@ -352,6 +471,8 @@ impl Server {
             Some(password) => Some(ScramSha256::new(password)),
             None => None,
         };
+
+        let mut server_parameters = ServerParameters::new();
 
         loop {
             let code = match stream.read_u8().await {
@@ -607,9 +728,15 @@ impl Server {
 
                 // ParameterStatus
                 'S' => {
-                    let mut param = vec![0u8; len as usize - 4];
+                    let mut bytes = BytesMut::with_capacity(len as usize + 1);
+                    bytes.put_u8(code as u8);
+                    bytes.put_i32(len);
+                    bytes.resize(bytes.len() + len as usize - mem::size_of::<i32>(), b'0');
 
-                    match stream.read_exact(&mut param).await {
+                    let slice_start = mem::size_of::<u8>() + mem::size_of::<i32>();
+                    let slice_end = slice_start + len as usize - mem::size_of::<i32>();
+
+                    match stream.read_exact(&mut bytes[slice_start..slice_end]).await {
                         Ok(_) => (),
                         Err(_) => {
                             return Err(Error::ServerStartupError(
@@ -622,9 +749,7 @@ impl Server {
                     // Save the parameter so we can pass it to the client later.
                     // These can be server_encoding, client_encoding, server timezone, Postgres version,
                     // and many more interesting things we should know about the Postgres server we are talking to.
-                    server_info.put_u8(b'S');
-                    server_info.put_i32(len);
-                    server_info.put_slice(&param[..]);
+                    server_parameters.set_param_from_bytes(bytes);
                 }
 
                 // BackendKeyData
@@ -670,7 +795,7 @@ impl Server {
                         address: address.clone(),
                         stream: BufStream::new(stream),
                         buffer: BytesMut::with_capacity(8196),
-                        server_info,
+                        server_parameters,
                         process_id,
                         secret_key,
                         in_transaction: false,
@@ -946,9 +1071,8 @@ impl Server {
     }
 
     /// Get server startup information to forward it to the client.
-    /// Not used at the moment.
-    pub fn server_info(&self) -> BytesMut {
-        self.server_info.clone()
+    pub fn server_parameters(&self) -> ServerParameters {
+        self.server_parameters.clone()
     }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.

@@ -1,7 +1,6 @@
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection, QueueStrategy};
-use bytes::{BufMut, BytesMut};
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
@@ -25,7 +24,7 @@ use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
 use crate::plugins::prewarmer;
-use crate::server::Server;
+use crate::server::{Server, ServerParameters};
 use crate::sharding::ShardingFunction;
 use crate::stats::{AddressStats, ClientStats, ServerStats};
 
@@ -188,10 +187,10 @@ pub struct ConnectionPool {
     /// that should not be queried.
     banlist: BanList,
 
-    /// The server information (K messages) have to be passed to the
+    /// The server information has to be passed to the
     /// clients on startup. We pre-connect to all shards and replicas
-    /// on pool creation and save the K messages here.
-    server_info: Arc<RwLock<BytesMut>>,
+    /// on pool creation and save the startup parameters here.
+    original_server_parameters: ServerParameters,
 
     /// Pool configuration.
     pub settings: PoolSettings,
@@ -258,6 +257,7 @@ impl ConnectionPool {
                     .clone()
                     .into_keys()
                     .collect::<Vec<String>>();
+                let mut original_server_parameters = ServerParameters::new();
 
                 // Sort by shard number to ensure consistency.
                 shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
@@ -415,6 +415,20 @@ impl ConnectionPool {
                             pool.build_unchecked(manager)
                         };
 
+                        // Set original server parameters by getting a connection
+                        // If we don't want to validate then a default set of parameters will be used
+                        if config.general.validate_config {
+                            match pool.get().await {
+                                Ok(conn) => {
+                                    original_server_parameters = conn.server_parameters();
+                                }
+                                Err(err) => {
+                                    error!("Shard {} down or misconfigured: {:?}", address, err);
+                                    return Err(Error::ServerError);
+                                }
+                            };
+                        }
+
                         pools.push(pool);
                         servers.push(address);
                     }
@@ -437,7 +451,7 @@ impl ConnectionPool {
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     config_hash: new_pool_hash_value,
-                    server_info: Arc::new(RwLock::new(BytesMut::new())),
+                    original_server_parameters,
                     auth_hash: pool_auth_hash,
                     settings: PoolSettings {
                         pool_mode: match user.pool_mode {
@@ -488,6 +502,7 @@ impl ConnectionPool {
                 // before setting it globally.
                 // Do this async and somewhere else, we don't have to wait here.
                 if config.general.validate_config {
+                    // TODO: this can't be optional since we need some startup parameters to bootstrap with
                     let mut validate_pool = pool.clone();
                     tokio::task::spawn(async move {
                         let _ = validate_pool.validate().await;
@@ -512,30 +527,22 @@ impl ConnectionPool {
     pub async fn validate(&mut self) -> Result<(), Error> {
         let mut futures = Vec::new();
         let validated = Arc::clone(&self.validated);
+        validated.store(true, Ordering::Relaxed);
 
         for shard in 0..self.shards() {
             for server in 0..self.servers(shard) {
                 let databases = self.databases.clone();
                 let validated = Arc::clone(&validated);
-                let pool_server_info = Arc::clone(&self.server_info);
 
                 let task = tokio::task::spawn(async move {
-                    let connection = match databases[shard][server].get().await {
-                        Ok(conn) => conn,
+                    match databases[shard][server].get().await {
+                        Ok(_) => {}
                         Err(err) => {
+                            validated.store(false, Ordering::Relaxed);
                             error!("Shard {} down or misconfigured: {:?}", shard, err);
                             return;
                         }
                     };
-
-                    let proxy = connection;
-                    let server = &*proxy;
-                    let server_info = server.server_info();
-
-                    let mut guard = pool_server_info.write();
-                    guard.clear();
-                    guard.put(server_info.clone());
-                    validated.store(true, Ordering::Relaxed);
                 });
 
                 futures.push(task);
@@ -546,7 +553,7 @@ impl ConnectionPool {
 
         // TODO: compare server information to make sure
         // all shards are running identical configurations.
-        if self.server_info.read().is_empty() {
+        if !self.validated() {
             error!("Could not validate connection pool");
             return Err(Error::AllServersDown);
         }
@@ -906,8 +913,8 @@ impl ConnectionPool {
         &self.addresses[shard][server]
     }
 
-    pub fn server_info(&self) -> BytesMut {
-        self.server_info.read().clone()
+    pub fn server_parameters(&self) -> ServerParameters {
+        self.original_server_parameters.clone()
     }
 
     fn busy_connection_count(&self, address: &Address) -> u32 {

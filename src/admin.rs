@@ -1,4 +1,5 @@
 use crate::pool::BanReason;
+use crate::server::ServerParameters;
 use crate::stats::pool::PoolStats;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{error, info, trace};
@@ -17,16 +18,16 @@ use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
 
-pub fn generate_server_info_for_admin() -> BytesMut {
-    let mut server_info = BytesMut::new();
+pub fn generate_server_parameters_for_admin() -> ServerParameters {
+    let mut server_parameters = ServerParameters::new();
 
-    server_info.put(server_parameter_message("application_name", ""));
-    server_info.put(server_parameter_message("client_encoding", "UTF8"));
-    server_info.put(server_parameter_message("server_encoding", "UTF8"));
-    server_info.put(server_parameter_message("server_version", VERSION));
-    server_info.put(server_parameter_message("DateStyle", "ISO, MDY"));
+    server_parameters.set_dynamic_param("application_name".to_string(), "".to_string());
+    server_parameters.set_dynamic_param("client_encoding".to_string(), "UTF8".to_string());
+    server_parameters.set_dynamic_param("server_encoding".to_string(), "UTF8".to_string());
+    server_parameters.set_dynamic_param("server_version".to_string(), VERSION.to_string());
+    server_parameters.set_dynamic_param("DateStyle".to_string(), "ISO, MDY".to_string());
 
-    server_info
+    server_parameters
 }
 
 /// Handle admin client.
