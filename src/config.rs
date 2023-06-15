@@ -1019,6 +1019,7 @@ impl Config {
             "Server TLS certificate verification: {}",
             self.general.verify_server_certificate
         );
+        info!("Prepared statements: {}", self.general.prepared_statements);
         info!(
             "Plugins: {}",
             match self.plugins {
