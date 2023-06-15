@@ -820,7 +820,25 @@ where
                 // allocate a connection, we wouldn't be able to send back an error message
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
-                'D' | 'E' => {
+                'D'  => {
+                    if prepared_statements_enabled {
+                        let describe: Describe = (&message).try_into()?;
+                        match self.prepared_statements.get(&describe.statement_name) {
+                            Some(parse) => {
+                                prepared_statement = Some(describe.statement_name.clone());
+
+                                let describe = describe.rename(&parse.name);
+                                message = describe.try_into()?;
+                            }
+                            None => (),
+                        }
+                    }
+
+                    self.buffer.put(&message[..]);
+                    continue;
+                }
+
+                'E' => {
                     self.buffer.put(&message[..]);
                     continue;
                 }
@@ -1274,6 +1292,19 @@ where
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
+                        if prepared_statements_enabled {
+                            let describe: Describe = (&message).try_into()?;
+                            match self.prepared_statements.get(&describe.statement_name) {
+                                Some(parse) => {
+                                    prepared_statement = Some(describe.statement_name.clone());
+
+                                    let describe = describe.rename(&parse.name);
+                                    message = describe.try_into()?;
+                                }
+                                None => (),
+                            }
+                        }
+
                         self.buffer.put(&message[..]);
                     }
 

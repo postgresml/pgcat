@@ -914,6 +914,59 @@ impl Bind {
     }
 }
 
+pub struct Describe {
+    code: char,
+
+    #[allow(dead_code)]
+    len: i32,
+    target: char,
+    pub statement_name: String,
+}
+
+impl TryFrom<&BytesMut> for Describe {
+    type Error = Error;
+
+    fn try_from(bytes: &BytesMut) -> Result<Describe, Error> {
+        let mut cursor = Cursor::new(bytes);
+        let code = cursor.get_u8() as char;
+        let len = cursor.get_i32();
+        let target = cursor.get_u8() as char;
+        let statement_name = cursor.read_string()?;
+
+        Ok(Describe {
+            code,
+            len,
+            target,
+            statement_name,
+        })
+    }
+}
+
+impl TryFrom<Describe> for BytesMut {
+    type Error = Error;
+
+    fn try_from(describe: Describe) -> Result<BytesMut, Error> {
+        let mut bytes = BytesMut::new();
+        let statement_name_binding = CString::new(describe.statement_name)?;
+        let statement_name = statement_name_binding.as_bytes_with_nul();
+        let len = 4 + 1 + statement_name.len();
+
+        bytes.put_u8(describe.code as u8);
+        bytes.put_i32(len as i32);
+        bytes.put_u8(describe.target as u8);
+        bytes.put_slice(statement_name);
+
+        Ok(bytes)
+    }
+}
+
+impl Describe {
+    pub fn rename(mut self, name: &str) -> Self {
+        self.statement_name = name.to_string();
+        self
+    }
+}
+
 pub fn prepared_statement_name() -> String {
     format!(
         "P_{}",
