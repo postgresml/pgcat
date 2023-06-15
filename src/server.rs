@@ -16,6 +16,7 @@ use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use crate::config::{get_config, Address, User};
+use crate::query_router::{PreparedStatement, PreparedStatementName};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -198,6 +199,9 @@ pub struct Server {
 
     /// Should clean up dirty connections?
     cleanup_connections: bool,
+
+    /// Prepared statements on this server.
+    prepared_statements: HashMap<PreparedStatementName, PreparedStatement>,
 }
 
 impl Server {
@@ -692,6 +696,7 @@ impl Server {
                             )),
                         },
                         cleanup_connections,
+                        prepared_statements: HashMap::new(),
                     };
 
                     server.set_name("pgcat").await?;

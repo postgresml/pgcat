@@ -60,6 +60,15 @@ enum ParameterFormat {
     Specified(Vec<ParameterFormat>),
 }
 
+pub struct PreparedStatementName(pub String);
+pub struct PreparedStatement(pub String);
+
+pub struct ParseResult {
+    pub name: PreparedStatementName,
+    pub statement: PreparedStatement,
+    pub ast: Vec<Statement>,
+}
+
 /// Quickly test for match when a query is received.
 static CUSTOM_SQL_REGEX_SET: OnceCell<RegexSet> = OnceCell::new();
 
@@ -331,39 +340,43 @@ impl QueryRouter {
         Some((command, value))
     }
 
-    pub fn parse(message: &BytesMut) -> Result<Vec<sqlparser::ast::Statement>, Error> {
+    pub fn parse(message: &BytesMut) -> Result<ParseResult, Error> {
         let mut message_cursor = Cursor::new(message);
 
         let code = message_cursor.get_u8() as char;
         let _len = message_cursor.get_i32() as usize;
 
-        let query = match code {
+        let (name, statement) = match code {
             // Query
             'Q' => {
                 let query = message_cursor.read_string().unwrap();
                 debug!("Query: '{}'", query);
-                query
+                (PreparedStatementName("".into()), PreparedStatement(query))
             }
 
             // Parse (prepared statement)
             'P' => {
                 // Reads statement name
-                message_cursor.read_string().unwrap();
+                let name = PreparedStatementName(message_cursor.read_string().unwrap());
 
                 // Reads query string
-                let query = message_cursor.read_string().unwrap();
+                let statement = PreparedStatement(message_cursor.read_string().unwrap());
 
-                debug!("Prepared statement: '{}'", query);
-                query
+                debug!("Prepared statement: '{}'", statement.0);
+                (name, statement)
             }
 
             _ => return Err(Error::UnsupportedStatement),
         };
 
-        match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
-            Ok(ast) => Ok(ast),
+        match Parser::parse_sql(&PostgreSqlDialect {}, &statement.0) {
+            Ok(ast) => Ok(ParseResult {
+                name,
+                statement,
+                ast,
+            }),
             Err(err) => {
-                debug!("{}: {}", err, query);
+                debug!("{}: {}", err, statement.0);
                 Err(Error::QueryRouterParserError(err.to_string()))
             }
         }

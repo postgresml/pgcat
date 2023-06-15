@@ -18,7 +18,7 @@ use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
-use crate::query_router::{Command, QueryRouter};
+use crate::query_router::{Command, QueryRouter, PreparedStatement, PreparedStatementName};
 use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
@@ -93,6 +93,9 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
+
+    /// Prepared statements
+    prepared_statements: HashMap<PreparedStatementName, PreparedStatement>,
 }
 
 /// Client entrypoint.
@@ -682,6 +685,7 @@ where
             application_name: application_name.to_string(),
             shutdown,
             connected_to_server: false,
+            prepared_statements: HashMap::new(),
         })
     }
 
@@ -716,6 +720,7 @@ where
             application_name: String::from("undefined"),
             shutdown,
             connected_to_server: false,
+            prepared_statements: HashMap::new(),
         })
     }
 
@@ -807,8 +812,8 @@ where
 
                 'Q' => {
                     if query_router.query_parser_enabled() {
-                        if let Ok(ast) = QueryRouter::parse(&message) {
-                            let plugin_result = query_router.execute_plugins(&ast).await;
+                        if let Ok(parse_result) = QueryRouter::parse(&message) {
+                            let plugin_result = query_router.execute_plugins(&parse_result.ast).await;
 
                             match plugin_result {
                                 Ok(PluginOutput::Deny(error)) => {
@@ -824,7 +829,7 @@ where
                                 _ => (),
                             };
 
-                            let _ = query_router.infer(&ast);
+                            let _ = query_router.infer(&parse_result.ast);
                         }
                     }
                 }
@@ -833,12 +838,12 @@ where
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
-                        if let Ok(ast) = QueryRouter::parse(&message) {
-                            if let Ok(output) = query_router.execute_plugins(&ast).await {
+                        if let Ok(parse_result) = QueryRouter::parse(&message) {
+                            if let Ok(output) = query_router.execute_plugins(&parse_result.ast).await {
                                 plugin_output = Some(output);
                             }
 
-                            let _ = query_router.infer(&ast);
+                            let _ = query_router.infer(&parse_result.ast);
                         }
                     }
 
@@ -1114,8 +1119,8 @@ where
                     // Query
                     'Q' => {
                         if query_router.query_parser_enabled() {
-                            if let Ok(ast) = QueryRouter::parse(&message) {
-                                let plugin_result = query_router.execute_plugins(&ast).await;
+                            if let Ok(parse_result) = QueryRouter::parse(&message) {
+                                let plugin_result = query_router.execute_plugins(&parse_result.ast).await;
 
                                 match plugin_result {
                                     Ok(PluginOutput::Deny(error)) => {
@@ -1131,7 +1136,7 @@ where
                                     _ => (),
                                 };
 
-                                let _ = query_router.infer(&ast);
+                                let _ = query_router.infer(&parse_result.ast);
                             }
                         }
                         debug!("Sending query to server");
@@ -1174,8 +1179,8 @@ where
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
                         if query_router.query_parser_enabled() {
-                            if let Ok(ast) = QueryRouter::parse(&message) {
-                                if let Ok(output) = query_router.execute_plugins(&ast).await {
+                            if let Ok(parse_result) = QueryRouter::parse(&message) {
+                                if let Ok(output) = query_router.execute_plugins(&parse_result.ast).await {
                                     plugin_output = Some(output);
                                 }
                             }
