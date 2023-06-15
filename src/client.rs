@@ -1402,17 +1402,16 @@ where
     /// Rewrite Parse (F) message to randomize the prepared statement name.
     /// Save it into the client cache.
     fn rewrite_parse(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
-        let parse: Parse = (&message).try_into()?;
+        let mut parse: Parse = (&message).try_into()?;
+
+        let name = parse.name.clone();
 
         // Don't rewrite anonymous prepared statements
-        if parse.anonymous() {
-            return Ok(parse.try_into()?);
+        if !parse.anonymous() {
+            parse = parse.rename()
         }
 
         debug!("Saving prepared statement {:?} to cache", parse);
-
-        let name = parse.name.clone();
-        let parse = parse.rename();
 
         self.prepared_statements.insert(name, parse.clone());
 

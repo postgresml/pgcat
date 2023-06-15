@@ -60,17 +60,6 @@ enum ParameterFormat {
     Specified(Vec<ParameterFormat>),
 }
 
-#[derive(Clone, PartialEq, Hash, Eq)]
-pub struct PreparedStatementName(pub String);
-#[derive(Clone)]
-pub struct PreparedStatement(pub String);
-
-pub struct ParseResult {
-    pub name: PreparedStatementName,
-    pub statement: PreparedStatement,
-    pub ast: Vec<Statement>,
-}
-
 /// Quickly test for match when a query is received.
 static CUSTOM_SQL_REGEX_SET: OnceCell<RegexSet> = OnceCell::new();
 
