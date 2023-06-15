@@ -3,8 +3,9 @@ use crate::pool::BanReason;
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -18,14 +19,17 @@ use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
-use crate::query_router::{
-    Command, ParseResult, PreparedStatement, PreparedStatementName, QueryRouter,
-};
+use crate::query_router::{Command, QueryRouter};
 use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
+
+/// Incrementally count prepared statements
+/// to avoid random conflicts in places where the random number generator is weak.
+pub static PREPARED_STATEMENT_COUNTER: Lazy<Arc<AtomicUsize>> =
+    Lazy::new(|| Arc::new(AtomicUsize::new(0)));
 
 /// Type of connection received from client.
 enum ClientConnectionType {
@@ -97,7 +101,7 @@ pub struct Client<S, T> {
     shutdown: Receiver<()>,
 
     /// Prepared statements
-    prepared_statements: HashMap<PreparedStatementName, PreparedStatement>,
+    prepared_statements: HashMap<String, Parse>,
 }
 
 /// Client entrypoint.
@@ -779,7 +783,7 @@ where
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
 
-            let message = tokio::select! {
+            let mut message = tokio::select! {
                 _ = self.shutdown.recv() => {
                     if !self.admin {
                         error_response_terminal(
@@ -814,9 +818,8 @@ where
 
                 'Q' => {
                     if query_router.query_parser_enabled() {
-                        if let Ok(parse_result) = QueryRouter::parse(&message) {
-                            let plugin_result =
-                                query_router.execute_plugins(&parse_result.ast).await;
+                        if let Ok(ast) = QueryRouter::parse(&message) {
+                            let plugin_result = query_router.execute_plugins(&ast).await;
 
                             match plugin_result {
                                 Ok(PluginOutput::Deny(error)) => {
@@ -832,25 +835,22 @@ where
                                 _ => (),
                             };
 
-                            let _ = query_router.infer(&parse_result.ast);
+                            let _ = query_router.infer(&ast);
                         }
                     }
                 }
 
                 'P' => {
+                    message = self.rewrite_parse(message)?;
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
-                        if let Ok(parse_result) = QueryRouter::parse(&message) {
-                            if let Ok(output) =
-                                query_router.execute_plugins(&parse_result.ast).await
-                            {
+                        if let Ok(ast) = QueryRouter::parse(&message) {
+                            if let Ok(output) = query_router.execute_plugins(&ast).await {
                                 plugin_output = Some(output);
                             }
 
-                            self.handle_prepared_statement(&parse_result);
-
-                            let _ = query_router.infer(&parse_result.ast);
+                            let _ = query_router.infer(&ast);
                         }
                     }
 
@@ -858,6 +858,7 @@ where
                 }
 
                 'B' => {
+                    message = self.rewrite_bind(message)?;
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
@@ -1066,7 +1067,7 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                let message = match initial_message {
+                let mut message = match initial_message {
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
@@ -1126,9 +1127,8 @@ where
                     // Query
                     'Q' => {
                         if query_router.query_parser_enabled() {
-                            if let Ok(parse_result) = QueryRouter::parse(&message) {
-                                let plugin_result =
-                                    query_router.execute_plugins(&parse_result.ast).await;
+                            if let Ok(ast) = QueryRouter::parse(&message) {
+                                let plugin_result = query_router.execute_plugins(&ast).await;
 
                                 match plugin_result {
                                     Ok(PluginOutput::Deny(error)) => {
@@ -1144,7 +1144,7 @@ where
                                     _ => (),
                                 };
 
-                                let _ = query_router.infer(&parse_result.ast);
+                                let _ = query_router.infer(&ast);
                             }
                         }
                         debug!("Sending query to server");
@@ -1186,33 +1186,25 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        let parse: Parse = (&message).try_into()?;
-                        debug!("Parse: {:?}", parse);
-                        let back: BytesMut = parse.try_into()?;
+                        message = self.rewrite_parse(message)?;
 
                         if query_router.query_parser_enabled() {
-                            if let Ok(parse_result) = QueryRouter::parse(&message) {
-                                if let Ok(output) =
-                                    query_router.execute_plugins(&parse_result.ast).await
-                                {
+                            if let Ok(ast) = QueryRouter::parse(&message) {
+                                if let Ok(output) = query_router.execute_plugins(&ast).await {
                                     plugin_output = Some(output);
                                 }
-
-                                self.handle_prepared_statement(&parse_result);
                             }
                         }
 
-                        self.buffer.put(&back[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        let bind: Bind = (&message).try_into()?;
-                        debug!("Bind: {:?}", bind);
-                        let back: BytesMut = bind.try_into()?;
+                        message = self.rewrite_bind(message)?;
 
-                        self.buffer.put(&back[..]);
+                        self.buffer.put(&message[..]);
                     }
 
                     // Describe
@@ -1388,15 +1380,42 @@ where
         }
     }
 
-    fn handle_prepared_statement(&mut self, parse_result: &ParseResult) {
-        if !self.prepared_statements.contains_key(&parse_result.name) {
-            debug!(
-                "Adding prepared statement `{}` to cache",
-                parse_result.name.0
-            );
-            self.prepared_statements
-                .insert(parse_result.name.clone(), parse_result.statement.clone());
-        }
+    /// Rewrite Parse (F) message to randomize the prepared statement name.
+    /// Save it into the client cache.
+    fn rewrite_parse(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
+        let parse: Parse = (&message).try_into()?;
+
+        debug!("Saving prepared statement {:?} to cache", parse);
+
+        let name = parse.name.clone();
+        let parse = parse.rename();
+
+        self.prepared_statements.insert(name, parse.clone());
+
+        Ok(parse.try_into()?)
+    }
+
+    /// Rewrite the Bind (F) message to use the random prepared statement name
+    /// saved in the client cache.
+    fn rewrite_bind(&self, message: BytesMut) -> Result<BytesMut, Error> {
+        let bind: Bind = (&message).try_into()?;
+
+        let prepared_stmt = match self.prepared_statements.get(&bind.prepared_statement) {
+            Some(prepared_stmt) => prepared_stmt,
+            None => {
+                debug!("Got bind for unknown prepared statement {:?}", bind);
+                return Err(Error::ClientError(format!(
+                    "Unknown prepared statement: {}",
+                    bind.prepared_statement
+                )));
+            }
+        };
+
+        let bind = bind.reassign(prepared_stmt);
+
+        debug!("Rewrote bind to {:?}", bind);
+
+        Ok(bind.try_into()?)
     }
 
     /// Release the server from the client: it can't cancel its queries anymore.

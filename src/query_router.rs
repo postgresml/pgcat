@@ -342,43 +342,40 @@ impl QueryRouter {
         Some((command, value))
     }
 
-    pub fn parse(message: &BytesMut) -> Result<ParseResult, Error> {
+    pub fn parse(message: &BytesMut) -> Result<Vec<Statement>, Error> {
         let mut message_cursor = Cursor::new(message);
 
         let code = message_cursor.get_u8() as char;
         let _len = message_cursor.get_i32() as usize;
 
-        let (name, statement) = match code {
+        let query = match code {
             // Query
             'Q' => {
                 let query = message_cursor.read_string().unwrap();
                 debug!("Query: '{}'", query);
-                (PreparedStatementName("".into()), PreparedStatement(query))
+                query
             }
 
             // Parse (prepared statement)
             'P' => {
                 // Reads statement name
-                let name = PreparedStatementName(message_cursor.read_string().unwrap());
+                let _name = message_cursor.read_string().unwrap();
 
                 // Reads query string
-                let statement = PreparedStatement(message_cursor.read_string().unwrap());
+                let query = message_cursor.read_string().unwrap();
 
-                debug!("Prepared statement: '{}'", statement.0);
-                (name, statement)
+                debug!("Prepared statement: '{}'", query);
+
+                query
             }
 
             _ => return Err(Error::UnsupportedStatement),
         };
 
-        match Parser::parse_sql(&PostgreSqlDialect {}, &statement.0) {
-            Ok(ast) => Ok(ParseResult {
-                name,
-                statement,
-                ast,
-            }),
+        match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
+            Ok(ast) => Ok(ast),
             Err(err) => {
-                debug!("{}: {}", err, statement.0);
+                debug!("{}: {}", err, query);
                 Err(Error::QueryRouterParserError(err.to_string()))
             }
         }

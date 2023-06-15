@@ -22,7 +22,6 @@ use crate::errors::{Error, ServerIdentifier};
 use crate::messages::*;
 use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
-use crate::query_router::{PreparedStatement, PreparedStatementName};
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
 use std::io::Write;
@@ -199,9 +198,6 @@ pub struct Server {
 
     /// Should clean up dirty connections?
     cleanup_connections: bool,
-
-    /// Prepared statements on this server.
-    prepared_statements: HashMap<PreparedStatementName, PreparedStatement>,
 }
 
 impl Server {
@@ -696,7 +692,6 @@ impl Server {
                             )),
                         },
                         cleanup_connections,
-                        prepared_statements: HashMap::new(),
                     };
 
                     server.set_name("pgcat").await?;

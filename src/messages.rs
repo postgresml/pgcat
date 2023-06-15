@@ -7,12 +7,15 @@ use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use crate::client::PREPARED_STATEMENT_COUNTER;
 use crate::config::get_config;
 use crate::errors::Error;
+
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{BufRead, Cursor};
 use std::mem;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 /// Postgres data type mappings
@@ -696,8 +699,10 @@ impl BytesMutReader for Cursor<&BytesMut> {
 #[derive(Clone, Debug)]
 pub struct Parse {
     code: char,
+    #[allow(dead_code)]
     len: i32,
-    name: String,
+    pub name: String,
+    pub generated_name: String,
     query: String,
     num_params: i16,
     param_types: Vec<i32>,
@@ -723,6 +728,7 @@ impl TryFrom<&BytesMut> for Parse {
             code,
             len,
             name,
+            generated_name: prepared_statement_name(),
             query,
             num_params,
             param_types,
@@ -763,8 +769,13 @@ impl TryFrom<Parse> for BytesMut {
 }
 
 impl Parse {
-    pub fn rename(&mut self, name: &str) {
-        self.name = name.to_string();
+    pub fn rename(mut self) -> Self {
+        self.name = self.generated_name.to_string();
+        self
+    }
+
+    pub fn anonymous(&self) -> bool {
+        self.name.is_empty()
     }
 }
 
@@ -773,9 +784,10 @@ impl Parse {
 #[derive(Clone, Debug)]
 pub struct Bind {
     code: char,
+    #[allow(dead_code)]
     len: i64,
     portal: String,
-    prepared_statement: String,
+    pub prepared_statement: String,
     num_param_format_codes: i16,
     param_format_codes: Vec<i16>,
     num_param_values: i16,
@@ -881,7 +893,15 @@ impl TryFrom<Bind> for BytesMut {
 }
 
 impl Bind {
-    pub fn reassign(&mut self, prepared_statement: &str) {
-        self.prepared_statement = prepared_statement.to_string();
+    pub fn reassign(mut self, parse: &Parse) -> Self {
+        self.prepared_statement = parse.name.clone();
+        self
     }
+}
+
+pub fn prepared_statement_name() -> String {
+    format!(
+        "P_{}",
+        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
+    )
 }
