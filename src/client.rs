@@ -820,7 +820,7 @@ where
                 // allocate a connection, we wouldn't be able to send back an error message
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
-                'D'  => {
+                'D' => {
                     if prepared_statements_enabled {
                         let describe: Describe = (&message).try_into()?;
                         match self.prepared_statements.get(&describe.statement_name) {
