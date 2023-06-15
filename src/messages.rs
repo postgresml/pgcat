@@ -914,6 +914,7 @@ impl Bind {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Describe {
     code: char,
 

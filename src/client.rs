@@ -822,16 +822,9 @@ where
                 // to when we get the S message
                 'D' => {
                     if prepared_statements_enabled {
-                        let describe: Describe = (&message).try_into()?;
-                        match self.prepared_statements.get(&describe.statement_name) {
-                            Some(parse) => {
-                                prepared_statement = Some(describe.statement_name.clone());
-
-                                let describe = describe.rename(&parse.name);
-                                message = describe.try_into()?;
-                            }
-                            None => (),
-                        }
+                        let name;
+                        (name, message) = self.rewrite_describe(message)?;
+                        prepared_statement = Some(name);
                     }
 
                     self.buffer.put(&message[..]);
@@ -1293,16 +1286,9 @@ where
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
                         if prepared_statements_enabled {
-                            let describe: Describe = (&message).try_into()?;
-                            match self.prepared_statements.get(&describe.statement_name) {
-                                Some(parse) => {
-                                    prepared_statement = Some(describe.statement_name.clone());
-
-                                    let describe = describe.rename(&parse.name);
-                                    message = describe.try_into()?;
-                                }
-                                None => (),
-                            }
+                            let name;
+                            (name, message) = self.rewrite_describe(message)?;
+                            prepared_statement = Some(name);
                         }
 
                         self.buffer.put(&message[..]);
@@ -1475,7 +1461,7 @@ where
         }
     }
 
-    /// Rewrite Parse (F) message to randomize the prepared statement name.
+    /// Rewrite Parse (F) message to set the prepared statement name to one we control.
     /// Save it into the client cache.
     fn rewrite_parse(&mut self, message: BytesMut) -> Result<(String, BytesMut), Error> {
         let mut parse: Parse = (&message).try_into()?;
@@ -1497,7 +1483,7 @@ where
         Ok((name, parse.try_into()?))
     }
 
-    /// Rewrite the Bind (F) message to use the random prepared statement name
+    /// Rewrite the Bind (F) message to use the prepared statement name
     /// saved in the client cache.
     fn rewrite_bind(&self, message: BytesMut) -> Result<(String, BytesMut), Error> {
         let bind: Bind = (&message).try_into()?;
@@ -1519,6 +1505,33 @@ where
         debug!("Rewrote bind `{}` to `{}`", name, bind.prepared_statement);
 
         Ok((name, bind.try_into()?))
+    }
+
+    /// Rewrite the Describe (F) message to use the prepared statement name
+    /// saved in the client cache.
+    fn rewrite_describe(&self, message: BytesMut) -> Result<(String, BytesMut), Error> {
+        let describe: Describe = (&message).try_into()?;
+        let name = describe.statement_name.clone();
+
+        let prepared_stmt = match self.prepared_statements.get(&name) {
+            Some(prepared_stmt) => prepared_stmt,
+            None => {
+                debug!("Got describe for unknown prepared statement {:?}", describe);
+                return Err(Error::ClientError(format!(
+                    "Unknown prepared statement: {}",
+                    describe.statement_name
+                )));
+            }
+        };
+
+        let describe = describe.rename(&prepared_stmt.name);
+
+        debug!(
+            "Rewrote describe `{}` to `{}`",
+            name, describe.statement_name
+        );
+
+        Ok((name, describe.try_into()?))
     }
 
     /// Release the server from the client: it can't cancel its queries anymore.
