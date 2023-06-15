@@ -14,7 +14,9 @@ use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_info_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
-use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
+use crate::config::{
+    get_config, get_idle_client_in_transaction_timeout, get_prepared_statements, Address, PoolMode,
+};
 use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
@@ -499,10 +501,10 @@ where
             }
         };
 
+        let config = get_config();
+
         // Authenticate admin user.
         let (transaction_mode, server_info) = if admin {
-            let config = get_config();
-
             // Compare server and client hashes.
             let password_hash = md5_hash_password(
                 &config.general.admin_username,
@@ -548,7 +550,7 @@ where
             let password_hash = if let Some(password) = &pool.settings.user.password {
                 Some(md5_hash_password(username, password, &salt))
             } else {
-                if !get_config().is_auth_query_configured() {
+                if config.is_auth_query_configured() {
                     wrong_password(&mut write, username).await?;
                     return Err(Error::ClientAuthImpossible(username.into()));
                 }
@@ -777,6 +779,9 @@ where
                 self.transaction_mode
             );
 
+            // Should we rewrite prepared statements and bind messages?
+            let mut prepared_statements_enabled = get_prepared_statements();
+
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
             // We can parse it here before grabbing a server from the pool,
@@ -841,7 +846,10 @@ where
                 }
 
                 'P' => {
-                    message = self.rewrite_parse(message)?;
+                    if prepared_statements_enabled {
+                        message = self.rewrite_parse(message)?;
+                    }
+
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
@@ -858,7 +866,10 @@ where
                 }
 
                 'B' => {
-                    message = self.rewrite_bind(message)?;
+                    if prepared_statements_enabled {
+                        message = self.rewrite_bind(message)?;
+                    }
+
                     self.buffer.put(&message[..]);
 
                     if query_router.query_parser_enabled() {
@@ -1067,6 +1078,10 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
+                if !self.transaction_mode {
+                    prepared_statements_enabled = get_prepared_statements();
+                }
+
                 let mut message = match initial_message {
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
@@ -1186,7 +1201,9 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        message = self.rewrite_parse(message)?;
+                        if prepared_statements_enabled {
+                            message = self.rewrite_parse(message)?;
+                        }
 
                         if query_router.query_parser_enabled() {
                             if let Ok(ast) = QueryRouter::parse(&message) {
@@ -1202,7 +1219,9 @@ where
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        message = self.rewrite_bind(message)?;
+                        if prepared_statements_enabled {
+                            message = self.rewrite_bind(message)?;
+                        }
 
                         self.buffer.put(&message[..]);
                     }
