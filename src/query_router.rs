@@ -60,7 +60,9 @@ enum ParameterFormat {
     Specified(Vec<ParameterFormat>),
 }
 
+#[derive(Clone, PartialEq, Hash, Eq)]
 pub struct PreparedStatementName(pub String);
+#[derive(Clone)]
 pub struct PreparedStatement(pub String);
 
 pub struct ParseResult {

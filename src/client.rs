@@ -18,7 +18,9 @@ use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
-use crate::query_router::{Command, QueryRouter, PreparedStatement, PreparedStatementName};
+use crate::query_router::{
+    Command, ParseResult, PreparedStatement, PreparedStatementName, QueryRouter,
+};
 use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
@@ -813,7 +815,8 @@ where
                 'Q' => {
                     if query_router.query_parser_enabled() {
                         if let Ok(parse_result) = QueryRouter::parse(&message) {
-                            let plugin_result = query_router.execute_plugins(&parse_result.ast).await;
+                            let plugin_result =
+                                query_router.execute_plugins(&parse_result.ast).await;
 
                             match plugin_result {
                                 Ok(PluginOutput::Deny(error)) => {
@@ -839,9 +842,13 @@ where
 
                     if query_router.query_parser_enabled() {
                         if let Ok(parse_result) = QueryRouter::parse(&message) {
-                            if let Ok(output) = query_router.execute_plugins(&parse_result.ast).await {
+                            if let Ok(output) =
+                                query_router.execute_plugins(&parse_result.ast).await
+                            {
                                 plugin_output = Some(output);
                             }
+
+                            self.handle_prepared_statement(&parse_result);
 
                             let _ = query_router.infer(&parse_result.ast);
                         }
@@ -1120,7 +1127,8 @@ where
                     'Q' => {
                         if query_router.query_parser_enabled() {
                             if let Ok(parse_result) = QueryRouter::parse(&message) {
-                                let plugin_result = query_router.execute_plugins(&parse_result.ast).await;
+                                let plugin_result =
+                                    query_router.execute_plugins(&parse_result.ast).await;
 
                                 match plugin_result {
                                     Ok(PluginOutput::Deny(error)) => {
@@ -1178,21 +1186,33 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
+                        let parse: Parse = (&message).try_into()?;
+                        debug!("Parse: {:?}", parse);
+                        let back: BytesMut = parse.try_into()?;
+
                         if query_router.query_parser_enabled() {
                             if let Ok(parse_result) = QueryRouter::parse(&message) {
-                                if let Ok(output) = query_router.execute_plugins(&parse_result.ast).await {
+                                if let Ok(output) =
+                                    query_router.execute_plugins(&parse_result.ast).await
+                                {
                                     plugin_output = Some(output);
                                 }
+
+                                self.handle_prepared_statement(&parse_result);
                             }
                         }
 
-                        self.buffer.put(&message[..]);
+                        self.buffer.put(&back[..]);
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        self.buffer.put(&message[..]);
+                        let bind: Bind = (&message).try_into()?;
+                        debug!("Bind: {:?}", bind);
+                        let back: BytesMut = bind.try_into()?;
+
+                        self.buffer.put(&back[..]);
                     }
 
                     // Describe
@@ -1365,6 +1385,17 @@ where
                     self.pool_name, self.username, self.application_name
                 )))
             }
+        }
+    }
+
+    fn handle_prepared_statement(&mut self, parse_result: &ParseResult) {
+        if !self.prepared_statements.contains_key(&parse_result.name) {
+            debug!(
+                "Adding prepared statement `{}` to cache",
+                parse_result.name.0
+            );
+            self.prepared_statements
+                .insert(parse_result.name.clone(), parse_result.statement.clone());
         }
     }
 

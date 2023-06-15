@@ -16,13 +16,13 @@ use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use crate::config::{get_config, Address, User};
-use crate::query_router::{PreparedStatement, PreparedStatementName};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
 use crate::messages::*;
 use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
+use crate::query_router::{PreparedStatement, PreparedStatementName};
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
 use std::io::Write;

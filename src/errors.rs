@@ -26,6 +26,7 @@ pub enum Error {
     AuthPassthroughError(String),
     UnsupportedStatement,
     QueryRouterParserError(String),
+    QueryRouterError(String),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -119,5 +120,11 @@ impl std::fmt::Display for Error {
             // The rest can use Debug.
             err => write!(f, "{:?}", err),
         }
+    }
+}
+
+impl From<std::ffi::NulError> for Error {
+    fn from(err: std::ffi::NulError) -> Self {
+        Error::QueryRouterError(err.to_string())
     }
 }
