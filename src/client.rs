@@ -550,7 +550,7 @@ where
             let password_hash = if let Some(password) = &pool.settings.user.password {
                 Some(md5_hash_password(username, password, &salt))
             } else {
-                if get_config().is_auth_query_configured() {
+                if !get_config().is_auth_query_configured() {
                     wrong_password(&mut write, username).await?;
                     return Err(Error::ClientAuthImpossible(username.into()));
                 }
