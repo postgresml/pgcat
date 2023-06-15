@@ -501,10 +501,10 @@ where
             }
         };
 
-        let config = get_config();
-
         // Authenticate admin user.
         let (transaction_mode, server_info) = if admin {
+            let config = get_config();
+
             // Compare server and client hashes.
             let password_hash = md5_hash_password(
                 &config.general.admin_username,
@@ -550,7 +550,7 @@ where
             let password_hash = if let Some(password) = &pool.settings.user.password {
                 Some(md5_hash_password(username, password, &salt))
             } else {
-                if config.is_auth_query_configured() {
+                if get_config().is_auth_query_configured() {
                     wrong_password(&mut write, username).await?;
                     return Err(Error::ClientAuthImpossible(username.into()));
                 }
