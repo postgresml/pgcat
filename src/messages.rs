@@ -530,6 +530,13 @@ pub fn command_complete(command: &str) -> BytesMut {
     res
 }
 
+pub fn flush() -> BytesMut {
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(b'H');
+    bytes.put_i32(4);
+    bytes
+}
+
 /// Write all data in the buffer to the TcpStream.
 pub async fn write_all<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
 where
@@ -765,6 +772,14 @@ impl TryFrom<Parse> for BytesMut {
         }
 
         Ok(bytes)
+    }
+}
+
+impl TryFrom<&Parse> for BytesMut {
+    type Error = Error;
+
+    fn try_from(parse: &Parse) -> Result<BytesMut, Error> {
+        parse.clone().try_into()
     }
 }
 

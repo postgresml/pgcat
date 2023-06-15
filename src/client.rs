@@ -770,6 +770,10 @@ where
         // Result returned by one of the plugins.
         let mut plugin_output = None;
 
+        // Prepared statement being executed
+        let mut prepared_statement = None;
+        let mut will_prepare = false;
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -847,7 +851,10 @@ where
 
                 'P' => {
                     if prepared_statements_enabled {
-                        message = self.rewrite_parse(message)?;
+                        let name;
+                        (name, message) = self.rewrite_parse(message)?;
+                        prepared_statement = Some(name);
+                        will_prepare = true;
                     }
 
                     self.buffer.put(&message[..]);
@@ -867,7 +874,9 @@ where
 
                 'B' => {
                     if prepared_statements_enabled {
-                        message = self.rewrite_bind(message)?;
+                        let name;
+                        (name, message) = self.rewrite_bind(message)?;
+                        prepared_statement = Some(name);
                     }
 
                     self.buffer.put(&message[..]);
@@ -1078,8 +1087,39 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
+                // Only check if we should rewrite prepared statements
+                // in session mode. In transaction mode, we check at the beginning of
+                // each transaction.
                 if !self.transaction_mode {
                     prepared_statements_enabled = get_prepared_statements();
+                }
+
+                // We are processing a prepared statement.
+                if let Some(ref name) = prepared_statement {
+                    // Get the prepared statement the server expects to see.
+                    let statement = match self.prepared_statements.get(name) {
+                        Some(statement) => statement,
+                        None => {
+                            return Err(Error::ClientError(format!(
+                                "prepared statement `{}` not found",
+                                name
+                            )))
+                        }
+                    };
+
+                    // Since it's already in the buffer, we don't need to prepare it on this server.
+                    if will_prepare {
+                        server.will_prepare(&statement.name);
+                        will_prepare = false;
+                    } else {
+                        // The statement is not prepared on the server, so we need to prepare it.
+                        if server.should_prepare(&statement.name) {
+                            server.prepare(statement).await?;
+                        }
+                    }
+
+                    // Done processing the prepared statement.
+                    prepared_statement = None;
                 }
 
                 let mut message = match initial_message {
@@ -1202,7 +1242,10 @@ where
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
                         if prepared_statements_enabled {
-                            message = self.rewrite_parse(message)?;
+                            let name;
+                            (name, message) = self.rewrite_parse(message)?;
+                            prepared_statement = Some(name);
+                            will_prepare = true;
                         }
 
                         if query_router.query_parser_enabled() {
@@ -1220,7 +1263,9 @@ where
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
                         if prepared_statements_enabled {
-                            message = self.rewrite_bind(message)?;
+                            let name;
+                            (name, message) = self.rewrite_bind(message)?;
+                            prepared_statement = Some(name);
                         }
 
                         self.buffer.put(&message[..]);
@@ -1271,7 +1316,7 @@ where
                         let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
-                        if first_message_code == 'P' {
+                        if first_message_code == 'P' && !prepared_statements_enabled {
                             // Message layout
                             // P followed by 32 int followed by null-terminated statement name
                             // So message code should be in offset 0 of the buffer, first character
@@ -1401,7 +1446,7 @@ where
 
     /// Rewrite Parse (F) message to randomize the prepared statement name.
     /// Save it into the client cache.
-    fn rewrite_parse(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
+    fn rewrite_parse(&mut self, message: BytesMut) -> Result<(String, BytesMut), Error> {
         let mut parse: Parse = (&message).try_into()?;
 
         let name = parse.name.clone();
@@ -1411,19 +1456,23 @@ where
             parse = parse.rename()
         }
 
-        debug!("Saving prepared statement {:?} to cache", parse);
+        debug!(
+            "Renamed prepared statement `{}` to `{}` and saved to cache",
+            name, parse.name
+        );
 
-        self.prepared_statements.insert(name, parse.clone());
+        self.prepared_statements.insert(name.clone(), parse.clone());
 
-        Ok(parse.try_into()?)
+        Ok((name, parse.try_into()?))
     }
 
     /// Rewrite the Bind (F) message to use the random prepared statement name
     /// saved in the client cache.
-    fn rewrite_bind(&self, message: BytesMut) -> Result<BytesMut, Error> {
+    fn rewrite_bind(&self, message: BytesMut) -> Result<(String, BytesMut), Error> {
         let bind: Bind = (&message).try_into()?;
+        let name = bind.prepared_statement.clone();
 
-        let prepared_stmt = match self.prepared_statements.get(&bind.prepared_statement) {
+        let prepared_stmt = match self.prepared_statements.get(&name) {
             Some(prepared_stmt) => prepared_stmt,
             None => {
                 debug!("Got bind for unknown prepared statement {:?}", bind);
@@ -1436,9 +1485,9 @@ where
 
         let bind = bind.reassign(prepared_stmt);
 
-        debug!("Rewrote bind to {:?}", bind);
+        debug!("Rewrote bind `{}` to `{}`", name, bind.prepared_statement);
 
-        Ok(bind.try_into()?)
+        Ok((name, bind.try_into()?))
     }
 
     /// Release the server from the client: it can't cancel its queries anymore.
