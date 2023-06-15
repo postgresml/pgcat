@@ -1404,6 +1404,11 @@ where
     fn rewrite_parse(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
         let parse: Parse = (&message).try_into()?;
 
+        // Don't rewrite anonymous prepared statements
+        if parse.anonymous() {
+            return Ok(parse.try_into()?);
+        }
+
         debug!("Saving prepared statement {:?} to cache", parse);
 
         let name = parse.name.clone();
