@@ -3,13 +3,13 @@
 use bytes::{Buf, BufMut, BytesMut};
 use fallible_iterator::FallibleIterator;
 use log::{debug, error, info, trace, warn};
+use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
-use std::collections::HashMap;
-use std::io::{Cursor, Read};
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
@@ -147,14 +147,24 @@ impl std::fmt::Display for CleanupState {
     }
 }
 
+static INIT: Once = Once::new();
+static TRACKED_PARAMETERS: Lazy<HashSet<String>> = Lazy::new(|| {
+    INIT.call_once(|| {
+        println!("Initializing the hashset");
+    });
+
+    let mut set = HashSet::new();
+    set.insert("client_encoding".to_string());
+    set.insert("datestyle".to_string());
+    set.insert("timezone".to_string());
+    set.insert("standard_conforming_strings".to_string());
+    set.insert("application_name".to_string());
+    set
+});
+
 #[derive(Debug, Clone)]
 pub struct ServerParameters {
-    base_original: BytesMut,
-    client_encoding: String,
-    date_style: String,
-    timezone: String,
-    standard_conforming_strings: String,
-    application_name: String,
+    parameters: HashMap<String, String>,
 }
 
 impl Default for ServerParameters {
@@ -166,84 +176,39 @@ impl Default for ServerParameters {
 impl ServerParameters {
     pub fn new() -> Self {
         ServerParameters {
-            base_original: BytesMut::new(),
-            client_encoding: "UTF8".to_string(),
-            date_style: "ISO".to_string(),
-            timezone: "UTC".to_string(),
-            standard_conforming_strings: "on".to_string(),
-            application_name: "pgcat".to_string(),
+            parameters: HashMap::new(),
         }
     }
 
-    pub fn set_dynamic_param(&mut self, key: String, value: String) {
-        match key.as_str() {
-            "client_encoding" => {
-                self.client_encoding = value;
+    // returns true if parameter was set, false if it already exists or was a non-tracked parameter
+    pub fn set_param(&mut self, key: String, value: String, startup: bool) -> bool {
+        println!("set_param: {} = {}", key, value);
+
+        if TRACKED_PARAMETERS.contains(&key) {
+            self.parameters.insert(key, value);
+            true
+        } else {
+            if startup {
+                self.parameters.insert(key, value);
+                return false;
             }
-            "date_style" => {
-                self.date_style = value;
-            }
-            "timezone" => {
-                self.timezone = value;
-            }
-            "standard_conforming_strings" => {
-                self.standard_conforming_strings = value;
-            }
-            "application_name" => {
-                self.application_name = value;
-            }
-            _ => {}
+            true
         }
     }
 
-    fn set_param_from_bytes(&mut self, raw_bytes: BytesMut) {
-        let mut message_cursor = Cursor::new(&raw_bytes);
-
-        message_cursor.get_u8();
-        message_cursor.get_i32();
-
-        let key = match message_cursor.read_string() {
-            Ok(key) => key,
-            Err(_) => {
-                return;
-            },
-        };
-        let value = message_cursor.read_string().unwrap();
-
-        match key.as_str() {
-            "client_encoding" => {
-                self.client_encoding = value;
-            }
-            "date_style" => {
-                self.date_style = value;
-            }
-            "timezone" => {
-                self.timezone = value;
-            }
-            "standard_conforming_strings" => {
-                self.standard_conforming_strings = value;
-            }
-            "application_name" => {
-                self.application_name = value;
-            }
-            _ => {
-                self.base_original.extend(raw_bytes);
-            }
+    pub fn set_from_hashmap(&mut self, parameters: &HashMap<String, String>, startup: bool) {
+        // iterate through each and call set_param
+        for (key, value) in parameters {
+            self.set_param(key.to_string(), value.to_string(), startup);
         }
     }
 
     pub fn get_bytes(&self) -> BytesMut {
-        let mut bytes = self.base_original.clone();
+        let mut bytes = BytesMut::new();
 
-        self.add_parameter_message("client_encoding", &self.client_encoding, &mut bytes);
-        self.add_parameter_message("date_style", &self.date_style, &mut bytes);
-        self.add_parameter_message("timezone", &self.timezone, &mut bytes);
-        self.add_parameter_message(
-            "standard_conforming_strings",
-            &self.standard_conforming_strings,
-            &mut bytes,
-        );
-        self.add_parameter_message("application_name", &self.application_name, &mut bytes);
+        for (key, value) in &self.parameters {
+            self.add_parameter_message(key, value, &mut bytes);
+        }
 
         bytes
     }
@@ -276,6 +241,9 @@ pub struct Server {
 
     /// Our server response buffer. We buffer data before we give it to the client.
     buffer: BytesMut,
+
+    // Original server parameters that we started with (used when we discard all)
+    original_server_parameters: ServerParameters,
 
     /// Server information the server sent us over on startup.
     server_parameters: ServerParameters,
@@ -728,15 +696,10 @@ impl Server {
 
                 // ParameterStatus
                 'S' => {
-                    let mut bytes = BytesMut::with_capacity(len as usize + 1);
-                    bytes.put_u8(code as u8);
-                    bytes.put_i32(len);
-                    bytes.resize(bytes.len() + len as usize - mem::size_of::<i32>(), b'0');
+                    let mut bytes = BytesMut::with_capacity(len as usize - 4);
+                    bytes.resize(len as usize - mem::size_of::<i32>(), b'0');
 
-                    let slice_start = mem::size_of::<u8>() + mem::size_of::<i32>();
-                    let slice_end = slice_start + len as usize - mem::size_of::<i32>();
-
-                    match stream.read_exact(&mut bytes[slice_start..slice_end]).await {
+                    match stream.read_exact(&mut bytes[..]).await {
                         Ok(_) => (),
                         Err(_) => {
                             return Err(Error::ServerStartupError(
@@ -746,10 +709,13 @@ impl Server {
                         }
                     };
 
+                    let key = bytes.read_string().unwrap();
+                    let value = bytes.read_string().unwrap();
+
                     // Save the parameter so we can pass it to the client later.
                     // These can be server_encoding, client_encoding, server timezone, Postgres version,
                     // and many more interesting things we should know about the Postgres server we are talking to.
-                    server_parameters.set_param_from_bytes(bytes);
+                    let _ = server_parameters.set_param(key, value, true);
                 }
 
                 // BackendKeyData
@@ -795,6 +761,7 @@ impl Server {
                         address: address.clone(),
                         stream: BufStream::new(stream),
                         buffer: BytesMut::with_capacity(8196),
+                        original_server_parameters: server_parameters.clone(),
                         server_parameters,
                         process_id,
                         secret_key,
@@ -951,24 +918,23 @@ impl Server {
 
                 // CommandComplete
                 'C' => {
-                    let mut command_tag = String::new();
-                    match message.reader().read_to_string(&mut command_tag) {
-                        Ok(_) => {
+                    match message.read_string() {
+                        Ok(command) => {
                             // Non-exhaustive list of commands that are likely to change session variables/resources
                             // which can leak between clients. This is a best effort to block bad clients
                             // from poisoning a transaction-mode pool by setting inappropriate session variables
-                            match command_tag.as_str() {
-                                "SET\0" => {
-                                    // We don't detect set statements in transactions
-                                    // No great way to differentiate between set and set local
-                                    // As a result, we will miss cases when set statements are used in transactions
-                                    // This will reduce amount of discard statements sent
-                                    if !self.in_transaction {
-                                        debug!("Server connection marked for clean up");
-                                        self.cleanup_state.needs_cleanup_set = true;
-                                    }
-                                }
-                                "PREPARE\0" => {
+                            match command.as_str() {
+                                // "SET" => {
+                                //     // We don't detect set statements in transactions
+                                //     // No great way to differentiate between set and set local
+                                //     // As a result, we will miss cases when set statements are used in transactions
+                                //     // This will reduce amount of discard statements sent
+                                //     if !self.in_transaction {
+                                //         debug!("Server connection marked for clean up");
+                                //         self.cleanup_state.needs_cleanup_set = true;
+                                //     }
+                                // }
+                                "PREPARE" => {
                                     debug!("Server connection marked for clean up");
                                     self.cleanup_state.needs_cleanup_prepare = true;
                                 }
@@ -980,6 +946,13 @@ impl Server {
                             warn!("Encountered an error while parsing CommandTag {}", err);
                         }
                     }
+                }
+
+                'S' => {
+                    let key = message.read_string().unwrap();
+                    let value = message.read_string().unwrap();
+
+                    self.server_parameters.set_param(key, value, false);
                 }
 
                 // DataRow

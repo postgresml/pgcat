@@ -19,7 +19,7 @@ use crate::messages::*;
 use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
-use crate::server::Server;
+use crate::server::{Server, ServerParameters};
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
@@ -90,6 +90,9 @@ pub struct Client<S, T> {
 
     /// Application name for this client (defaults to pgcat)
     application_name: String,
+
+    /// Server startup and session parameters that we're going to track
+    server_parameters: ServerParameters,
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
@@ -491,7 +494,7 @@ where
         };
 
         // Authenticate admin user.
-        let (transaction_mode, server_parameters) = if admin {
+        let (transaction_mode, mut server_parameters) = if admin {
             let config = get_config();
 
             // Compare server and client hashes.
@@ -646,6 +649,9 @@ where
             (transaction_mode, pool.server_parameters())
         };
 
+        // Update the parameters to merge what the application sent and what's originally on the server
+        server_parameters.set_from_hashmap(&parameters, false);
+
         debug!("Password authentication successful");
 
         auth_ok(&mut write).await?;
@@ -680,6 +686,7 @@ where
             pool_name: pool_name.clone(),
             username: username.clone(),
             application_name: application_name.to_string(),
+            server_parameters,
             shutdown,
             connected_to_server: false,
         })
@@ -714,6 +721,7 @@ where
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
             application_name: String::from("undefined"),
+            server_parameters: ServerParameters::new(),
             shutdown,
             connected_to_server: false,
         })

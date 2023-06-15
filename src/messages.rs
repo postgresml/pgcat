@@ -689,3 +689,19 @@ impl BytesMutReader for Cursor<&BytesMut> {
         }
     }
 }
+
+impl BytesMutReader for BytesMut {
+    /// Should only be used when reading strings from the message protocol.
+    /// Can be used to read multiple strings from the same message which are separated by the null byte
+    fn read_string(&mut self) -> Result<String, Error> {
+        let null_index = self.iter().position(|&byte| byte == b'\0');
+
+        match null_index {
+            Some(index) => {
+                let string_bytes = self.split_to(index + 1);
+                Ok(String::from_utf8_lossy(&string_bytes[..string_bytes.len() - 1]).to_string())
+            }
+            None => return Err(Error::ParseBytesError("Could not read string".to_string())),
+        }
+    }
+}
