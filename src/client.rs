@@ -1447,38 +1447,13 @@ where
         pool: &ConnectionPool,
         client_stats: &ClientStats,
     ) -> Result<BytesMut, Error> {
-        if pool.settings.user.statement_timeout > 0 {
-            match tokio::time::timeout(
-                tokio::time::Duration::from_millis(pool.settings.user.statement_timeout),
-                server.recv(),
-            )
-            .await
-            {
-                Ok(result) => match result {
-                    Ok(message) => Ok(message),
-                    Err(err) => {
-                        pool.ban(address, BanReason::MessageReceiveFailed, Some(client_stats));
-                        error_response_terminal(
-                            &mut self.write,
-                            &format!("error receiving data from server: {:?}", err),
-                        )
-                        .await?;
-                        Err(err)
-                    }
-                },
-                Err(_) => {
-                    error!(
-                        "Statement timeout while talking to {:?} with user {}",
-                        address, pool.settings.user.username
-                    );
-                    server.mark_bad();
-                    pool.ban(address, BanReason::StatementTimeout, Some(client_stats));
-                    error_response_terminal(&mut self.write, "pool statement timeout").await?;
-                    Err(Error::StatementTimeout)
-                }
-            }
-        } else {
-            match server.recv().await {
+        let statement_timeout_duration = match pool.settings.user.statement_timeout {
+            0 => tokio::time::Duration::MAX,
+            timeout => tokio::time::Duration::from_millis(timeout),
+        };
+
+        match tokio::time::timeout(statement_timeout_duration, server.recv()).await {
+            Ok(result) => match result {
                 Ok(message) => Ok(message),
                 Err(err) => {
                     pool.ban(address, BanReason::MessageReceiveFailed, Some(client_stats));
@@ -1489,6 +1464,16 @@ where
                     .await?;
                     Err(err)
                 }
+            },
+            Err(_) => {
+                error!(
+                    "Statement timeout while talking to {:?} with user {}",
+                    address, pool.settings.user.username
+                );
+                server.mark_bad();
+                pool.ban(address, BanReason::StatementTimeout, Some(client_stats));
+                error_response_terminal(&mut self.write, "pool statement timeout").await?;
+                Err(Error::StatementTimeout)
             }
         }
     }

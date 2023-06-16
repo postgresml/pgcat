@@ -208,7 +208,7 @@ impl ServerParameters {
         }
     }
 
-    // Gets the diff of the parameters 
+    // Gets the diff of the parameters
     fn compare_params(&self, incoming_parameters: &ServerParameters) -> HashMap<String, String> {
         let mut diff = HashMap::new();
 
