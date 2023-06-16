@@ -331,7 +331,7 @@ impl QueryRouter {
         Some((command, value))
     }
 
-    pub fn parse(message: &BytesMut) -> Result<Vec<sqlparser::ast::Statement>, Error> {
+    pub fn parse(message: &BytesMut) -> Result<Vec<Statement>, Error> {
         let mut message_cursor = Cursor::new(message);
 
         let code = message_cursor.get_u8() as char;
@@ -348,12 +348,13 @@ impl QueryRouter {
             // Parse (prepared statement)
             'P' => {
                 // Reads statement name
-                message_cursor.read_string().unwrap();
+                let _name = message_cursor.read_string().unwrap();
 
                 // Reads query string
                 let query = message_cursor.read_string().unwrap();
 
                 debug!("Prepared statement: '{}'", query);
+
                 query
             }
 

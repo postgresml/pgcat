@@ -60,6 +60,9 @@ tcp_keepalives_count = 5
 # Number of seconds between keepalive packets.
 tcp_keepalives_interval = 5
 
+# Handle prepared statements.
+prepared_statements = true
+
 # Path to TLS Certificate file to use for TLS connections
 # tls_certificate = ".circleci/server.cert"
 # Path to TLS private key file to use for TLS connections

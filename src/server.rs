@@ -5,7 +5,7 @@ use fallible_iterator::FallibleIterator;
 use log::{debug, error, info, trace, warn};
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Read;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -198,6 +198,9 @@ pub struct Server {
 
     /// Should clean up dirty connections?
     cleanup_connections: bool,
+
+    /// Prepared statements
+    prepared_statements: BTreeSet<String>,
 }
 
 impl Server {
@@ -692,6 +695,7 @@ impl Server {
                             )),
                         },
                         cleanup_connections,
+                        prepared_statements: BTreeSet::new(),
                     };
 
                     server.set_name("pgcat").await?;
@@ -908,6 +912,43 @@ impl Server {
 
         // Pass the data back to the client.
         Ok(bytes)
+    }
+
+    pub fn will_prepare(&mut self, name: &str) {
+        debug!("Will prepare `{}`", name);
+
+        self.prepared_statements.insert(name.to_string());
+    }
+
+    pub fn should_prepare(&self, name: &str) -> bool {
+        let should_prepare = !self.prepared_statements.contains(name);
+
+        debug!("Should prepare `{}`: {}", name, should_prepare);
+
+        if should_prepare {
+            self.stats.prepared_cache_miss();
+        } else {
+            self.stats.prepared_cache_hit();
+        }
+
+        should_prepare
+    }
+
+    pub async fn prepare(&mut self, parse: &Parse) -> Result<(), Error> {
+        debug!("Preparing `{}`", parse.name);
+
+        let bytes: BytesMut = parse.try_into()?;
+        self.send(&bytes).await?;
+        self.send(&flush()).await?;
+
+        // Read and discard ParseComplete (B)
+        let _ = read_message(&mut self.stream).await?;
+
+        self.prepared_statements.insert(parse.name.to_string());
+
+        debug!("Prepared `{}`", parse.name);
+
+        Ok(())
     }
 
     /// If the server is still inside a transaction.

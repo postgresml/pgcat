@@ -1,4 +1,4 @@
-FROM rust:bullseye
+FROM rust:1.70-bullseye
 
 # Dependencies
 RUN apt-get update -y \

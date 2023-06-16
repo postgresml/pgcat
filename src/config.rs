@@ -320,6 +320,9 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    #[serde(default)]
+    pub prepared_statements: bool,
 }
 
 impl General {
@@ -434,6 +437,7 @@ impl Default for General {
             server_lifetime: Self::default_server_lifetime(),
             server_round_robin: false,
             validate_config: true,
+            prepared_statements: false,
         }
     }
 }
@@ -1015,6 +1019,7 @@ impl Config {
             "Server TLS certificate verification: {}",
             self.general.verify_server_certificate
         );
+        info!("Prepared statements: {}", self.general.prepared_statements);
         info!(
             "Plugins: {}",
             match self.plugins {
@@ -1237,6 +1242,10 @@ pub fn get_idle_client_in_transaction_timeout() -> u64 {
     (*(*CONFIG.load()))
         .general
         .idle_client_in_transaction_timeout
+}
+
+pub fn get_prepared_statements() -> bool {
+    (*(*CONFIG.load())).general.prepared_statements
 }
 
 /// Parse the configuration file located at the path.
