@@ -912,6 +912,10 @@ impl Bind {
         self.prepared_statement = parse.name.clone();
         self
     }
+
+    pub fn anonymous(&self) -> bool {
+        self.prepared_statement.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -966,11 +970,15 @@ impl Describe {
         self.statement_name = name.to_string();
         self
     }
+
+    pub fn anonymous(&self) -> bool {
+        self.statement_name.is_empty()
+    }
 }
 
 pub fn prepared_statement_name() -> String {
     format!(
         "P_{}",
-        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
+        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::AcqRel)
     )
 }

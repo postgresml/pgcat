@@ -15,7 +15,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, Address, User};
+use crate::config::{get_config, get_prepared_statements, Address, User};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -770,6 +770,8 @@ impl Server {
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
     pub async fn recv(&mut self) -> Result<BytesMut, Error> {
+        let prepared_statements_enabled = get_prepared_statements();
+
         loop {
             let mut message = match read_message(&mut self.stream).await {
                 Ok(message) => message,
@@ -848,8 +850,10 @@ impl Server {
                                     }
                                 }
                                 "PREPARE\0" => {
-                                    debug!("Server connection marked for clean up");
-                                    self.cleanup_state.needs_cleanup_prepare = true;
+                                    if !prepared_statements_enabled {
+                                        debug!("Server connection marked for clean up");
+                                        self.cleanup_state.needs_cleanup_prepare = true;
+                                    }
                                 }
                                 _ => (),
                             }
@@ -924,6 +928,12 @@ impl Server {
         let should_prepare = !self.prepared_statements.contains(name);
 
         debug!("Should prepare `{}`: {}", name, should_prepare);
+
+        if should_prepare {
+            self.stats.prepared_cache_miss();
+        } else {
+            self.stats.prepared_cache_hit();
+        }
 
         should_prepare
     }

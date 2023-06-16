@@ -47,6 +47,8 @@ pub struct ServerStats {
     pub transaction_count: Arc<AtomicU64>,
     pub query_count: Arc<AtomicU64>,
     pub error_count: Arc<AtomicU64>,
+    pub prepared_hit_count: Arc<AtomicU64>,
+    pub prepared_miss_count: Arc<AtomicU64>,
 }
 
 impl Default for ServerStats {
@@ -63,6 +65,8 @@ impl Default for ServerStats {
             query_count: Arc::new(AtomicU64::new(0)),
             error_count: Arc::new(AtomicU64::new(0)),
             reporter: get_reporter(),
+            prepared_hit_count: Arc::new(AtomicU64::new(0)),
+            prepared_miss_count: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -197,5 +201,15 @@ impl ServerStats {
         self.bytes_received
             .fetch_add(amount_bytes as u64, Ordering::Relaxed);
         self.address.stats.bytes_received_add(amount_bytes as u64);
+    }
+
+    /// Report a prepared statement that already exists on the server.
+    pub fn prepared_cache_hit(&self) {
+        self.prepared_hit_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Report a prepared statement that does not exist on the server yet.
+    pub fn prepared_cache_miss(&self) {
+        self.prepared_miss_count.fetch_add(1, Ordering::Relaxed);
     }
 }

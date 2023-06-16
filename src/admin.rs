@@ -699,6 +699,8 @@ where
         ("bytes_sent", DataType::Numeric),
         ("bytes_received", DataType::Numeric),
         ("age_seconds", DataType::Numeric),
+        ("prepare_cache_hit", DataType::Numeric),
+        ("prepare_cache_miss", DataType::Numeric),
     ];
 
     let new_map = get_server_stats();
@@ -721,6 +723,14 @@ where
             Instant::now()
                 .duration_since(server.connect_time())
                 .as_secs()
+                .to_string(),
+            server
+                .prepared_hit_count
+                .load(Ordering::Relaxed)
+                .to_string(),
+            server
+                .prepared_miss_count
+                .load(Ordering::Relaxed)
                 .to_string(),
         ];
 

@@ -823,8 +823,11 @@ where
                 'D' => {
                     if prepared_statements_enabled {
                         let name;
-                        (name, message) = self.rewrite_describe(message)?;
-                        prepared_statement = Some(name);
+                        (name, message) = self.rewrite_describe(message).await?;
+
+                        if let Some(name) = name {
+                            prepared_statement = Some(name);
+                        }
                     }
 
                     self.buffer.put(&message[..]);
@@ -862,9 +865,7 @@ where
 
                 'P' => {
                     if prepared_statements_enabled {
-                        let name;
-                        (name, message) = self.rewrite_parse(message)?;
-                        prepared_statement = Some(name);
+                        (prepared_statement, message) = self.rewrite_parse(message)?;
                         will_prepare = true;
                     }
 
@@ -885,9 +886,7 @@ where
 
                 'B' => {
                     if prepared_statements_enabled {
-                        let name;
-                        (name, message) = self.rewrite_bind(message)?;
-                        prepared_statement = Some(name);
+                        (prepared_statement, message) = self.rewrite_bind(message).await?;
                     }
 
                     self.buffer.put(&message[..]);
@@ -1105,11 +1104,17 @@ where
                     prepared_statements_enabled = get_prepared_statements();
                 }
 
+                debug!("Prepared statement active: {:?}", prepared_statement);
+
                 // We are processing a prepared statement.
                 if let Some(ref name) = prepared_statement {
+                    debug!("Checking prepared statement is on server");
                     // Get the prepared statement the server expects to see.
                     let statement = match self.prepared_statements.get(name) {
-                        Some(statement) => statement,
+                        Some(statement) => {
+                            debug!("Prepared statement `{}` found in cache", name);
+                            statement
+                        }
                         None => {
                             return Err(Error::ClientError(format!(
                                 "prepared statement `{}` not found",
@@ -1253,9 +1258,7 @@ where
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
                         if prepared_statements_enabled {
-                            let name;
-                            (name, message) = self.rewrite_parse(message)?;
-                            prepared_statement = Some(name);
+                            (prepared_statement, message) = self.rewrite_parse(message)?;
                             will_prepare = true;
                         }
 
@@ -1274,9 +1277,7 @@ where
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
                         if prepared_statements_enabled {
-                            let name;
-                            (name, message) = self.rewrite_bind(message)?;
-                            prepared_statement = Some(name);
+                            (prepared_statement, message) = self.rewrite_bind(message).await?;
                         }
 
                         self.buffer.put(&message[..]);
@@ -1287,8 +1288,11 @@ where
                     'D' => {
                         if prepared_statements_enabled {
                             let name;
-                            (name, message) = self.rewrite_describe(message)?;
-                            prepared_statement = Some(name);
+                            (name, message) = self.rewrite_describe(message).await?;
+
+                            if let Some(name) = name {
+                                prepared_statement = Some(name);
+                            }
                         }
 
                         self.buffer.put(&message[..]);
@@ -1463,15 +1467,18 @@ where
 
     /// Rewrite Parse (F) message to set the prepared statement name to one we control.
     /// Save it into the client cache.
-    fn rewrite_parse(&mut self, message: BytesMut) -> Result<(String, BytesMut), Error> {
-        let mut parse: Parse = (&message).try_into()?;
+    fn rewrite_parse(&mut self, message: BytesMut) -> Result<(Option<String>, BytesMut), Error> {
+        let parse: Parse = (&message).try_into()?;
 
         let name = parse.name.clone();
 
         // Don't rewrite anonymous prepared statements
-        if !parse.anonymous() {
-            parse = parse.rename()
+        if parse.anonymous() {
+            debug!("Anonymous prepared statement");
+            return Ok((None, message));
         }
+
+        let parse = parse.rename();
 
         debug!(
             "Renamed prepared statement `{}` to `{}` and saved to cache",
@@ -1480,58 +1487,83 @@ where
 
         self.prepared_statements.insert(name.clone(), parse.clone());
 
-        Ok((name, parse.try_into()?))
+        Ok((Some(name), parse.try_into()?))
     }
 
     /// Rewrite the Bind (F) message to use the prepared statement name
     /// saved in the client cache.
-    fn rewrite_bind(&self, message: BytesMut) -> Result<(String, BytesMut), Error> {
+    async fn rewrite_bind(
+        &mut self,
+        message: BytesMut,
+    ) -> Result<(Option<String>, BytesMut), Error> {
         let bind: Bind = (&message).try_into()?;
         let name = bind.prepared_statement.clone();
 
-        let prepared_stmt = match self.prepared_statements.get(&name) {
-            Some(prepared_stmt) => prepared_stmt,
+        if bind.anonymous() {
+            debug!("Anonymous bind message");
+            return Ok((None, message));
+        }
+
+        match self.prepared_statements.get(&name) {
+            Some(prepared_stmt) => {
+                let bind = bind.reassign(prepared_stmt);
+
+                debug!("Rewrote bind `{}` to `{}`", name, bind.prepared_statement);
+
+                Ok((Some(name), bind.try_into()?))
+            }
             None => {
                 debug!("Got bind for unknown prepared statement {:?}", bind);
-                return Err(Error::ClientError(format!(
-                    "Unknown prepared statement: {}",
-                    bind.prepared_statement
-                )));
+
+                error_response(
+                    &mut self.write,
+                    &format!(
+                        "prepared statement \"{}\" does not exist",
+                        bind.prepared_statement
+                    ),
+                )
+                .await?;
+
+                Err(Error::ClientError(format!(
+                    "Prepared statement `{}` doesn't exist",
+                    name
+                )))
             }
-        };
-
-        let bind = bind.reassign(prepared_stmt);
-
-        debug!("Rewrote bind `{}` to `{}`", name, bind.prepared_statement);
-
-        Ok((name, bind.try_into()?))
+        }
     }
 
     /// Rewrite the Describe (F) message to use the prepared statement name
     /// saved in the client cache.
-    fn rewrite_describe(&self, message: BytesMut) -> Result<(String, BytesMut), Error> {
+    async fn rewrite_describe(
+        &mut self,
+        message: BytesMut,
+    ) -> Result<(Option<String>, BytesMut), Error> {
         let describe: Describe = (&message).try_into()?;
         let name = describe.statement_name.clone();
 
-        let prepared_stmt = match self.prepared_statements.get(&name) {
-            Some(prepared_stmt) => prepared_stmt,
+        if describe.anonymous() {
+            debug!("Anonymous describe");
+            return Ok((None, message));
+        }
+
+        match self.prepared_statements.get(&name) {
+            Some(prepared_stmt) => {
+                let describe = describe.rename(&prepared_stmt.name);
+
+                debug!(
+                    "Rewrote describe `{}` to `{}`",
+                    name, describe.statement_name
+                );
+
+                Ok((None, describe.try_into()?))
+            }
+
             None => {
                 debug!("Got describe for unknown prepared statement {:?}", describe);
-                return Err(Error::ClientError(format!(
-                    "Unknown prepared statement: {}",
-                    describe.statement_name
-                )));
+
+                Ok((Some(name), message))
             }
-        };
-
-        let describe = describe.rename(&prepared_stmt.name);
-
-        debug!(
-            "Rewrote describe `{}` to `{}`",
-            name, describe.statement_name
-        );
-
-        Ok((name, describe.try_into()?))
+        }
     }
 
     /// Release the server from the client: it can't cancel its queries anymore.
