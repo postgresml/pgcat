@@ -1555,13 +1555,13 @@ where
                     name, describe.statement_name
                 );
 
-                Ok((None, describe.try_into()?))
+                Ok((Some(name), describe.try_into()?))
             }
 
             None => {
                 debug!("Got describe for unknown prepared statement {:?}", describe);
 
-                Ok((Some(name), message))
+                Ok((None, message))
             }
         }
     }
