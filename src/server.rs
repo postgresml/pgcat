@@ -879,7 +879,10 @@ impl Server {
     /// Receive data from the server in response to a client request.
     /// This method must be called multiple times while `self.is_data_available()` is true
     /// in order to receive all data the server has to offer.
-    pub async fn recv(&mut self) -> Result<BytesMut, Error> {
+    pub async fn recv(
+        &mut self,
+        mut client_server_parameters: Option<&mut ServerParameters>,
+    ) -> Result<BytesMut, Error> {
         loop {
             let mut message = match read_message(&mut self.stream).await {
                 Ok(message) => message,
@@ -973,6 +976,10 @@ impl Server {
                 'S' => {
                     let key = message.read_string().unwrap();
                     let value = message.read_string().unwrap();
+
+                    if let Some(client_server_parameters) = client_server_parameters.as_mut() {
+                        client_server_parameters.set_param(key.clone(), value.clone(), false);
+                    }
 
                     self.server_parameters.set_param(key, value, false);
                 }
@@ -1117,7 +1124,7 @@ impl Server {
         self.send(&query).await?;
 
         loop {
-            let _ = self.recv().await?;
+            let _ = self.recv(None).await?;
 
             if !self.data_available {
                 break;
@@ -1211,7 +1218,7 @@ impl Server {
         .await?;
         debug!("Connected!, sending query.");
         server.send(&simple_query(query)).await?;
-        let mut message = server.recv().await?;
+        let mut message = server.recv(None).await?;
 
         Ok(parse_query_message(&mut message).await?)
     }
