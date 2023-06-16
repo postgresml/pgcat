@@ -979,6 +979,6 @@ impl Describe {
 pub fn prepared_statement_name() -> String {
     format!(
         "P_{}",
-        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::AcqRel)
+        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
     )
 }

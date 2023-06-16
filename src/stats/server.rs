@@ -176,6 +176,7 @@ impl ServerStats {
         self.set_application(application_name.to_string());
         self.address.stats.query_count_add();
         self.address.stats.query_time_add(milliseconds);
+        self.query_count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Report a transaction executed by a client a server
