@@ -137,6 +137,10 @@ where
     bytes.put_slice(user.as_bytes());
     bytes.put_u8(0);
 
+    // Application name
+    bytes.put(&b"application_name\0"[..]);
+    bytes.put_slice(&b"pgcat\0"[..]);
+
     // Database
     bytes.put(&b"database\0"[..]);
     bytes.put_slice(database.as_bytes());

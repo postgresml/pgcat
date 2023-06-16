@@ -150,13 +150,13 @@ impl std::fmt::Display for CleanupState {
 static INIT: Once = Once::new();
 static TRACKED_PARAMETERS: Lazy<HashSet<String>> = Lazy::new(|| {
     INIT.call_once(|| {
-        println!("Initializing the hashset");
+        info!("Initializing the TRACKED_PARAMETERS hashset");
     });
 
     let mut set = HashSet::new();
     set.insert("client_encoding".to_string());
-    set.insert("datestyle".to_string());
-    set.insert("timezone".to_string());
+    set.insert("DateStyle".to_string());
+    set.insert("TimeZone".to_string());
     set.insert("standard_conforming_strings".to_string());
     set.insert("application_name".to_string());
     set
@@ -181,8 +181,13 @@ impl ServerParameters {
     }
 
     // returns true if parameter was set, false if it already exists or was a non-tracked parameter
-    pub fn set_param(&mut self, key: String, value: String, startup: bool) -> bool {
-        println!("set_param: {} = {}", key, value);
+    pub fn set_param(&mut self, mut key: String, value: String, startup: bool) -> bool {
+        // The startup parameter will send uncapitalized keys but parameter status packets will send capitalized keys
+        if key == "timezone" {
+            key = "TimeZone".to_string();
+        } else if key == "datestyle" {
+            key = "DateStyle".to_string();
+        };
 
         if TRACKED_PARAMETERS.contains(&key) {
             self.parameters.insert(key, value);
@@ -201,6 +206,25 @@ impl ServerParameters {
         for (key, value) in parameters {
             self.set_param(key.to_string(), value.to_string(), startup);
         }
+    }
+
+    // Gets the diff of the parameters 
+    fn compare_params(&self, incoming_parameters: &ServerParameters) -> HashMap<String, String> {
+        let mut diff = HashMap::new();
+
+        for (key, value) in &self.parameters {
+            if !TRACKED_PARAMETERS.contains(key) {
+                continue;
+            }
+
+            if let Some(incoming_value) = incoming_parameters.parameters.get(key) {
+                if value != incoming_value {
+                    diff.insert(key.to_string(), incoming_value.to_string());
+                }
+            }
+        }
+
+        diff
     }
 
     pub fn get_bytes(&self) -> BytesMut {
@@ -773,7 +797,7 @@ impl Server {
                         addr_set,
                         connected_at: chrono::offset::Utc::now().naive_utc(),
                         stats,
-                        application_name: String::new(),
+                        application_name: "pgcat".to_string(),
                         last_activity: SystemTime::now(),
                         mirror_manager: match address.mirrors.len() {
                             0 => None,
@@ -785,8 +809,6 @@ impl Server {
                         },
                         cleanup_connections,
                     };
-
-                    server.set_name("pgcat").await?;
 
                     return Ok(server);
                 }
@@ -1048,6 +1070,22 @@ impl Server {
         self.server_parameters.clone()
     }
 
+    pub async fn sync_parameters(&mut self, parameters: &ServerParameters) -> Result<(), Error> {
+        let parameter_diff = self.server_parameters.compare_params(parameters);
+
+        if parameter_diff.is_empty() {
+            return Ok(());
+        }
+
+        let mut query = String::from("");
+
+        for (key, value) in parameter_diff {
+            query.push_str(&format!("SET {} TO '{}';", key, value));
+        }
+
+        self.query(&query).await
+    }
+
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
         error!("Server {:?} marked bad", self.address);
@@ -1114,24 +1152,6 @@ impl Server {
         }
 
         Ok(())
-    }
-
-    /// A shorthand for `SET application_name = $1`.
-    pub async fn set_name(&mut self, name: &str) -> Result<(), Error> {
-        if self.application_name != name {
-            self.application_name = name.to_string();
-            // We don't want `SET application_name` to mark the server connection
-            // as needing cleanup
-            let needs_cleanup_before = self.cleanup_state;
-
-            let result = Ok(self
-                .query(&format!("SET application_name = '{}'", name))
-                .await?);
-            self.cleanup_state = needs_cleanup_before;
-            result
-        } else {
-            Ok(())
-        }
     }
 
     /// get Server stats

@@ -1043,10 +1043,7 @@ where
                 server.address()
             );
 
-            // TODO: investigate other parameters and set them too.
-
-            // Set application_name.
-            server.set_name(&self.application_name).await?;
+            server.sync_parameters(&self.server_parameters).await?;
 
             let mut initial_message = Some(message);
 
