@@ -1452,7 +1452,12 @@ where
             timeout => tokio::time::Duration::from_millis(timeout),
         };
 
-        match tokio::time::timeout(statement_timeout_duration, server.recv(Some(&mut self.server_parameters))).await {
+        match tokio::time::timeout(
+            statement_timeout_duration,
+            server.recv(Some(&mut self.server_parameters)),
+        )
+        .await
+        {
             Ok(result) => match result {
                 Ok(message) => Ok(message),
                 Err(err) => {

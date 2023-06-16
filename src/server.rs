@@ -180,7 +180,7 @@ impl ServerParameters {
         }
     }
 
-    // returns true if parameter was set, false if it already exists or was a non-tracked parameter
+    /// returns true if a tracked parameter was set, false if it was a non-tracked parameter
     pub fn set_param(&mut self, mut key: String, value: String, startup: bool) -> bool {
         // The startup parameter will send uncapitalized keys but parameter status packets will send capitalized keys
         if key == "timezone" {
@@ -195,9 +195,8 @@ impl ServerParameters {
         } else {
             if startup {
                 self.parameters.insert(key, value);
-                return false;
             }
-            true
+            false
         }
     }
 
@@ -265,9 +264,6 @@ pub struct Server {
 
     /// Our server response buffer. We buffer data before we give it to the client.
     buffer: BytesMut,
-
-    // Original server parameters that we started with (used when we discard all)
-    original_server_parameters: ServerParameters,
 
     /// Server information the server sent us over on startup.
     server_parameters: ServerParameters,
@@ -781,11 +777,10 @@ impl Server {
                         }
                     };
 
-                    let mut server = Server {
+                    let server = Server {
                         address: address.clone(),
                         stream: BufStream::new(stream),
                         buffer: BytesMut::with_capacity(8196),
-                        original_server_parameters: server_parameters.clone(),
                         server_parameters,
                         process_id,
                         secret_key,
@@ -949,16 +944,6 @@ impl Server {
                             // which can leak between clients. This is a best effort to block bad clients
                             // from poisoning a transaction-mode pool by setting inappropriate session variables
                             match command.as_str() {
-                                // "SET" => {
-                                //     // We don't detect set statements in transactions
-                                //     // No great way to differentiate between set and set local
-                                //     // As a result, we will miss cases when set statements are used in transactions
-                                //     // This will reduce amount of discard statements sent
-                                //     if !self.in_transaction {
-                                //         debug!("Server connection marked for clean up");
-                                //         self.cleanup_state.needs_cleanup_set = true;
-                                //     }
-                                // }
                                 "PREPARE" => {
                                     debug!("Server connection marked for clean up");
                                     self.cleanup_state.needs_cleanup_prepare = true;
@@ -981,7 +966,17 @@ impl Server {
                         client_server_parameters.set_param(key.clone(), value.clone(), false);
                     }
 
-                    self.server_parameters.set_param(key, value, false);
+                    // We set a non-tracked parameter. We should reset the state
+                    if !self.server_parameters.set_param(key, value, false) {
+                        // We don't detect set statements in transactions
+                        // No great way to differentiate between set and set local
+                        // As a result, we will miss cases when set statements are used in transactions
+                        // This will reduce amount of discard statements sent
+                        if !self.in_transaction {
+                            debug!("Server connection marked for clean up");
+                            self.cleanup_state.needs_cleanup_set = true;
+                        }
+                    };
                 }
 
                 // DataRow
