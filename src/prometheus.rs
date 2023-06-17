@@ -1,6 +1,6 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use log::{error, info, debug};
+use log::{debug, error, info};
 use phf::phf_map;
 use std::collections::HashMap;
 use std::fmt;
