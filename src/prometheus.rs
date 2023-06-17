@@ -1,6 +1,6 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use log::{error, info, debug};
+use log::{debug, error, info};
 use phf::phf_map;
 use std::collections::HashMap;
 use std::fmt;
@@ -364,7 +364,7 @@ fn push_server_stats(lines: &mut Vec<String>) {
                         {
                             lines.push(prometheus_metric.to_string());
                         } else {
-                            warn!("Metric {} not implemented for {}", key, address.name());
+                            debug!("Metric {} not implemented for {}", key, address.name());
                         }
                     }
                 }
