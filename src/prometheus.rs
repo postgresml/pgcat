@@ -364,7 +364,7 @@ fn push_server_stats(lines: &mut Vec<String>) {
                         {
                             lines.push(prometheus_metric.to_string());
                         } else {
-                            warn!("Metric {} not implemented for {}", key, address.name());
+                            debug!("Metric {} not implemented for {}", key, address.name());
                         }
                     }
                 }
