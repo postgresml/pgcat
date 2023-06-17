@@ -1136,7 +1136,11 @@ impl Server {
             query.push_str(&format!("SET {} TO '{}';", key, value));
         }
 
-        self.query(&query).await
+        let res = self.query(&query).await;
+
+        self.cleanup_state.reset();
+
+        res
     }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
