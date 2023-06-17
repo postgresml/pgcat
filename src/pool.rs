@@ -436,7 +436,7 @@ impl ConnectionPool {
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     config_hash: new_pool_hash_value,
-                    original_server_parameters: Arc::new(RwLock::new(ServerParameters::default())),
+                    original_server_parameters: Arc::new(RwLock::new(ServerParameters::new())),
                     auth_hash: pool_auth_hash,
                     settings: PoolSettings {
                         pool_mode: match user.pool_mode {

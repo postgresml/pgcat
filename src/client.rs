@@ -96,9 +96,6 @@ pub struct Client<S, T> {
     /// Postgres user for this client (This comes from the user in the connection string)
     username: String,
 
-    /// Application name for this client (defaults to pgcat)
-    application_name: String,
-
     /// Server startup and session parameters that we're going to track
     server_parameters: ServerParameters,
 
@@ -696,7 +693,6 @@ where
             last_server_stats: None,
             pool_name: pool_name.clone(),
             username: username.clone(),
-            application_name: application_name.to_string(),
             server_parameters,
             shutdown,
             connected_to_server: false,
@@ -732,7 +728,6 @@ where
             last_server_stats: None,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
-            application_name: String::from("undefined"),
             server_parameters: ServerParameters::new(),
             shutdown,
             connected_to_server: false,
@@ -1238,7 +1233,9 @@ where
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
                             self.stats.transaction();
-                            server.stats().transaction(&self.application_name);
+                            server
+                                .stats()
+                                .transaction(&self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1369,7 +1366,9 @@ where
 
                         if !server.in_transaction() {
                             self.stats.transaction();
-                            server.stats().transaction(&self.application_name);
+                            server
+                                .stats()
+                                .transaction(&self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1418,7 +1417,9 @@ where
 
                         if !server.in_transaction() {
                             self.stats.transaction();
-                            server.stats().transaction(&self.application_name);
+                            server
+                                .stats()
+                                .transaction(self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1464,7 +1465,9 @@ where
 
                 Err(Error::ClientError(format!(
                     "Invalid pool name {{ username: {}, pool_name: {}, application_name: {} }}",
-                    self.pool_name, self.username, self.application_name
+                    self.pool_name,
+                    self.username,
+                    self.server_parameters.get_application_name()
                 )))
             }
         }
@@ -1621,7 +1624,7 @@ where
         client_stats.query();
         server.stats().query(
             Instant::now().duration_since(query_start).as_millis() as u64,
-            &self.application_name,
+            &self.server_parameters.get_application_name(),
         );
 
         Ok(())

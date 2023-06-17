@@ -169,7 +169,16 @@ pub struct ServerParameters {
 
 impl Default for ServerParameters {
     fn default() -> Self {
-        let mut server_parameters = ServerParameters::new();
+        Self::new()
+    }
+}
+
+impl ServerParameters {
+    pub fn new() -> Self {
+        let mut server_parameters = ServerParameters {
+            parameters: HashMap::new(),
+        };
+
         server_parameters.set_param("client_encoding".to_string(), "UTF8".to_string(), false);
         server_parameters.set_param("DateStyle".to_string(), "ISO, MDY".to_string(), false);
         server_parameters.set_param("TimeZone".to_string(), "Etc/UTC".to_string(), false);
@@ -181,14 +190,6 @@ impl Default for ServerParameters {
         server_parameters.set_param("application_name".to_string(), "pgcat".to_string(), false);
 
         server_parameters
-    }
-}
-
-impl ServerParameters {
-    pub fn new() -> Self {
-        ServerParameters {
-            parameters: HashMap::new(),
-        }
     }
 
     /// returns true if a tracked parameter was set, false if it was a non-tracked parameter
@@ -234,6 +235,11 @@ impl ServerParameters {
         }
 
         diff
+    }
+
+    pub fn get_application_name(&self) -> &String {
+        // Can unwrap because we set it in the constructor
+        self.parameters.get("application_name").unwrap()
     }
 
     pub fn get_bytes(&self) -> BytesMut {
@@ -748,7 +754,7 @@ impl Server {
                     // Save the parameter so we can pass it to the client later.
                     // These can be server_encoding, client_encoding, server timezone, Postgres version,
                     // and many more interesting things we should know about the Postgres server we are talking to.
-                    let _ = server_parameters.set_param(key, value, true);
+                    server_parameters.set_param(key, value, true);
                 }
 
                 // BackendKeyData
