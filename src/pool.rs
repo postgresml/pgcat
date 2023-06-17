@@ -487,7 +487,6 @@ impl ConnectionPool {
                 // before setting it globally.
                 // Do this async and somewhere else, we don't have to wait here.
                 if config.general.validate_config {
-                    // TODO: this can't be optional since we need some startup parameters to bootstrap with
                     let mut validate_pool = pool.clone();
                     tokio::task::spawn(async move {
                         let _ = validate_pool.validate().await;
