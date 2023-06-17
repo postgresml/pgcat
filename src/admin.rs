@@ -21,11 +21,11 @@ use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState}
 pub fn generate_server_parameters_for_admin() -> ServerParameters {
     let mut server_parameters = ServerParameters::new();
 
-    server_parameters.set_param("application_name".to_string(), "".to_string(), false);
-    server_parameters.set_param("client_encoding".to_string(), "UTF8".to_string(), false);
-    server_parameters.set_param("server_encoding".to_string(), "UTF8".to_string(), false);
-    server_parameters.set_param("server_version".to_string(), VERSION.to_string(), false);
-    server_parameters.set_param("DateStyle".to_string(), "ISO, MDY".to_string(), false);
+    server_parameters.set_param("application_name".to_string(), "".to_string(), true);
+    server_parameters.set_param("client_encoding".to_string(), "UTF8".to_string(), true);
+    server_parameters.set_param("server_encoding".to_string(), "UTF8".to_string(), true);
+    server_parameters.set_param("server_version".to_string(), VERSION.to_string(), true);
+    server_parameters.set_param("DateStyle".to_string(), "ISO, MDY".to_string(), true);
 
     server_parameters
 }

@@ -192,6 +192,7 @@ impl ServerParameters {
     }
 
     /// returns true if a tracked parameter was set, false if it was a non-tracked parameter
+    /// if startup is false, then then only tracked parameters will be set
     pub fn set_param(&mut self, mut key: String, value: String, startup: bool) {
         // The startup parameter will send uncapitalized keys but parameter status packets will send capitalized keys
         if key == "timezone" {
