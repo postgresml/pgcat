@@ -112,10 +112,16 @@ class PgcatProcess
     "postgresql://#{username}:#{password}@0.0.0.0:#{@port}/pgcat"
   end
 
-  def connection_string(pool_name, username, password = nil)
+  def connection_string(pool_name, username, password = nil, parameters: {})
     cfg = current_config
     user_idx, user_obj = cfg["pools"][pool_name]["users"].detect { |k, user| user["username"] == username }
-    "postgresql://#{username}:#{password || user_obj["password"]}@0.0.0.0:#{@port}/#{pool_name}"
+    connection_string = "postgresql://#{username}:#{password || user_obj["password"]}@0.0.0.0:#{@port}/#{pool_name}"
+  
+    # Add the additional parameters to the connection string
+    parameter_string = parameters.map { |key, value| "#{key}=#{value}" }.join("&")
+    connection_string += "?#{parameter_string}" unless parameter_string.empty?
+  
+    connection_string
   end
 
   def example_connection_string
