@@ -190,7 +190,7 @@ pub struct ConnectionPool {
     /// The server information has to be passed to the
     /// clients on startup. We pre-connect to all shards and replicas
     /// on pool creation and save the startup parameters here.
-    original_server_parameters: ServerParameters,
+    original_server_parameters: Arc<RwLock<ServerParameters>>,
 
     /// Pool configuration.
     pub settings: PoolSettings,
@@ -257,7 +257,6 @@ impl ConnectionPool {
                     .clone()
                     .into_keys()
                     .collect::<Vec<String>>();
-                let mut original_server_parameters = ServerParameters::new();
 
                 // Sort by shard number to ensure consistency.
                 shard_ids.sort_by_key(|k| k.parse::<i64>().unwrap());
@@ -415,20 +414,6 @@ impl ConnectionPool {
                             pool.build_unchecked(manager)
                         };
 
-                        // Set original server parameters by getting a connection
-                        // If we don't want to validate then a default set of parameters will be used
-                        if config.general.validate_config {
-                            match pool.get().await {
-                                Ok(conn) => {
-                                    original_server_parameters = conn.server_parameters();
-                                }
-                                Err(err) => {
-                                    error!("Shard {} down or misconfigured: {:?}", address, err);
-                                    return Err(Error::ServerError);
-                                }
-                            };
-                        }
-
                         pools.push(pool);
                         servers.push(address);
                     }
@@ -451,7 +436,7 @@ impl ConnectionPool {
                     addresses,
                     banlist: Arc::new(RwLock::new(banlist)),
                     config_hash: new_pool_hash_value,
-                    original_server_parameters,
+                    original_server_parameters: Arc::new(RwLock::new(ServerParameters::default())),
                     auth_hash: pool_auth_hash,
                     settings: PoolSettings {
                         pool_mode: match user.pool_mode {
@@ -527,22 +512,29 @@ impl ConnectionPool {
     pub async fn validate(&mut self) -> Result<(), Error> {
         let mut futures = Vec::new();
         let validated = Arc::clone(&self.validated);
-        validated.store(true, Ordering::Relaxed);
 
         for shard in 0..self.shards() {
             for server in 0..self.servers(shard) {
                 let databases = self.databases.clone();
                 let validated = Arc::clone(&validated);
+                let pool_server_parameters = Arc::clone(&self.original_server_parameters);
 
                 let task = tokio::task::spawn(async move {
-                    match databases[shard][server].get().await {
-                        Ok(_) => {}
+                    let connection = match databases[shard][server].get().await {
+                        Ok(conn) => conn,
                         Err(err) => {
-                            validated.store(false, Ordering::Relaxed);
                             error!("Shard {} down or misconfigured: {:?}", shard, err);
                             return;
                         }
                     };
+
+                    let proxy = connection;
+                    let server = &*proxy;
+                    let server_parameters: ServerParameters = server.server_parameters();
+
+                    let mut guard = pool_server_parameters.write();
+                    *guard = server_parameters;
+                    validated.store(true, Ordering::Relaxed);
                 });
 
                 futures.push(task);
@@ -914,7 +906,7 @@ impl ConnectionPool {
     }
 
     pub fn server_parameters(&self) -> ServerParameters {
-        self.original_server_parameters.clone()
+        self.original_server_parameters.read().clone()
     }
 
     fn busy_connection_count(&self, address: &Address) -> u32 {

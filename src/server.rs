@@ -169,7 +169,18 @@ pub struct ServerParameters {
 
 impl Default for ServerParameters {
     fn default() -> Self {
-        ServerParameters::new()
+        let mut server_parameters = ServerParameters::new();
+        server_parameters.set_param("client_encoding".to_string(), "UTF8".to_string(), false);
+        server_parameters.set_param("DateStyle".to_string(), "ISO, MDY".to_string(), false);
+        server_parameters.set_param("TimeZone".to_string(), "Etc/UTC".to_string(), false);
+        server_parameters.set_param(
+            "standard_conforming_strings".to_string(),
+            "on".to_string(),
+            false,
+        );
+        server_parameters.set_param("application_name".to_string(), "pgcat".to_string(), false);
+
+        server_parameters
     }
 }
 
