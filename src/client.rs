@@ -906,6 +906,17 @@ where
                     return Ok(());
                 }
 
+                // Close (F)
+                'C' => {
+                    let close: Close = (&message).try_into()?;
+
+                    if close.is_prepared_statement() && !close.anonymous() {
+                        self.prepared_statements.remove(&close.name);
+                        write_all_flush(&mut self.write, &close_complete()).await?;
+                        continue;
+                    }
+                }
+
                 _ => (),
             }
 
@@ -1300,6 +1311,19 @@ where
 
                     // Close the prepared statement.
                     'C' => {
+                        let close: Close = (&message).try_into()?;
+
+                        if close.is_prepared_statement() && !close.anonymous() {
+                            match self.prepared_statements.get(&close.name) {
+                                Some(parse) => {
+                                    server.will_close(&parse.generated_name);
+                                }
+
+                                // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
+                                None => (),
+                            };
+                        }
+
                         self.buffer.put(&message[..]);
                     }
 

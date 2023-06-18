@@ -914,12 +914,15 @@ impl Server {
         Ok(bytes)
     }
 
+    /// Add the prepared statement to being tracked by this server.
+    /// The client is processing data that will create a prepared statement on this server.
     pub fn will_prepare(&mut self, name: &str) {
         debug!("Will prepare `{}`", name);
 
         self.prepared_statements.insert(name.to_string());
     }
 
+    /// Check if we should prepare a statement on the server.
     pub fn should_prepare(&self, name: &str) -> bool {
         let should_prepare = !self.prepared_statements.contains(name);
 
@@ -934,6 +937,7 @@ impl Server {
         should_prepare
     }
 
+    /// Create a prepared statement on the server.
     pub async fn prepare(&mut self, parse: &Parse) -> Result<(), Error> {
         debug!("Preparing `{}`", parse.name);
 
@@ -949,6 +953,14 @@ impl Server {
         debug!("Prepared `{}`", parse.name);
 
         Ok(())
+    }
+
+    /// Remove the prepared statement from being tracked by this server.
+    /// The client is processing data that will cause the server to close the prepared statement.
+    pub fn will_close(&mut self, name: &str) {
+        debug!("Will close `{}`", name);
+
+        self.prepared_statements.remove(name);
     }
 
     /// If the server is still inside a transaction.
