@@ -63,6 +63,9 @@ tcp_keepalives_interval = 5
 # Handle prepared statements.
 prepared_statements = true
 
+# Prepared statements server cache size.
+prepared_statements_cache_size = 500
+
 # Path to TLS Certificate file to use for TLS connections
 # tls_certificate = ".circleci/server.cert"
 # Path to TLS private key file to use for TLS connections

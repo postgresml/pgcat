@@ -1028,6 +1028,12 @@ impl Config {
             self.general.verify_server_certificate
         );
         info!("Prepared statements: {}", self.general.prepared_statements);
+        if self.general.prepared_statements {
+            info!(
+                "Prepared statements server cache size: {}",
+                self.general.prepared_statements_cache_size
+            );
+        }
         info!(
             "Plugins: {}",
             match self.plugins {
