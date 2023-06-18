@@ -1141,7 +1141,17 @@ where
                     } else {
                         // The statement is not prepared on the server, so we need to prepare it.
                         if server.should_prepare(&statement.name) {
-                            server.prepare(statement).await?;
+                            match server.prepare(statement).await {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    pool.ban(
+                                        &address,
+                                        BanReason::MessageSendFailed,
+                                        Some(&self.stats),
+                                    );
+                                    return Err(err);
+                                }
+                            }
                         }
                     }
 
@@ -1261,6 +1271,10 @@ where
                         server.checkin_cleanup().await?;
                         self.stats.disconnect();
                         self.release();
+
+                        if prepared_statements_enabled {
+                            server.maintain_cache().await?;
+                        }
 
                         return Ok(());
                     }
@@ -1457,6 +1471,11 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
+
+            if prepared_statements_enabled {
+                server.maintain_cache().await?;
+            }
+
             server.checkin_cleanup().await?;
             server.stats().idle();
             self.connected_to_server = false;

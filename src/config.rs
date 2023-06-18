@@ -323,6 +323,9 @@ pub struct General {
 
     #[serde(default)]
     pub prepared_statements: bool,
+
+    #[serde(default = "General::default_prepared_statements_cache_size")]
+    pub prepared_statements_cache_size: usize,
 }
 
 impl General {
@@ -400,6 +403,10 @@ impl General {
     pub fn default_server_round_robin() -> bool {
         true
     }
+
+    pub fn default_prepared_statements_cache_size() -> usize {
+        500
+    }
 }
 
 impl Default for General {
@@ -438,6 +445,7 @@ impl Default for General {
             server_round_robin: false,
             validate_config: true,
             prepared_statements: false,
+            prepared_statements_cache_size: 500,
         }
     }
 }
@@ -1239,13 +1247,15 @@ pub fn get_config() -> Config {
 }
 
 pub fn get_idle_client_in_transaction_timeout() -> u64 {
-    (*(*CONFIG.load()))
-        .general
-        .idle_client_in_transaction_timeout
+    CONFIG.load().general.idle_client_in_transaction_timeout
 }
 
 pub fn get_prepared_statements() -> bool {
-    (*(*CONFIG.load())).general.prepared_statements
+    CONFIG.load().general.prepared_statements
+}
+
+pub fn get_prepared_statements_cache_size() -> usize {
+    CONFIG.load().general.prepared_statements_cache_size
 }
 
 /// Parse the configuration file located at the path.

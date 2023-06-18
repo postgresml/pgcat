@@ -49,6 +49,7 @@ pub struct ServerStats {
     pub error_count: Arc<AtomicU64>,
     pub prepared_hit_count: Arc<AtomicU64>,
     pub prepared_miss_count: Arc<AtomicU64>,
+    pub prepared_cache_size: Arc<AtomicU64>,
 }
 
 impl Default for ServerStats {
@@ -67,6 +68,7 @@ impl Default for ServerStats {
             reporter: get_reporter(),
             prepared_hit_count: Arc::new(AtomicU64::new(0)),
             prepared_miss_count: Arc::new(AtomicU64::new(0)),
+            prepared_cache_size: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -212,5 +214,13 @@ impl ServerStats {
     /// Report a prepared statement that does not exist on the server yet.
     pub fn prepared_cache_miss(&self) {
         self.prepared_miss_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn prepared_cache_add(&self) {
+        self.prepared_cache_size.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn prepared_cache_remove(&self) {
+        self.prepared_cache_size.fetch_sub(1, Ordering::Relaxed);
     }
 }

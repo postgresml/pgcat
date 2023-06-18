@@ -1,7 +1,7 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, BytesMut};
-use log::error;
+use log::{debug, error};
 use md5::{Digest, Md5};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -978,6 +978,7 @@ impl Describe {
 
 /// Close (F) message.
 /// See: <https://www.postgresql.org/docs/current/protocol-message-formats.html>
+#[derive(Clone, Debug)]
 pub struct Close {
     code: char,
     #[allow(dead_code)]
@@ -1009,6 +1010,8 @@ impl TryFrom<Close> for BytesMut {
     type Error = Error;
 
     fn try_from(close: Close) -> Result<BytesMut, Error> {
+        debug!("Close: {:?}", close);
+
         let mut bytes = BytesMut::new();
         let name_binding = CString::new(close.name)?;
         let name = name_binding.as_bytes_with_nul();
@@ -1024,6 +1027,17 @@ impl TryFrom<Close> for BytesMut {
 }
 
 impl Close {
+    pub fn new(name: &str) -> Close {
+        let name = name.to_string();
+
+        Close {
+            code: 'C',
+            len: 4 + 1 + name.len() as i32 + 1, // will be recalculated
+            close_type: 'S',
+            name,
+        }
+    }
+
     pub fn is_prepared_statement(&self) -> bool {
         self.close_type == 'S'
     }
