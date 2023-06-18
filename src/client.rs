@@ -1476,11 +1476,12 @@ where
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
 
+            server.checkin_cleanup().await?;
+
             if prepared_statements_enabled {
                 server.maintain_cache().await?;
             }
 
-            server.checkin_cleanup().await?;
             server.stats().idle();
             self.connected_to_server = false;
 
