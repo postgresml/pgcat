@@ -147,10 +147,7 @@ impl std::fmt::Display for CleanupState {
     }
 }
 
-static INIT: Once = Once::new();
 static TRACKED_PARAMETERS: Lazy<HashSet<String>> = Lazy::new(|| {
-    INIT.call_once(|| {});
-
     let mut set = HashSet::new();
     set.insert("client_encoding".to_string());
     set.insert("DateStyle".to_string());
