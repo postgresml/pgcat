@@ -1,7 +1,7 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, BytesMut};
-use log::error;
+use log::{debug, error};
 use md5::{Digest, Md5};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -974,6 +974,84 @@ impl Describe {
     pub fn anonymous(&self) -> bool {
         self.statement_name.is_empty()
     }
+}
+
+/// Close (F) message.
+/// See: <https://www.postgresql.org/docs/current/protocol-message-formats.html>
+#[derive(Clone, Debug)]
+pub struct Close {
+    code: char,
+    #[allow(dead_code)]
+    len: i32,
+    close_type: char,
+    pub name: String,
+}
+
+impl TryFrom<&BytesMut> for Close {
+    type Error = Error;
+
+    fn try_from(bytes: &BytesMut) -> Result<Close, Error> {
+        let mut cursor = Cursor::new(bytes);
+        let code = cursor.get_u8() as char;
+        let len = cursor.get_i32();
+        let close_type = cursor.get_u8() as char;
+        let name = cursor.read_string()?;
+
+        Ok(Close {
+            code,
+            len,
+            close_type,
+            name,
+        })
+    }
+}
+
+impl TryFrom<Close> for BytesMut {
+    type Error = Error;
+
+    fn try_from(close: Close) -> Result<BytesMut, Error> {
+        debug!("Close: {:?}", close);
+
+        let mut bytes = BytesMut::new();
+        let name_binding = CString::new(close.name)?;
+        let name = name_binding.as_bytes_with_nul();
+        let len = 4 + 1 + name.len();
+
+        bytes.put_u8(close.code as u8);
+        bytes.put_i32(len as i32);
+        bytes.put_u8(close.close_type as u8);
+        bytes.put_slice(name);
+
+        Ok(bytes)
+    }
+}
+
+impl Close {
+    pub fn new(name: &str) -> Close {
+        let name = name.to_string();
+
+        Close {
+            code: 'C',
+            len: 4 + 1 + name.len() as i32 + 1, // will be recalculated
+            close_type: 'S',
+            name,
+        }
+    }
+
+    pub fn is_prepared_statement(&self) -> bool {
+        self.close_type == 'S'
+    }
+
+    pub fn anonymous(&self) -> bool {
+        self.name.is_empty()
+    }
+}
+
+pub fn close_complete() -> BytesMut {
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(b'3');
+    bytes.put_i32(4);
+    bytes
 }
 
 pub fn prepared_statement_name() -> String {

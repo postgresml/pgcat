@@ -906,6 +906,19 @@ where
                     return Ok(());
                 }
 
+                // Close (F)
+                'C' => {
+                    if prepared_statements_enabled {
+                        let close: Close = (&message).try_into()?;
+
+                        if close.is_prepared_statement() && !close.anonymous() {
+                            self.prepared_statements.remove(&close.name);
+                            write_all_flush(&mut self.write, &close_complete()).await?;
+                            continue;
+                        }
+                    }
+                }
+
                 _ => (),
             }
 
@@ -1130,7 +1143,17 @@ where
                     } else {
                         // The statement is not prepared on the server, so we need to prepare it.
                         if server.should_prepare(&statement.name) {
-                            server.prepare(statement).await?;
+                            match server.prepare(statement).await {
+                                Ok(_) => (),
+                                Err(err) => {
+                                    pool.ban(
+                                        &address,
+                                        BanReason::MessageSendFailed,
+                                        Some(&self.stats),
+                                    );
+                                    return Err(err);
+                                }
+                            }
                         }
                     }
 
@@ -1251,6 +1274,10 @@ where
                         self.stats.disconnect();
                         self.release();
 
+                        if prepared_statements_enabled {
+                            server.maintain_cache().await?;
+                        }
+
                         return Ok(());
                     }
 
@@ -1300,6 +1327,21 @@ where
 
                     // Close the prepared statement.
                     'C' => {
+                        if prepared_statements_enabled {
+                            let close: Close = (&message).try_into()?;
+
+                            if close.is_prepared_statement() && !close.anonymous() {
+                                match self.prepared_statements.get(&close.name) {
+                                    Some(parse) => {
+                                        server.will_close(&parse.generated_name);
+                                    }
+
+                                    // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
+                                    None => (),
+                                };
+                            }
+                        }
+
                         self.buffer.put(&message[..]);
                     }
 
@@ -1433,7 +1475,13 @@ where
 
             // The server is no longer bound to us, we can't cancel it's queries anymore.
             debug!("Releasing server back into the pool");
+
             server.checkin_cleanup().await?;
+
+            if prepared_statements_enabled {
+                server.maintain_cache().await?;
+            }
+
             server.stats().idle();
             self.connected_to_server = false;
 
