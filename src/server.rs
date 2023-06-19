@@ -149,9 +149,7 @@ impl std::fmt::Display for CleanupState {
 
 static INIT: Once = Once::new();
 static TRACKED_PARAMETERS: Lazy<HashSet<String>> = Lazy::new(|| {
-    INIT.call_once(|| {
-        info!("Initializing the TRACKED_PARAMETERS hashset");
-    });
+    INIT.call_once(|| {});
 
     let mut set = HashSet::new();
     set.insert("client_encoding".to_string());
@@ -222,14 +220,13 @@ impl ServerParameters {
     fn compare_params(&self, incoming_parameters: &ServerParameters) -> HashMap<String, String> {
         let mut diff = HashMap::new();
 
-        for (key, value) in &self.parameters {
-            if !TRACKED_PARAMETERS.contains(key) {
-                continue;
-            }
-
+        // iterate through tracked parameters
+        for key in TRACKED_PARAMETERS.iter() {
             if let Some(incoming_value) = incoming_parameters.parameters.get(key) {
-                if value != incoming_value {
-                    diff.insert(key.to_string(), incoming_value.to_string());
+                if let Some(value) = self.parameters.get(key) {
+                    if value != incoming_value {
+                        diff.insert(key.to_string(), incoming_value.to_string());
+                    }
                 }
             }
         }
@@ -242,17 +239,7 @@ impl ServerParameters {
         self.parameters.get("application_name").unwrap()
     }
 
-    pub fn get_bytes(&self) -> BytesMut {
-        let mut bytes = BytesMut::new();
-
-        for (key, value) in &self.parameters {
-            self.add_parameter_message(key, value, &mut bytes);
-        }
-
-        bytes
-    }
-
-    fn add_parameter_message(&self, key: &str, value: &str, buffer: &mut BytesMut) {
+    fn add_parameter_message(key: &str, value: &str, buffer: &mut BytesMut) {
         buffer.put_u8(b'S');
 
         // 4 is len of i32, the plus for the null terminator
@@ -264,6 +251,18 @@ impl ServerParameters {
         buffer.put_u8(0);
         buffer.put_slice(value.as_bytes());
         buffer.put_u8(0);
+    }
+}
+
+impl From<&ServerParameters> for BytesMut {
+    fn from(server_parameters: &ServerParameters) -> Self {
+        let mut bytes = BytesMut::new();
+
+        for (key, value) in &server_parameters.parameters {
+            ServerParameters::add_parameter_message(key, value, &mut bytes);
+        }
+
+        bytes
     }
 }
 
