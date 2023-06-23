@@ -442,7 +442,7 @@ impl Default for General {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: Self::default_server_lifetime(),
-            server_round_robin: false,
+            server_round_robin: Self::default_server_round_robin(),
             validate_config: true,
             prepared_statements: false,
             prepared_statements_cache_size: 500,
