@@ -832,10 +832,21 @@ impl TryFrom<&BytesMut> for Bind {
 
         for _ in 0..num_param_values {
             let param_len = cursor.get_i32();
-            let mut param = BytesMut::with_capacity(param_len as usize);
-            param.resize(param_len as usize, b'0');
-            cursor.copy_to_slice(&mut param);
-            param_values.push((param_len, param));
+            // There is special occasion when the parameter is NULL
+            // In that case, param length is defined as -1
+            // So if the passed parameter len is over 0
+            if param_len > 0 {
+                let mut param = BytesMut::with_capacity(param_len as usize);
+                param.resize(param_len as usize, b'0');
+                cursor.copy_to_slice(&mut param);
+                // we push and the length and the parameter into vector
+                param_values.push((param_len, param));
+            } else {
+                // otherwise we push a tuple with -1 and 0-len BytesMut
+                // which means that after encountering -1 postgres proceeds
+                // to processing another parameter
+                param_values.push((param_len, BytesMut::new()));
+            }
         }
 
         let num_result_column_format_codes = cursor.get_i16();
