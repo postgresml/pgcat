@@ -48,7 +48,7 @@ log_client_connections = false
 log_client_disconnections = false
 
 # When set to true, PgCat reloads configs if it detects a change in the config file.
-autoreload = 15000
+autoreload = false
 
 # Number of worker threads the Runtime will use (4 by default).
 worker_threads = 5
