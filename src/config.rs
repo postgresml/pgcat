@@ -416,6 +416,7 @@ impl Default for General {
             tcp_keepalives_idle: Self::default_tcp_keepalives_idle(),
             tcp_keepalives_count: Self::default_tcp_keepalives_count(),
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
+            tcp_user_timeout: Self::default_tcp_user_timeout(),
             log_client_connections: false,
             log_client_disconnections: false,
             autoreload: None,
