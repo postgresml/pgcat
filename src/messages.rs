@@ -661,7 +661,7 @@ pub fn configure_socket(stream: &TcpStream) {
     match sock_ref.set_keepalive(true) {
         Ok(_) => {
             #[cfg(target_os = "linux")]
-            sock_ref.set_tcp_user_timeout(10).unwrap();
+            sock_ref.set_tcp_user_timeout(Some(10)).unwrap();
             match sock_ref.set_tcp_keepalive(
                 &TcpKeepalive::new()
                     .with_interval(Duration::from_secs(conf.general.tcp_keepalives_interval))
