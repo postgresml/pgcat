@@ -661,7 +661,11 @@ pub fn configure_socket(stream: &TcpStream) {
     match sock_ref.set_keepalive(true) {
         Ok(_) => {
             #[cfg(target_os = "linux")]
-            sock_ref.set_tcp_user_timeout(Some(10)).unwrap();
+            match sock_ref.set_tcp_user_timeout(Duration::from_millis(1000)) {
+                Ok(_) => (),
+                Err(err) => error!("Could not configure tcp_user_timeout for socket: {}", err),
+            }
+
             match sock_ref.set_tcp_keepalive(
                 &TcpKeepalive::new()
                     .with_interval(Duration::from_secs(conf.general.tcp_keepalives_interval))
@@ -669,7 +673,7 @@ pub fn configure_socket(stream: &TcpStream) {
                     .with_time(Duration::from_secs(conf.general.tcp_keepalives_idle)),
             ) {
                 Ok(_) => (),
-                Err(err) => error!("Could not configure socket: {}", err),
+                Err(err) => error!("Could not configure tcp_keepalive for socket: {}", err),
             }
         }
         Err(err) => error!("Could not configure socket: {}", err),
