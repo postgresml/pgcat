@@ -261,6 +261,8 @@ pub struct General {
     pub tcp_keepalives_count: u32,
     #[serde(default = "General::default_tcp_keepalives_interval")]
     pub tcp_keepalives_interval: u64,
+    #[serde(default = "General::default_tcp_user_timeout")]
+    pub tcp_user_timeout: u64,
 
     #[serde(default)] // False
     pub log_client_connections: bool,
@@ -349,6 +351,10 @@ impl General {
 
     pub fn default_tcp_keepalives_interval() -> u64 {
         5 // 5 seconds
+    }
+
+    pub fn default_tcp_user_timeout() -> u64 {
+        10000 // 10000 milliseconds
     }
 
     pub fn default_idle_timeout() -> u64 {

@@ -1,4 +1,4 @@
-# PgCat Configurations 
+# PgCat Configurations
 ## `general` Section
 
 ### host
@@ -151,7 +151,13 @@ path: general.tcp_keepalives_interval
 default: 5
 ```
 
-Number of seconds between keepalive packets.
+### tcp_user_timeout
+```
+path: general.tcp_user_timeout
+default: 10000
+```
+A linux-only parameters that defines the amount of time in milliseconds that transmitted data may remain unacknowledged or buffered data may remain untransmitted (due to zero window size) before TCP will forcibly disconnect
+
 
 ### tls_certificate
 ```

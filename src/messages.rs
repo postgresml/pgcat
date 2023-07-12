@@ -659,7 +659,7 @@ pub fn configure_socket(stream: &TcpStream) {
     let conf = get_config();
 
     #[cfg(target_os = "linux")]
-    match sock_ref.set_tcp_user_timeout(Some(Duration::from_millis(1000))) {
+    match sock_ref.set_tcp_user_timeout(Some(Duration::from_millis(conf.general.tcp_user_timeout))) {
         Ok(_) => (),
         Err(err) => error!("Could not configure tcp_user_timeout for socket: {}", err),
     }
