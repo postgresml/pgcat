@@ -1,4 +1,4 @@
-# PgCat Configurations 
+# PgCat Configurations
 ## `general` Section
 
 ### host
@@ -116,10 +116,10 @@ If we should log client disconnections
 ### autoreload
 ```
 path: general.autoreload
-default: 15000
+default: 15000 # milliseconds
 ```
 
-When set to true, PgCat reloads configs if it detects a change in the config file.
+When set, PgCat automatically reloads its configurations at the specified interval (in milliseconds) if it detects changes in the configuration file. The default interval is 15000 milliseconds or 15 seconds.
 
 ### worker_threads
 ```
