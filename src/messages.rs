@@ -530,6 +530,26 @@ pub fn command_complete(command: &str) -> BytesMut {
     res
 }
 
+/// Create a notify message.
+pub fn notify(message: &str, details: String) -> BytesMut {
+    let mut notify_cmd = BytesMut::new();
+
+    notify_cmd.put_slice("SNOTICE\0".as_bytes());
+    notify_cmd.put_slice("C00000\0".as_bytes());
+    notify_cmd.put_slice(format!("M{}\0", message).as_bytes());
+    notify_cmd.put_slice(format!("D{}\0", details).as_bytes());
+
+    // this extra byte says that is the end of the package
+    notify_cmd.put_u8(0);
+
+    let mut res = BytesMut::new();
+    res.put_u8(b'N');
+    res.put_i32(notify_cmd.len() as i32 + 4);
+    res.put(notify_cmd);
+
+    res
+}
+
 pub fn flush() -> BytesMut {
     let mut bytes = BytesMut::new();
     bytes.put_u8(b'H');
