@@ -1,4 +1,4 @@
-use log::{Level, Log, Metadata, Record, SetLoggerError};
+use log::{Level, LevelFilter, Log, Metadata, Record, SetLoggerError};
 
 // This is a special kind of logger that allows sending logs to different
 // targets depending on the log level.
@@ -25,8 +25,11 @@ pub struct MultiLogger {
 }
 
 impl MultiLogger {
-    fn new() -> Self {
-        let stderr_logger = env_logger::builder().format_timestamp_micros().build();
+    fn new(filter: LevelFilter) -> Self {
+        let stderr_logger = env_logger::builder()
+            .filter(None, filter)
+            .format_timestamp_micros()
+            .build();
         let stdout_logger = env_logger::Builder::from_env("STDOUT_LOG")
             .format_timestamp_micros()
             .target(env_logger::Target::Stdout)
@@ -38,8 +41,8 @@ impl MultiLogger {
         }
     }
 
-    pub fn init() -> Result<(), SetLoggerError> {
-        let logger = Self::new();
+    pub fn init(filter: LevelFilter) -> Result<(), SetLoggerError> {
+        let logger = Self::new(filter);
 
         log::set_max_level(logger.stderr_logger.filter());
         log::set_boxed_logger(Box::new(logger))
@@ -75,6 +78,6 @@ mod test {
 
     #[test]
     fn test_init() {
-        MultiLogger::init().unwrap();
+        MultiLogger::init(LevelFilter::Error).unwrap();
     }
 }
