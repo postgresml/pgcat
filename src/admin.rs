@@ -1,7 +1,7 @@
 use crate::pool::BanReason;
 use crate::stats::pool::PoolStats;
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;

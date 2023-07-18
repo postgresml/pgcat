@@ -68,8 +68,11 @@ use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
 
+mod cmd_args;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    pgcat::multi_logger::MultiLogger::init().unwrap();
+    let args = cmd_args::parse();
+    pgcat::multi_logger::MultiLogger::init(args.log_level).unwrap();
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
@@ -78,20 +81,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(exitcode::CONFIG);
     }
 
-    let args = std::env::args().collect::<Vec<String>>();
-
-    let config_file = if args.len() == 2 {
-        args[1].to_string()
-    } else {
-        String::from("pgcat.toml")
-    };
-
     // Create a transient runtime for loading the config for the first time.
     {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
         runtime.block_on(async {
-            match pgcat::config::parse(&config_file).await {
+            match pgcat::config::parse(args.config_file.as_str()).await {
                 Ok(_) => (),
                 Err(err) => {
                     error!("Config parse error: {:?}", err);
