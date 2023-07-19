@@ -1,13 +1,13 @@
 pub mod admin;
 pub mod auth_passthrough;
 pub mod client;
+pub mod cmd_args;
 pub mod config;
 pub mod constants;
 pub mod dns_cache;
 pub mod errors;
 pub mod messages;
 pub mod mirrors;
-pub mod multi_logger;
 pub mod plugins;
 pub mod pool;
 pub mod prometheus;
