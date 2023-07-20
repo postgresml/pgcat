@@ -6,6 +6,7 @@ pub mod config;
 pub mod constants;
 pub mod dns_cache;
 pub mod errors;
+pub mod logger;
 pub mod messages;
 pub mod mirrors;
 pub mod plugins;

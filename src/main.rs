@@ -62,30 +62,17 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use pgcat::cmd_args;
-use pgcat::cmd_args::LogFormat;
 use pgcat::config::{get_config, reload_config, VERSION};
 use pgcat::dns_cache;
+use pgcat::logger;
 use pgcat::messages::configure_socket;
 use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
-use tracing_subscriber;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cmd_args::parse();
-    match args.log_format {
-        LogFormat::Structured => tracing_subscriber::fmt()
-            .json()
-            .with_max_level(args.log_level)
-            .init(),
-        LogFormat::Debug => tracing_subscriber::fmt()
-            .pretty()
-            .with_max_level(args.log_level)
-            .init(),
-        _ => tracing_subscriber::fmt()
-            .with_max_level(args.log_level)
-            .init(),
-    };
+    logger::init(&args);
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
