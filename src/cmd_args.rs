@@ -13,6 +13,15 @@ pub struct Args {
 
     #[clap(short='F', long, value_enum, default_value_t=LogFormat::Text, env)]
     pub log_format: LogFormat,
+
+    #[arg(
+        short,
+        long,
+        default_value_t = false,
+        env,
+        help = "disable colors in the log output"
+    )]
+    pub no_color: bool,
 }
 
 pub fn parse() -> Args {
