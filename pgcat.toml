@@ -195,6 +195,10 @@ sharding_function = "pg_bigint_hash"
 # This parameter is inherited by every pool and can be redefined in pool configuration.
 # auth_query_password = "sharding_user"
 
+# Database to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+# specified in `auth_query_query`. This parameter is inherited by every pool and can be redefined in pool configuration.
+# auth_query_database = "shared_db"
+
 # Automatically parse this from queries and route queries to the right shard!
 # automatic_sharding_key = "data.id"
 

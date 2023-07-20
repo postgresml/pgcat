@@ -322,6 +322,7 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+    pub auth_query_database: Option<String>,
 
     #[serde(default)]
     pub prepared_statements: bool,
@@ -448,6 +449,7 @@ impl Default for General {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            auth_query_database: None,
             server_lifetime: Self::default_server_lifetime(),
             server_round_robin: Self::default_server_round_robin(),
             validate_config: true,
@@ -538,6 +540,7 @@ pub struct Pool {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+    pub auth_query_database: Option<String>,
 
     #[serde(default = "Pool::default_cleanup_server_connections")]
     pub cleanup_server_connections: bool,
@@ -674,6 +677,7 @@ impl Default for Pool {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            auth_query_database: None,
             server_lifetime: None,
             plugins: None,
             cleanup_server_connections: true,
@@ -876,6 +880,10 @@ impl Config {
             if pool.auth_query_password.is_none() {
                 pool.auth_query_password = self.general.auth_query_password.clone();
             }
+
+            if pool.auth_query_database.is_none() {
+                pool.auth_query_database = self.general.auth_query_database.clone();
+            }
         }
     }
 }
@@ -1011,6 +1019,28 @@ impl Config {
             self.general.server_lifetime
         );
         info!("Sever round robin: {}", self.general.server_round_robin);
+
+        if self.general.auth_query.is_some() {
+            info!(
+                "Auth query configured: {}",
+                self.general.auth_query.clone().unwrap()
+            );
+        }
+
+        if self.general.auth_query_user.is_some() {
+            info!(
+                "Auth query user: {}",
+                self.general.auth_query_user.clone().unwrap()
+            );
+        }
+
+        if self.general.auth_query_database.is_some() {
+            info!(
+                "Auth query database: {}",
+                self.general.auth_query_database.clone().unwrap()
+            );
+        }
+
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);

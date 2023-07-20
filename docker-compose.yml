@@ -5,6 +5,10 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "15432:5432"
+    volumes:
+      - "${PWD}/examples/docker:/docker-entrypoint-initdb.d"
   pgcat:
     build: .
     command:

@@ -8,15 +8,17 @@ pub struct AuthPassthrough {
     password: String,
     query: String,
     user: String,
+    database: Option<String>,
 }
 
 impl AuthPassthrough {
     /// Initializes an AuthPassthrough.
-    pub fn new(query: &str, user: &str, password: &str) -> Self {
+    pub fn new(query: &str, user: &str, password: &str, database: Option<String>) -> Self {
         AuthPassthrough {
             password: password.to_string(),
             query: query.to_string(),
             user: user.to_string(),
+            database: database,
         }
     }
 
@@ -28,6 +30,7 @@ impl AuthPassthrough {
                 pool_config.auth_query.as_ref().unwrap(),
                 pool_config.auth_query_user.as_ref().unwrap(),
                 pool_config.auth_query_password.as_ref().unwrap(),
+                pool_config.auth_query_database.clone(),
             ));
         }
 
@@ -64,7 +67,7 @@ impl AuthPassthrough {
     /// ```
     /// use pgcat::auth_passthrough::AuthPassthrough;
     /// use pgcat::config::Address;
-    /// let auth_passthrough = AuthPassthrough::new("SELECT * FROM public.user_lookup('$1');", "postgres", "postgres");
+    /// let auth_passthrough = AuthPassthrough::new("SELECT * FROM public.user_lookup('$1');", "postgres", "postgres", None);
     /// auth_passthrough.fetch_hash(&Address::default());
     /// ```
     ///
@@ -87,7 +90,11 @@ impl AuthPassthrough {
 
         let auth_query = self.query.replace("$1", user);
 
-        match Server::exec_simple_query(address, &auth_user, &auth_query).await {
+        let mut query_address = address.clone();
+        if self.database.is_some() {
+            query_address.database = self.database.clone().unwrap();
+        }
+        match Server::exec_simple_query(&query_address, &auth_user, &auth_query).await {
             Ok(password_data) => {
                 if password_data.len() == 2 && password_data.first().unwrap() == user {
                     if let Some(stripped_hash) = password_data

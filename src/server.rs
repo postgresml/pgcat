@@ -1194,7 +1194,10 @@ impl Server {
     ) -> Result<Vec<String>, Error> {
         let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
-        debug!("Connecting to server to obtain auth hashes.");
+        debug!(
+            "Connecting to server to obtain auth hashes from db '{}'.",
+            &address.database
+        );
         let mut server = Server::startup(
             address,
             user,
