@@ -832,6 +832,13 @@ impl Server {
                     break;
                 }
 
+                // ErrorResponse
+                'E' => {
+                    if self.in_copy_mode {
+                        self.in_copy_mode = false;
+                    }
+                }
+
                 // CommandComplete
                 'C' => {
                     if self.in_copy_mode {
