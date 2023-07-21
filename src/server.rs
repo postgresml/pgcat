@@ -891,7 +891,7 @@ impl Server {
                 'G' => {
                     self.in_copy_mode = true;
                     break;
-                },
+                }
 
                 // CopyOutResponse: copy is starting from the server to the client.
                 'H' => {
