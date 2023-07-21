@@ -170,6 +170,9 @@ pub struct Server {
     /// Is there more data for the client to read.
     data_available: bool,
 
+    /// Is the server in copy-in or copy-out modes
+    in_copy_mode: bool,
+
     /// Is the server broken? We'll remote it from the pool if so.
     bad: bool,
 
@@ -677,6 +680,7 @@ impl Server {
                         process_id,
                         secret_key,
                         in_transaction: false,
+                        in_copy_mode: false,
                         data_available: false,
                         bad: false,
                         cleanup_state: CleanupState::new(),
@@ -828,8 +832,19 @@ impl Server {
                     break;
                 }
 
+                // ErrorResponse
+                'E' => {
+                    if self.in_copy_mode {
+                        self.in_copy_mode = false;
+                    }
+                }
+
                 // CommandComplete
                 'C' => {
+                    if self.in_copy_mode {
+                        self.in_copy_mode = false;
+                    }
+
                     let mut command_tag = String::new();
                     match message.reader().read_to_string(&mut command_tag) {
                         Ok(_) => {
@@ -873,10 +888,14 @@ impl Server {
                 }
 
                 // CopyInResponse: copy is starting from client to server.
-                'G' => break,
+                'G' => {
+                    self.in_copy_mode = true;
+                    break;
+                }
 
                 // CopyOutResponse: copy is starting from the server to the client.
                 'H' => {
+                    self.in_copy_mode = true;
                     self.data_available = true;
                     break;
                 }
@@ -1030,6 +1049,10 @@ impl Server {
         self.in_transaction
     }
 
+    pub fn in_copy_mode(&self) -> bool {
+        self.in_copy_mode
+    }
+
     /// We don't buffer all of server responses, e.g. COPY OUT produces too much data.
     /// The client is responsible to call `self.recv()` while this method returns true.
     pub fn is_data_available(&self) -> bool {
@@ -1127,6 +1150,10 @@ impl Server {
             self.query("DISCARD ALL").await?;
             self.query("RESET ROLE").await?;
             self.cleanup_state.reset();
+        }
+
+        if self.in_copy_mode() {
+            warn!("Server returned while still in copy-mode");
         }
 
         Ok(())

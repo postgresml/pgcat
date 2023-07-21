@@ -1260,7 +1260,7 @@ where
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
-                            if self.transaction_mode {
+                            if self.transaction_mode && !server.in_copy_mode() {
                                 self.stats.idle();
 
                                 break;
@@ -1410,7 +1410,7 @@ where
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
-                            if self.transaction_mode {
+                            if self.transaction_mode && !server.in_copy_mode() {
                                 break;
                             }
                         }
