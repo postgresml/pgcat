@@ -328,6 +328,9 @@ pub struct General {
 
     #[serde(default = "General::default_prepared_statements_cache_size")]
     pub prepared_statements_cache_size: usize,
+
+    #[serde(default = "General::default_query_cache_enabled")]
+    pub query_cache_enabled: bool,
 }
 
 impl General {
@@ -413,6 +416,10 @@ impl General {
     pub fn default_prepared_statements_cache_size() -> usize {
         500
     }
+
+    pub fn default_query_cache_enabled() -> bool {
+        false
+    }
 }
 
 impl Default for General {
@@ -453,6 +460,7 @@ impl Default for General {
             validate_config: true,
             prepared_statements: false,
             prepared_statements_cache_size: 500,
+            query_cache_enabled: false,
         }
     }
 }
@@ -1048,6 +1056,7 @@ impl Config {
                 None => "not configured".into(),
             }
         );
+        info!("Query cache: {}", self.general.query_cache_enabled);
 
         for (pool_name, pool_config) in &self.pools {
             // TODO: Make this output prettier (maybe a table?)
