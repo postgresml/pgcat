@@ -316,10 +316,7 @@ impl Server {
 
                 // Something else?
                 m => {
-                    return Err(Error::SocketError(format!(
-                        "Unknown message: {}",
-                        m as char
-                    )));
+                    return Err(Error::SocketError(format!("Unknown message: {}", { m })));
                 }
             }
         } else {
@@ -337,27 +334,18 @@ impl Server {
             None => &user.username,
         };
 
-        let password = match user.server_password {
-            Some(ref server_password) => Some(server_password),
-            None => match user.password {
-                Some(ref password) => Some(password),
-                None => None,
-            },
-        };
+        let password = user.server_password.as_ref();
 
         startup(&mut stream, username, database).await?;
 
         let mut server_info = BytesMut::new();
         let mut process_id: i32 = 0;
         let mut secret_key: i32 = 0;
-        let server_identifier = ServerIdentifier::new(username, &database);
+        let server_identifier = ServerIdentifier::new(username, database);
 
         // We'll be handling multiple packets, but they will all be structured the same.
         // We'll loop here until this exchange is complete.
-        let mut scram: Option<ScramSha256> = match password {
-            Some(password) => Some(ScramSha256::new(password)),
-            None => None,
-        };
+        let mut scram: Option<ScramSha256> = password.map(|password| ScramSha256::new(password));
 
         loop {
             let code = match stream.read_u8().await {
@@ -753,7 +741,7 @@ impl Server {
         self.mirror_send(messages);
         self.stats().data_sent(messages.len());
 
-        match write_all_flush(&mut self.stream, &messages).await {
+        match write_all_flush(&mut self.stream, messages).await {
             Ok(_) => {
                 // Successfully sent to server
                 self.last_activity = SystemTime::now();
@@ -1199,16 +1187,14 @@ impl Server {
     }
 
     pub fn mirror_send(&mut self, bytes: &BytesMut) {
-        match self.mirror_manager.as_mut() {
-            Some(manager) => manager.send(bytes),
-            None => (),
+        if let Some(manager) = self.mirror_manager.as_mut() {
+            manager.send(bytes);
         }
     }
 
     pub fn mirror_disconnect(&mut self) {
-        match self.mirror_manager.as_mut() {
-            Some(manager) => manager.disconnect(),
-            None => (),
+        if let Some(manager) = self.mirror_manager.as_mut() {
+            manager.disconnect();
         }
     }
 
@@ -1236,7 +1222,7 @@ impl Server {
         server.send(&simple_query(query)).await?;
         let mut message = server.recv().await?;
 
-        Ok(parse_query_message(&mut message).await?)
+        parse_query_message(&mut message).await
     }
 }
 

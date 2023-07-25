@@ -800,7 +800,7 @@ async fn pause<T>(stream: &mut T, query: &str) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let parts: Vec<&str> = query.split(",").map(|part| part.trim()).collect();
+    let parts: Vec<&str> = query.split(',').map(|part| part.trim()).collect();
 
     if parts.len() != 2 {
         error_response(
@@ -847,7 +847,7 @@ async fn resume<T>(stream: &mut T, query: &str) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let parts: Vec<&str> = query.split(",").map(|part| part.trim()).collect();
+    let parts: Vec<&str> = query.split(',').map(|part| part.trim()).collect();
 
     if parts.len() != 2 {
         error_response(

@@ -157,7 +157,7 @@ where
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            return Err(Error::SocketError(format!(
+            Err(Error::SocketError(format!(
                 "Error writing startup to server socket - Error: {:?}",
                 err
             )))
@@ -237,8 +237,8 @@ pub fn md5_hash_password(user: &str, password: &str, salt: &[u8]) -> Vec<u8> {
     let mut md5 = Md5::new();
 
     // First pass
-    md5.update(&password.as_bytes());
-    md5.update(&user.as_bytes());
+    md5.update(password.as_bytes());
+    md5.update(user.as_bytes());
 
     let output = md5.finalize_reset();
 
@@ -274,7 +274,7 @@ where
 {
     let password = md5_hash_password(user, password, salt);
 
-    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+    let mut message = BytesMut::with_capacity(password.len() + 5);
 
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
@@ -288,7 +288,7 @@ where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let password = md5_hash_second_pass(hash, salt);
-    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+    let mut message = BytesMut::with_capacity(password.len() + 5);
 
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
@@ -509,7 +509,7 @@ pub fn data_row_nullable(row: &Vec<Option<String>>) -> BytesMut {
             data_row.put_i32(column.len() as i32);
             data_row.put_slice(column);
         } else {
-            data_row.put_i32(-1 as i32);
+            data_row.put_i32(-1_i32);
         }
     }
 
@@ -565,7 +565,7 @@ where
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            return Err(Error::SocketError(format!(
+            Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",
                 err
             )))
@@ -581,7 +581,7 @@ where
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            return Err(Error::SocketError(format!(
+            Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",
                 err
             )))
@@ -597,14 +597,14 @@ where
         Ok(_) => match stream.flush().await {
             Ok(_) => Ok(()),
             Err(err) => {
-                return Err(Error::SocketError(format!(
+                Err(Error::SocketError(format!(
                     "Error flushing socket - Error: {:?}",
                     err
                 )))
             }
         },
         Err(err) => {
-            return Err(Error::SocketError(format!(
+            Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",
                 err
             )))
@@ -723,7 +723,7 @@ impl BytesMutReader for Cursor<&BytesMut> {
         let mut buf = vec![];
         match self.read_until(b'\0', &mut buf) {
             Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string()),
-            Err(err) => return Err(Error::ParseBytesError(err.to_string())),
+            Err(err) => Err(Error::ParseBytesError(err.to_string())),
         }
     }
 }

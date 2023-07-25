@@ -123,7 +123,7 @@ pub async fn client_entrypoint(
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
             // TLS settings are configured, will setup TLS now.
-            if tls_certificate != None {
+            if tls_certificate.is_some() {
                 debug!("Accepting TLS request");
 
                 let mut yes = BytesMut::new();
@@ -431,7 +431,7 @@ where
             None => "pgcat",
         };
 
-        let client_identifier = ClientIdentifier::new(&application_name, &username, &pool_name);
+        let client_identifier = ClientIdentifier::new(application_name, username, pool_name);
 
         let admin = ["pgcat", "pgbouncer"]
             .iter()
@@ -930,16 +930,12 @@ where
             }
 
             // Check on plugin results.
-            match plugin_output {
-                Some(PluginOutput::Deny(error)) => {
-                    self.buffer.clear();
-                    error_response(&mut self.write, &error).await?;
-                    plugin_output = None;
-                    continue;
-                }
-
-                _ => (),
-            };
+            if let Some(PluginOutput::Deny(error)) = plugin_output {
+                self.buffer.clear();
+                error_response(&mut self.write, &error).await?;
+                plugin_output = None;
+                continue;
+            }
 
             // Get a pool instance referenced by the most up-to-date
             // pointer. This ensures we always read the latest config
@@ -1213,7 +1209,7 @@ where
 
                 // Safe to unwrap because we know this message has a certain length and has the code
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
-                let code = *message.get(0).unwrap() as char;
+                let code = *message.first().unwrap() as char;
 
                 trace!("Message: {}", code);
 
@@ -1331,14 +1327,11 @@ where
                             let close: Close = (&message).try_into()?;
 
                             if close.is_prepared_statement() && !close.anonymous() {
-                                match self.prepared_statements.get(&close.name) {
-                                    Some(parse) => {
-                                        server.will_close(&parse.generated_name);
-                                    }
-
+                                if let Some(parse) = self.prepared_statements.get(&close.name) {
+                                    server.will_close(&parse.generated_name);
+                                } else {
                                     // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
-                                    None => (),
-                                };
+                                }
                             }
                         }
 
@@ -1376,7 +1369,7 @@ where
 
                         self.buffer.put(&message[..]);
 
-                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
+                        let first_message_code = (*self.buffer.first().unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' && !prepared_statements_enabled {

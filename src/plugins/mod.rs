@@ -30,6 +30,7 @@ pub enum PluginOutput {
     Intercept(BytesMut),
 }
 
+#[allow(clippy::ptr_arg)]
 #[async_trait]
 pub trait Plugin {
     // Run before the query is sent to the server.

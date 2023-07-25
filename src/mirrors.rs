@@ -142,12 +142,12 @@ impl MirroringManager {
         });
 
         Self {
-            byte_senders: byte_senders,
+            byte_senders,
             disconnect_senders: exit_senders,
         }
     }
 
-    pub fn send(self: &mut Self, bytes: &BytesMut) {
+    pub fn send(&mut self, bytes: &BytesMut) {
         // We want to avoid performing an allocation if we won't be able to send the message
         // There is a possibility of a race here where we check the capacity and then the channel is
         // closed or the capacity is reduced to 0, but mirroring is best effort anyway
@@ -169,7 +169,7 @@ impl MirroringManager {
         });
     }
 
-    pub fn disconnect(self: &mut Self) {
+    pub fn disconnect(&mut self) {
         self.disconnect_senders
             .iter_mut()
             .for_each(|sender| match sender.try_send(()) {

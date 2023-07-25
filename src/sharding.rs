@@ -64,7 +64,7 @@ impl Sharder {
     fn sha1(&self, key: i64) -> usize {
         let mut hasher = Sha1::new();
 
-        hasher.update(&key.to_string().as_bytes());
+        hasher.update(key.to_string().as_bytes());
 
         let result = hasher.finalize();
 
