@@ -1305,10 +1305,20 @@ mod test {
             .is_ok());
         assert_eq!(qr.shard(), 2);
 
-        assert!(qr.infer(&QueryRouter::parse(&simple_query("SELECT * FROM derived WHERE data_id = 5")).unwrap()).is_ok());
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query("SELECT * FROM derived WHERE data_id = 5"))
+                    .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 2);
 
-        assert!(qr.infer(&QueryRouter::parse(&simple_query("SELECT * FROM derived WHERE data_id = 5")).unwrap()).is_ok());
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query("SELECT * FROM derived WHERE data_id = 5"))
+                    .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 2);
 
         assert!(qr
@@ -1321,14 +1331,24 @@ mod test {
             .is_ok());
         assert_eq!(qr.shard(), 0);
 
-        assert!(qr.infer(&QueryRouter::parse(&simple_query(
-            "SELECT one, two, three FROM public.derived WHERE data_id = 6"
-        )).unwrap()).is_ok());
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT one, two, three FROM public.derived WHERE data_id = 6"
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 0);
 
-        assert!(qr.infer(&QueryRouter::parse(&simple_query(
-            "SELECT one, two, three FROM public.derived WHERE data_id = 6"
-        )).unwrap()).is_ok());
+        assert!(qr
+            .infer(
+                &QueryRouter::parse(&simple_query(
+                    "SELECT one, two, three FROM public.derived WHERE data_id = 6"
+                ))
+                .unwrap()
+            )
+            .is_ok());
         assert_eq!(qr.shard(), 0);
 
         assert!(qr
