@@ -25,18 +25,11 @@ pub mod tls;
 ///
 /// * `duration` - A duration of time
 pub fn format_duration(duration: &chrono::Duration) -> String {
-    let milliseconds = format!("{:0>3}", duration.num_milliseconds() % 1000);
+    let milliseconds = duration.num_milliseconds() % 1000;
+    let seconds = duration.num_seconds() % 60;
+    let minutes = duration.num_minutes() % 60;
+    let hours = duration.num_hours() % 24;
+    let days = duration.num_days();
 
-    let seconds = format!("{:0>2}", duration.num_seconds() % 60);
-
-    let minutes = format!("{:0>2}", duration.num_minutes() % 60);
-
-    let hours = format!("{:0>2}", duration.num_hours() % 24);
-
-    let days = duration.num_days().to_string();
-
-    format!(
-        "{}d {}:{}:{}.{}",
-        days, hours, minutes, seconds, milliseconds
-    )
+    format!("{days}d {hours:0>2}:{minutes:0>2}:{seconds:0>2}.{milliseconds:0>3}")
 }
