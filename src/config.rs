@@ -261,6 +261,8 @@ pub struct General {
     pub tcp_keepalives_count: u32,
     #[serde(default = "General::default_tcp_keepalives_interval")]
     pub tcp_keepalives_interval: u64,
+    #[serde(default = "General::default_tcp_user_timeout")]
+    pub tcp_user_timeout: u64,
 
     #[serde(default)] // False
     pub log_client_connections: bool,
@@ -323,6 +325,9 @@ pub struct General {
 
     #[serde(default)]
     pub prepared_statements: bool,
+
+    #[serde(default = "General::default_prepared_statements_cache_size")]
+    pub prepared_statements_cache_size: usize,
 }
 
 impl General {
@@ -355,6 +360,10 @@ impl General {
 
     pub fn default_tcp_keepalives_interval() -> u64 {
         5 // 5 seconds
+    }
+
+    pub fn default_tcp_user_timeout() -> u64 {
+        10000 // 10000 milliseconds
     }
 
     pub fn default_idle_timeout() -> u64 {
@@ -400,6 +409,10 @@ impl General {
     pub fn default_server_round_robin() -> bool {
         true
     }
+
+    pub fn default_prepared_statements_cache_size() -> usize {
+        500
+    }
 }
 
 impl Default for General {
@@ -420,6 +433,7 @@ impl Default for General {
             tcp_keepalives_idle: Self::default_tcp_keepalives_idle(),
             tcp_keepalives_count: Self::default_tcp_keepalives_count(),
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
+            tcp_user_timeout: Self::default_tcp_user_timeout(),
             log_client_connections: false,
             log_client_disconnections: false,
             autoreload: None,
@@ -435,9 +449,10 @@ impl Default for General {
             auth_query_user: None,
             auth_query_password: None,
             server_lifetime: Self::default_server_lifetime(),
-            server_round_robin: false,
+            server_round_robin: Self::default_server_round_robin(),
             validate_config: true,
             prepared_statements: false,
+            prepared_statements_cache_size: 500,
         }
     }
 }
@@ -1020,6 +1035,12 @@ impl Config {
             self.general.verify_server_certificate
         );
         info!("Prepared statements: {}", self.general.prepared_statements);
+        if self.general.prepared_statements {
+            info!(
+                "Prepared statements server cache size: {}",
+                self.general.prepared_statements_cache_size
+            );
+        }
         info!(
             "Plugins: {}",
             match self.plugins {
@@ -1239,13 +1260,15 @@ pub fn get_config() -> Config {
 }
 
 pub fn get_idle_client_in_transaction_timeout() -> u64 {
-    (*(*CONFIG.load()))
-        .general
-        .idle_client_in_transaction_timeout
+    CONFIG.load().general.idle_client_in_transaction_timeout
 }
 
 pub fn get_prepared_statements() -> bool {
-    (*(*CONFIG.load())).general.prepared_statements
+    CONFIG.load().general.prepared_statements
+}
+
+pub fn get_prepared_statements_cache_size() -> usize {
+    CONFIG.load().general.prepared_statements_cache_size
 }
 
 /// Parse the configuration file located at the path.

@@ -61,15 +61,18 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use pgcat::cmd_args;
 use pgcat::config::{get_config, reload_config, VERSION};
 use pgcat::dns_cache;
+use pgcat::logger;
 use pgcat::messages::configure_socket;
 use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    pgcat::multi_logger::MultiLogger::init().unwrap();
+    let args = cmd_args::parse();
+    logger::init(&args);
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
 
@@ -78,20 +81,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(exitcode::CONFIG);
     }
 
-    let args = std::env::args().collect::<Vec<String>>();
-
-    let config_file = if args.len() == 2 {
-        args[1].to_string()
-    } else {
-        String::from("pgcat.toml")
-    };
-
     // Create a transient runtime for loading the config for the first time.
     {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
         runtime.block_on(async {
-            match pgcat::config::parse(&config_file).await {
+            match pgcat::config::parse(args.config_file.as_str()).await {
                 Ok(_) => (),
                 Err(err) => {
                     error!("Config parse error: {:?}", err);

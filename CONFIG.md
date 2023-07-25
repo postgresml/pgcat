@@ -1,4 +1,4 @@
-# PgCat Configurations 
+# PgCat Configurations
 ## `general` Section
 
 ### host
@@ -116,10 +116,10 @@ If we should log client disconnections
 ### autoreload
 ```
 path: general.autoreload
-default: 15000
+default: 15000 # milliseconds
 ```
 
-When set to true, PgCat reloads configs if it detects a change in the config file.
+When set, PgCat automatically reloads its configurations at the specified interval (in milliseconds) if it detects changes in the configuration file. The default interval is 15000 milliseconds or 15 seconds.
 
 ### worker_threads
 ```
@@ -151,7 +151,13 @@ path: general.tcp_keepalives_interval
 default: 5
 ```
 
-Number of seconds between keepalive packets.
+### tcp_user_timeout
+```
+path: general.tcp_user_timeout
+default: 10000
+```
+A linux-only parameters that defines the amount of time in milliseconds that transmitted data may remain unacknowledged or buffered data may remain untransmitted (due to zero window size) before TCP will forcibly disconnect
+
 
 ### tls_certificate
 ```

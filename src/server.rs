@@ -16,7 +16,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, Address, User};
+use crate::config::{get_config, get_prepared_statements_cache_size, Address, User};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -289,6 +289,9 @@ pub struct Server {
 
     /// Is there more data for the client to read.
     data_available: bool,
+
+    /// Is the server in copy-in or copy-out modes
+    in_copy_mode: bool,
 
     /// Is the server broken? We'll remote it from the pool if so.
     bad: bool,
@@ -800,6 +803,7 @@ impl Server {
                         process_id,
                         secret_key,
                         in_transaction: false,
+                        in_copy_mode: false,
                         data_available: false,
                         bad: false,
                         cleanup_state: CleanupState::new(),
@@ -952,8 +956,19 @@ impl Server {
                     break;
                 }
 
+                // ErrorResponse
+                'E' => {
+                    if self.in_copy_mode {
+                        self.in_copy_mode = false;
+                    }
+                }
+
                 // CommandComplete
                 'C' => {
+                    if self.in_copy_mode {
+                        self.in_copy_mode = false;
+                    }
+
                     match message.read_string() {
                         Ok(command) => {
                             // Non-exhaustive list of commands that are likely to change session variables/resources
@@ -1008,10 +1023,14 @@ impl Server {
                 }
 
                 // CopyInResponse: copy is starting from client to server.
-                'G' => break,
+                'G' => {
+                    self.in_copy_mode = true;
+                    break;
+                }
 
                 // CopyOutResponse: copy is starting from the server to the client.
                 'H' => {
+                    self.in_copy_mode = true;
                     self.data_available = true;
                     break;
                 }
@@ -1049,12 +1068,16 @@ impl Server {
         Ok(bytes)
     }
 
+    /// Add the prepared statement to being tracked by this server.
+    /// The client is processing data that will create a prepared statement on this server.
     pub fn will_prepare(&mut self, name: &str) {
         debug!("Will prepare `{}`", name);
 
         self.prepared_statements.insert(name.to_string());
+        self.stats.prepared_cache_add();
     }
 
+    /// Check if we should prepare a statement on the server.
     pub fn should_prepare(&self, name: &str) -> bool {
         let should_prepare = !self.prepared_statements.contains(name);
 
@@ -1069,6 +1092,7 @@ impl Server {
         should_prepare
     }
 
+    /// Create a prepared statement on the server.
     pub async fn prepare(&mut self, parse: &Parse) -> Result<(), Error> {
         debug!("Preparing `{}`", parse.name);
 
@@ -1077,11 +1101,78 @@ impl Server {
         self.send(&flush()).await?;
 
         // Read and discard ParseComplete (B)
-        let _ = read_message(&mut self.stream).await?;
+        match read_message(&mut self.stream).await {
+            Ok(_) => (),
+            Err(err) => {
+                self.bad = true;
+                return Err(err);
+            }
+        }
 
         self.prepared_statements.insert(parse.name.to_string());
+        self.stats.prepared_cache_add();
 
         debug!("Prepared `{}`", parse.name);
+
+        Ok(())
+    }
+
+    /// Maintain adequate cache size on the server.
+    pub async fn maintain_cache(&mut self) -> Result<(), Error> {
+        debug!("Cache maintenance run");
+
+        let max_cache_size = get_prepared_statements_cache_size();
+        let mut names = Vec::new();
+
+        while self.prepared_statements.len() >= max_cache_size {
+            // The prepared statmeents are alphanumerically sorted by the BTree.
+            // FIFO.
+            if let Some(name) = self.prepared_statements.pop_last() {
+                names.push(name);
+            }
+        }
+
+        self.deallocate(names).await?;
+
+        Ok(())
+    }
+
+    /// Remove the prepared statement from being tracked by this server.
+    /// The client is processing data that will cause the server to close the prepared statement.
+    pub fn will_close(&mut self, name: &str) {
+        debug!("Will close `{}`", name);
+
+        self.prepared_statements.remove(name);
+    }
+
+    /// Close a prepared statement on the server.
+    pub async fn deallocate(&mut self, names: Vec<String>) -> Result<(), Error> {
+        for name in &names {
+            debug!("Deallocating prepared statement `{}`", name);
+
+            let close = Close::new(name);
+            let bytes: BytesMut = close.try_into()?;
+
+            self.send(&bytes).await?;
+        }
+
+        self.send(&flush()).await?;
+
+        // Read and discard CloseComplete (3)
+        for name in &names {
+            match read_message(&mut self.stream).await {
+                Ok(_) => {
+                    self.prepared_statements.remove(name);
+                    self.stats.prepared_cache_remove();
+                    debug!("Closed `{}`", name);
+                }
+
+                Err(err) => {
+                    self.bad = true;
+                    return Err(err);
+                }
+            };
+        }
 
         Ok(())
     }
@@ -1091,6 +1182,10 @@ impl Server {
     pub fn in_transaction(&self) -> bool {
         debug!("Server in transaction: {}", self.in_transaction);
         self.in_transaction
+    }
+
+    pub fn in_copy_mode(&self) -> bool {
+        self.in_copy_mode
     }
 
     /// We don't buffer all of server responses, e.g. COPY OUT produces too much data.
@@ -1209,6 +1304,10 @@ impl Server {
             self.query("DISCARD ALL").await?;
             self.query("RESET ROLE").await?;
             self.cleanup_state.reset();
+        }
+
+        if self.in_copy_mode() {
+            warn!("Server returned while still in copy-mode");
         }
 
         Ok(())

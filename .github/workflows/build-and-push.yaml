@@ -1,6 +1,11 @@
 name: Build and Push
 
-on: push
+on:
+  push:
+    branches:    
+      - main
+    tags:
+      - v*
 
 env:
   registry: ghcr.io

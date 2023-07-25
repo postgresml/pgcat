@@ -1,7 +1,7 @@
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, BytesMut};
-use log::error;
+use log::{debug, error};
 use md5::{Digest, Md5};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -534,6 +534,26 @@ pub fn command_complete(command: &str) -> BytesMut {
     res
 }
 
+/// Create a notify message.
+pub fn notify(message: &str, details: String) -> BytesMut {
+    let mut notify_cmd = BytesMut::new();
+
+    notify_cmd.put_slice("SNOTICE\0".as_bytes());
+    notify_cmd.put_slice("C00000\0".as_bytes());
+    notify_cmd.put_slice(format!("M{}\0", message).as_bytes());
+    notify_cmd.put_slice(format!("D{}\0", details).as_bytes());
+
+    // this extra byte says that is the end of the package
+    notify_cmd.put_u8(0);
+
+    let mut res = BytesMut::new();
+    res.put_u8(b'N');
+    res.put_i32(notify_cmd.len() as i32 + 4);
+    res.put(notify_cmd);
+
+    res
+}
+
 pub fn flush() -> BytesMut {
     let mut bytes = BytesMut::new();
     bytes.put_u8(b'H');
@@ -673,6 +693,13 @@ pub fn configure_socket(stream: &TcpStream) {
     let sock_ref = SockRef::from(stream);
     let conf = get_config();
 
+    #[cfg(target_os = "linux")]
+    match sock_ref.set_tcp_user_timeout(Some(Duration::from_millis(conf.general.tcp_user_timeout)))
+    {
+        Ok(_) => (),
+        Err(err) => error!("Could not configure tcp_user_timeout for socket: {}", err),
+    }
+
     match sock_ref.set_keepalive(true) {
         Ok(_) => {
             match sock_ref.set_tcp_keepalive(
@@ -682,7 +709,7 @@ pub fn configure_socket(stream: &TcpStream) {
                     .with_time(Duration::from_secs(conf.general.tcp_keepalives_idle)),
             ) {
                 Ok(_) => (),
-                Err(err) => error!("Could not configure socket: {}", err),
+                Err(err) => error!("Could not configure tcp_keepalive for socket: {}", err),
             }
         }
         Err(err) => error!("Could not configure socket: {}", err),
@@ -851,10 +878,21 @@ impl TryFrom<&BytesMut> for Bind {
 
         for _ in 0..num_param_values {
             let param_len = cursor.get_i32();
-            let mut param = BytesMut::with_capacity(param_len as usize);
-            param.resize(param_len as usize, b'0');
-            cursor.copy_to_slice(&mut param);
-            param_values.push((param_len, param));
+            // There is special occasion when the parameter is NULL
+            // In that case, param length is defined as -1
+            // So if the passed parameter len is over 0
+            if param_len > 0 {
+                let mut param = BytesMut::with_capacity(param_len as usize);
+                param.resize(param_len as usize, b'0');
+                cursor.copy_to_slice(&mut param);
+                // we push and the length and the parameter into vector
+                param_values.push((param_len, param));
+            } else {
+                // otherwise we push a tuple with -1 and 0-len BytesMut
+                // which means that after encountering -1 postgres proceeds
+                // to processing another parameter
+                param_values.push((param_len, BytesMut::new()));
+            }
         }
 
         let num_result_column_format_codes = cursor.get_i16();
@@ -993,6 +1031,84 @@ impl Describe {
     pub fn anonymous(&self) -> bool {
         self.statement_name.is_empty()
     }
+}
+
+/// Close (F) message.
+/// See: <https://www.postgresql.org/docs/current/protocol-message-formats.html>
+#[derive(Clone, Debug)]
+pub struct Close {
+    code: char,
+    #[allow(dead_code)]
+    len: i32,
+    close_type: char,
+    pub name: String,
+}
+
+impl TryFrom<&BytesMut> for Close {
+    type Error = Error;
+
+    fn try_from(bytes: &BytesMut) -> Result<Close, Error> {
+        let mut cursor = Cursor::new(bytes);
+        let code = cursor.get_u8() as char;
+        let len = cursor.get_i32();
+        let close_type = cursor.get_u8() as char;
+        let name = cursor.read_string()?;
+
+        Ok(Close {
+            code,
+            len,
+            close_type,
+            name,
+        })
+    }
+}
+
+impl TryFrom<Close> for BytesMut {
+    type Error = Error;
+
+    fn try_from(close: Close) -> Result<BytesMut, Error> {
+        debug!("Close: {:?}", close);
+
+        let mut bytes = BytesMut::new();
+        let name_binding = CString::new(close.name)?;
+        let name = name_binding.as_bytes_with_nul();
+        let len = 4 + 1 + name.len();
+
+        bytes.put_u8(close.code as u8);
+        bytes.put_i32(len as i32);
+        bytes.put_u8(close.close_type as u8);
+        bytes.put_slice(name);
+
+        Ok(bytes)
+    }
+}
+
+impl Close {
+    pub fn new(name: &str) -> Close {
+        let name = name.to_string();
+
+        Close {
+            code: 'C',
+            len: 4 + 1 + name.len() as i32 + 1, // will be recalculated
+            close_type: 'S',
+            name,
+        }
+    }
+
+    pub fn is_prepared_statement(&self) -> bool {
+        self.close_type == 'S'
+    }
+
+    pub fn anonymous(&self) -> bool {
+        self.name.is_empty()
+    }
+}
+
+pub fn close_complete() -> BytesMut {
+    let mut bytes = BytesMut::new();
+    bytes.put_u8(b'3');
+    bytes.put_i32(4);
+    bytes
 }
 
 pub fn prepared_statement_name() -> String {

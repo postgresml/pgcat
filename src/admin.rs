@@ -85,6 +85,10 @@ where
             shutdown(stream).await
         }
         "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
+            "HELP" => {
+                trace!("SHOW HELP");
+                show_help(stream).await
+            }
             "BANS" => {
                 trace!("SHOW BANS");
                 show_bans(stream).await
@@ -262,6 +266,45 @@ where
     pool_lookup.iter().for_each(|(_identifier, pool_stats)| {
         res.put(data_row(&pool_stats.generate_row()));
     });
+    res.put(command_complete("SHOW"));
+
+    // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Show all available options.
+async fn show_help<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
+
+    let detail_msg = vec![
+        "",
+        "SHOW HELP|CONFIG|DATABASES|POOLS|CLIENTS|SERVERS|USERS|VERSION",
+        // "SHOW PEERS|PEER_POOLS", // missing PEERS|PEER_POOLS
+        // "SHOW FDS|SOCKETS|ACTIVE_SOCKETS|LISTS|MEM|STATE", // missing FDS|SOCKETS|ACTIVE_SOCKETS|MEM|STATE
+        "SHOW LISTS",
+        // "SHOW DNS_HOSTS|DNS_ZONES", // missing DNS_HOSTS|DNS_ZONES
+        "SHOW STATS", // missing STATS_TOTALS|STATS_AVERAGES|TOTALS
+        "SET key = arg",
+        "RELOAD",
+        "PAUSE [<db>, <user>]",
+        "RESUME [<db>, <user>]",
+        // "DISABLE <db>", // missing
+        // "ENABLE <db>", // missing
+        // "RECONNECT [<db>]", missing
+        // "KILL <db>",
+        // "SUSPEND",
+        "SHUTDOWN",
+        // "WAIT_CLOSE [<db>]", // missing
+    ];
+
+    res.put(notify("Console usage", detail_msg.join("\n\t")));
     res.put(command_complete("SHOW"));
 
     // ReadyForQuery
@@ -702,6 +745,7 @@ where
         ("age_seconds", DataType::Numeric),
         ("prepare_cache_hit", DataType::Numeric),
         ("prepare_cache_miss", DataType::Numeric),
+        ("prepare_cache_size", DataType::Numeric),
     ];
 
     let new_map = get_server_stats();
@@ -731,6 +775,10 @@ where
                 .to_string(),
             server
                 .prepared_miss_count
+                .load(Ordering::Relaxed)
+                .to_string(),
+            server
+                .prepared_cache_size
                 .load(Ordering::Relaxed)
                 .to_string(),
         ];
