@@ -44,25 +44,17 @@ impl Tls {
     pub fn new() -> Result<Self, Error> {
         let config = get_config();
 
-        let certs = match load_certs(Path::new(&config.general.tls_certificate.unwrap())) {
-            Ok(certs) => certs,
-            Err(_) => return Err(Error::TlsError),
-        };
+        let certs = load_certs(Path::new(&config.general.tls_certificate.unwrap()))
+            .map_err(|_| Error::TlsError)?;
+        let key_der = load_keys(Path::new(&config.general.tls_private_key.unwrap()))
+            .map_err(|_| Error::TlsError)?
+            .remove(0);
 
-        let mut keys = match load_keys(Path::new(&config.general.tls_private_key.unwrap())) {
-            Ok(keys) => keys,
-            Err(_) => return Err(Error::TlsError),
-        };
-
-        let config = match rustls::ServerConfig::builder()
+        let config = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
-            .with_single_cert(certs, keys.remove(0))
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))
-        {
-            Ok(c) => c,
-            Err(_) => return Err(Error::TlsError),
-        };
+            .with_single_cert(certs, key_der)
+            .map_err(|_| Error::TlsError)?;
 
         Ok(Tls {
             acceptor: TlsAcceptor::from(Arc::new(config)),
