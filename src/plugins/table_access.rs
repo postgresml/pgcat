@@ -45,11 +45,10 @@ impl<'a> Plugin for TableAccess<'a> {
         });
 
         if let Some(found) = found {
-            debug!("Blocking access to table \"{}\"", found);
+            debug!("Blocking access to table \"{found}\"");
 
             Ok(PluginOutput::Deny(format!(
-                "permission for table \"{}\" denied",
-                found
+                "permission for table \"{found}\" denied",
             )))
         } else {
             Ok(PluginOutput::Allow)
