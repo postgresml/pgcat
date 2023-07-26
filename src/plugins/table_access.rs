@@ -34,11 +34,10 @@ impl<'a> Plugin for TableAccess<'a> {
 
         visit_relations(ast, |relation| {
             let relation = relation.to_string();
-            let parts = relation.split('.').collect::<Vec<&str>>();
-            let table_name = parts.last().unwrap();
+            let table_name = relation.split('.').last().unwrap().to_string();
 
-            if self.tables.contains(&table_name.to_string()) {
-                found = Some(table_name.to_string());
+            if self.tables.contains(&table_name) {
+                found = Some(table_name);
                 ControlFlow::<()>::Break(())
             } else {
                 ControlFlow::<()>::Continue(())
