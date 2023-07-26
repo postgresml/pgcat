@@ -30,21 +30,18 @@ impl<'a> Plugin for TableAccess<'a> {
             return Ok(PluginOutput::Allow);
         }
 
-        let mut found = None;
-
-        visit_relations(ast, |relation| {
+        let control_flow = visit_relations(ast, |relation| {
             let relation = relation.to_string();
             let table_name = relation.split('.').last().unwrap().to_string();
 
             if self.tables.contains(&table_name) {
-                found = Some(table_name);
-                ControlFlow::<()>::Break(())
+                ControlFlow::Break(table_name)
             } else {
-                ControlFlow::<()>::Continue(())
+                ControlFlow::Continue(())
             }
         });
 
-        if let Some(found) = found {
+        if let ControlFlow::Break(found) = control_flow {
             debug!("Blocking access to table \"{found}\"");
 
             Ok(PluginOutput::Deny(format!(
