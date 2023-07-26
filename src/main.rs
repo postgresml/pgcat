@@ -160,10 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        tokio::task::spawn(async move {
-            let mut stats_collector = Collector::default();
-            stats_collector.collect().await;
-        });
+        Collector::collect();
 
         info!("Config autoreloader: {}", match config.general.autoreload {
             Some(interval) => format!("{} ms", interval),

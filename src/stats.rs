@@ -77,13 +77,12 @@ impl Reporter {
 /// The statistics collector which used for calculating averages
 /// There is only one collector (kind of like a singleton)
 /// it updates averages every 15 seconds.
-#[derive(Default)]
-pub struct Collector {}
+pub struct Collector;
 
 impl Collector {
     /// The statistics collection handler. It will collect statistics
     /// for `address_id`s starting at 0 up to `addresses`.
-    pub async fn collect(&mut self) {
+    pub fn collect() {
         info!("Events reporter started");
 
         tokio::task::spawn(async move {
