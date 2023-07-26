@@ -12,7 +12,7 @@ pub struct AuthPassthrough {
 
 impl AuthPassthrough {
     /// Initializes an AuthPassthrough.
-    pub fn new(query: &str, user: &str, password: &str) -> Self {
+    pub fn new<S: ToString>(query: S, user: S, password: S) -> Self {
         AuthPassthrough {
             password: password.to_string(),
             query: query.to_string(),
