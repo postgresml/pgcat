@@ -1136,7 +1136,7 @@ impl Server {
         // server connection thrashing if clients repeatedly do this.
         // Instead, we ROLLBACK that transaction before putting the connection back in the pool
         if self.in_transaction() {
-            warn!("Server returned while still in transaction, rolling back transaction");
+            warn!(target: "pgcat::server::cleanup", "Server returned while still in transaction, rolling back transaction");
             self.query("ROLLBACK").await?;
         }
 
@@ -1146,14 +1146,14 @@ impl Server {
         // send `DISCARD ALL` if we think the session is altered instead of just sending
         // it before each checkin.
         if self.cleanup_state.needs_cleanup() && self.cleanup_connections {
-            warn!("Server returned with session state altered, discarding state ({}) for application {}", self.cleanup_state, self.application_name);
+            info!(target: "pgcat::server::cleanup", "Server returned with session state altered, discarding state ({}) for application {}", self.cleanup_state, self.application_name);
             self.query("DISCARD ALL").await?;
             self.query("RESET ROLE").await?;
             self.cleanup_state.reset();
         }
 
         if self.in_copy_mode() {
-            warn!("Server returned while still in copy-mode");
+            warn!(target: "pgcat::server::cleanup", "Server returned while still in copy-mode");
         }
 
         Ok(())
