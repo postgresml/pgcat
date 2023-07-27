@@ -37,11 +37,11 @@ pub struct ClientIdentifier {
 }
 
 impl ClientIdentifier {
-    pub fn new(application_name: &str, username: &str, pool_name: &str) -> ClientIdentifier {
+    pub fn new<S: ToString>(application_name: S, username: S, pool_name: S) -> ClientIdentifier {
         ClientIdentifier {
-            application_name: application_name.into(),
-            username: username.into(),
-            pool_name: pool_name.into(),
+            application_name: application_name.to_string(),
+            username: username.to_string(),
+            pool_name: pool_name.to_string(),
         }
     }
 }
@@ -63,10 +63,10 @@ pub struct ServerIdentifier {
 }
 
 impl ServerIdentifier {
-    pub fn new(username: &str, database: &str) -> ServerIdentifier {
+    pub fn new<S: ToString>(username: S, database: S) -> ServerIdentifier {
         ServerIdentifier {
-            username: username.into(),
-            database: database.into(),
+            username: username.to_string(),
+            database: database.to_string(),
         }
     }
 }
@@ -84,41 +84,36 @@ impl std::fmt::Display for ServerIdentifier {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self {
-            &Error::ClientSocketError(error, client_identifier) => write!(
-                f,
-                "Error reading {} from client {}",
-                error, client_identifier
-            ),
-            &Error::ClientGeneralError(error, client_identifier) => {
-                write!(f, "{} {}", error, client_identifier)
+            Error::ClientSocketError(error, client_identifier) => {
+                write!(f, "Error reading {error} from client {client_identifier}",)
             }
-            &Error::ClientAuthImpossible(username) => write!(
+            Error::ClientGeneralError(error, client_identifier) => {
+                write!(f, "{error} {client_identifier}")
+            }
+            Error::ClientAuthImpossible(username) => write!(
                 f,
                 "Client auth not possible, \
-                no cleartext password set for username: {} \
+                no cleartext password set for username: {username} \
                 in config and auth passthrough (query_auth) \
-                is not set up.",
-                username
+                is not set up."
             ),
-            &Error::ClientAuthPassthroughError(error, client_identifier) => write!(
+            Error::ClientAuthPassthroughError(error, client_identifier) => write!(
                 f,
                 "No cleartext password set, \
                     and no auth passthrough could not \
-                    obtain the hash from server for {}, \
-                    the error was: {}",
-                client_identifier, error
+                    obtain the hash from server for {client_identifier}, \
+                    the error was: {error}",
             ),
-            &Error::ServerStartupError(error, server_identifier) => write!(
+            Error::ServerStartupError(error, server_identifier) => write!(
                 f,
-                "Error reading {} on server startup {}",
-                error, server_identifier,
+                "Error reading {error} on server startup {server_identifier}",
             ),
-            &Error::ServerAuthError(error, server_identifier) => {
-                write!(f, "{} for {}", error, server_identifier,)
+            Error::ServerAuthError(error, server_identifier) => {
+                write!(f, "{error} for {server_identifier}")
             }
 
             // The rest can use Debug.
-            err => write!(f, "{:?}", err),
+            err => write!(f, "{err:?}"),
         }
     }
 }
