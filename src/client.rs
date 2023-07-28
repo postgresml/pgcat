@@ -812,6 +812,21 @@ where
                 message_result = read_message(&mut self.read) => message_result?
             };
 
+            // Handle admin database queries.
+            if self.admin {
+                debug!("Handling admin command");
+                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
+                continue;
+            }
+
+            // Get a pool instance referenced by the most up-to-date
+            // pointer. This ensures we always read the latest config
+            // when starting a query.
+            let mut pool = self.get_pool().await?;
+            query_router.update_pool_settings(pool.settings.clone());
+
+            let mut initial_parsed_ast = None;
+
             match message[0] as char {
                 // Buffer extended protocol messages even if we do not have
                 // a server connection yet. Hopefully, when we get the S message
@@ -859,6 +874,8 @@ where
                             };
 
                             let _ = query_router.infer(&ast);
+
+                            initial_parsed_ast = Some(ast);
                         }
                     }
                 }
@@ -922,13 +939,6 @@ where
                 _ => (),
             }
 
-            // Handle admin database queries.
-            if self.admin {
-                debug!("Handling admin command");
-                handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
-                continue;
-            }
-
             // Check on plugin results.
             match plugin_output {
                 Some(PluginOutput::Deny(error)) => {
@@ -940,11 +950,6 @@ where
 
                 _ => (),
             };
-
-            // Get a pool instance referenced by the most up-to-date
-            // pointer. This ensures we always read the latest config
-            // when starting a query.
-            let mut pool = self.get_pool().await?;
 
             // Check if the pool is paused and wait until it's resumed.
             if pool.wait_paused().await {
@@ -1165,6 +1170,9 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
+                        // This is not an initial message so discard the initial_parsed_ast
+                        initial_parsed_ast.take();
+
                         match tokio::time::timeout(
                             idle_client_timeout_duration,
                             read_message(&mut self.read),
@@ -1221,7 +1229,13 @@ where
                     // Query
                     'Q' => {
                         if query_router.query_parser_enabled() {
-                            if let Ok(ast) = QueryRouter::parse(&message) {
+                            // We don't want to parse again if we already parsed it as the initial message
+                            let ast = match initial_parsed_ast {
+                                Some(_) => Ok(initial_parsed_ast.take().unwrap()),
+                                None => QueryRouter::parse(&message),
+                            };
+
+                            if let Ok(ast) = ast {
                                 let plugin_result = query_router.execute_plugins(&ast).await;
 
                                 match plugin_result {
@@ -1237,8 +1251,6 @@ where
 
                                     _ => (),
                                 };
-
-                                let _ = query_router.infer(&ast);
                             }
                         }
                         debug!("Sending query to server");

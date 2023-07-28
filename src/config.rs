@@ -512,6 +512,9 @@ pub struct Pool {
     pub query_parser_enabled: bool,
 
     #[serde(default)] // False
+    pub infer_role_from_query: bool,
+
+    #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
     /// Maximum time to allow for establishing a new server connection.
@@ -627,6 +630,16 @@ impl Pool {
             }
         }
 
+        if self.infer_role_from_query && !self.query_parser_enabled {
+            error!("infer_role_from_query is only valid when query_parser_enabled is true");
+            return Err(Error::BadConfig);
+        }
+
+        if self.plugins.is_some() && !self.query_parser_enabled {
+            error!("plugins are only valid when query_parser_enabled is true");
+            return Err(Error::BadConfig);
+        }
+
         self.automatic_sharding_key = match &self.automatic_sharding_key {
             Some(key) => {
                 // No quotes in the key so we don't have to compare quoted
@@ -663,6 +676,7 @@ impl Default for Pool {
             users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
+            infer_role_from_query: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
@@ -915,6 +929,10 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                         pool.query_parser_enabled.to_string(),
                     ),
                     (
+                        format!("pools.{}.infer_role_from_query", pool_name),
+                        pool.infer_role_from_query.to_string(),
+                    ),
+                    (
                         format!("pools.{}.default_role", pool_name),
                         pool.default_role.clone(),
                     ),
@@ -1095,6 +1113,10 @@ impl Config {
             info!(
                 "[pool: {}] Query router: {}",
                 pool_name, pool_config.query_parser_enabled
+            );
+            info!(
+                "[pool: {}] Infer role from query: {}",
+                pool_name, pool_config.infer_role_from_query
             );
             info!(
                 "[pool: {}] Number of shards: {}",

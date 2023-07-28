@@ -111,6 +111,9 @@ pub struct PoolSettings {
     // Enable/disable query parser.
     pub query_parser_enabled: bool,
 
+    // Infer role
+    pub infer_role_from_query: bool,
+
     // Read from the primary as well or not.
     pub primary_reads_enabled: bool,
 
@@ -157,6 +160,7 @@ impl Default for PoolSettings {
             db: String::default(),
             default_role: None,
             query_parser_enabled: false,
+            infer_role_from_query: false,
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
@@ -456,6 +460,7 @@ impl ConnectionPool {
                             _ => unreachable!(),
                         },
                         query_parser_enabled: pool_config.query_parser_enabled,
+                        infer_role_from_query: pool_config.infer_role_from_query,
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
                         automatic_sharding_key: pool_config.automatic_sharding_key.clone(),

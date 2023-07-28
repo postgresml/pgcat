@@ -372,6 +372,10 @@ impl QueryRouter {
 
     /// Try to infer which server to connect to based on the contents of the query.
     pub fn infer(&mut self, ast: &Vec<sqlparser::ast::Statement>) -> Result<(), Error> {
+        if !self.pool_settings.infer_role_from_query {
+            return Ok(()); // Nothing to do
+        }
+
         debug!("Inferring role");
 
         if ast.is_empty() {
@@ -1164,6 +1168,7 @@ mod test {
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
+            infer_role_from_query: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: Some(String::from("test.id")),
@@ -1239,6 +1244,7 @@ mod test {
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
+            infer_role_from_query: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
