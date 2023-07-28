@@ -437,6 +437,10 @@ impl QueryRouter {
     /// N.B.: Only supports anonymous prepared statements since we don't
     /// keep a cache of them in PgCat.
     pub fn infer_shard_from_bind(&mut self, message: &BytesMut) -> bool {
+        if !self.pool_settings.infer_role_from_query {
+            return false; // Nothing to do
+        }
+
         debug!("Parsing bind message");
 
         let mut message_cursor = Cursor::new(message);

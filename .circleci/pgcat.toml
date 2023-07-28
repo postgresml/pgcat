@@ -74,6 +74,10 @@ default_role = "any"
 # we'll direct it to the primary.
 query_parser_enabled = true
 
+# If the query parser is enabled and this setting is enabled, we'll attempt to
+# infer the role from the query itself.
+infer_role_from_query = true
+
 # If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
 # load balancing of read queries. Otherwise, the primary will only be used for write
 # queries. The primary can always be explicitely selected with our custom protocol.
@@ -134,6 +138,7 @@ database = "shard2"
 pool_mode = "session"
 default_role = "primary"
 query_parser_enabled = true
+infer_role_from_query = true
 primary_reads_enabled = true
 sharding_function = "pg_bigint_hash"
 
