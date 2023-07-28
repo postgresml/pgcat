@@ -914,6 +914,7 @@ mod test {
     fn test_infer_replica() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
+        qr.pool_settings.infer_role_from_query = true;
         assert!(qr.try_execute_command(&simple_query("SET SERVER ROLE TO 'auto'")) != None);
         assert!(qr.query_parser_enabled());
 
@@ -938,6 +939,7 @@ mod test {
     fn test_infer_primary() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
+        qr.pool_settings.infer_role_from_query = true;
 
         let queries = vec![
             simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
@@ -968,6 +970,8 @@ mod test {
     fn test_infer_parse_prepared() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
+        qr.pool_settings.infer_role_from_query = true;
+
         qr.try_execute_command(&simple_query("SET SERVER ROLE TO 'auto'"));
         assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -1136,6 +1140,8 @@ mod test {
     fn test_enable_query_parser() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
+        qr.pool_settings.infer_role_from_query = true;
+
         let query = simple_query("SET SERVER ROLE TO 'auto'");
         assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO off")) != None);
 
@@ -1168,7 +1174,7 @@ mod test {
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
-            infer_role_from_query: false,
+            infer_role_from_query: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: Some(String::from("test.id")),
@@ -1244,7 +1250,7 @@ mod test {
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
             query_parser_enabled: true,
-            infer_role_from_query: false,
+            infer_role_from_query: true,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
@@ -1290,6 +1296,7 @@ mod test {
         let mut qr = QueryRouter::new();
         qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
         qr.pool_settings.shards = 3;
+        qr.pool_settings.infer_role_from_query = true;
 
         assert!(qr
             .infer(&QueryRouter::parse(&simple_query("SELECT * FROM data WHERE id = 5")).unwrap())
@@ -1391,6 +1398,7 @@ mod test {
         let mut qr = QueryRouter::new();
         qr.pool_settings.automatic_sharding_key = Some("data.id".to_string());
         qr.pool_settings.shards = 3;
+        qr.pool_settings.infer_role_from_query = true;
 
         assert!(qr
             .infer(&QueryRouter::parse(&simple_query(stmt)).unwrap())
