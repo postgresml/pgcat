@@ -789,7 +789,7 @@ impl ConnectionPool {
         match guard[address.shard].get(address) {
             Some(_) => true,
             None => {
-                debug!("{:?} is ok", address);
+                debug!("{} is ok", address);
                 false
             }
         }
@@ -1000,8 +1000,10 @@ impl ManageConnection for ServerPool {
         .await
         {
             Ok(mut conn) => {
+                // println!(">>>> self.plugins: {:?}", self.plugins);
                 if let Some(ref plugins) = self.plugins {
                     if let Some(ref prewarmer) = plugins.prewarmer {
+                        // println!(">>>> prewarmer: {:?}", prewarmer);
                         let mut prewarmer = prewarmer::Prewarmer {
                             enabled: prewarmer.enabled,
                             server: &mut conn,

@@ -531,7 +531,7 @@ where
                     error_response(
                         &mut write,
                         &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
+                            "No pool configured for database: {:?}, user: {:?} (in startup)",
                             pool_name, username
                         ),
                     )
@@ -1086,7 +1086,7 @@ where
             self.last_server_stats = Some(server.stats());
 
             debug!(
-                "Client {:?} talking to server {:?}",
+                "Client {:?} talking to server {}",
                 self.addr,
                 server.address()
             );
@@ -1241,7 +1241,7 @@ where
                                 let _ = query_router.infer(&ast);
                             }
                         }
-                        debug!("Sending query to server");
+                        debug!("Sending query to server (in Query mode)");
 
                         self.send_and_receive_loop(
                             code,
@@ -1354,7 +1354,7 @@ where
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {
-                        debug!("Sending query to server");
+                        debug!("Sending query to server  (in Sync mode)");
 
                         match plugin_output {
                             Some(PluginOutput::Deny(error)) => {
@@ -1499,7 +1499,7 @@ where
                 error_response(
                     &mut self.write,
                     &format!(
-                        "No pool configured for database: {}, user: {}",
+                        "No pool configured for database: {}, user: {} (in get_pool)",
                         self.pool_name, self.username
                     ),
                 )
