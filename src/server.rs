@@ -761,7 +761,7 @@ impl Server {
             }
             Err(err) => {
                 error!(
-                    "Terminating server {:?} because of: {:?}",
+                    "Terminating server {} because of: {:?}",
                     self.address, err
                 );
                 self.bad = true;
@@ -779,7 +779,7 @@ impl Server {
                 Ok(message) => message,
                 Err(err) => {
                     error!(
-                        "Terminating server {:?} because of: {:?}",
+                        "Terminating server {} because of: {:?}",
                         self.address, err
                     );
                     self.bad = true;
@@ -1093,7 +1093,7 @@ impl Server {
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
-        error!("Server {:?} marked bad", self.address);
+        error!("Server {} marked bad", self.address);
         self.bad = true;
     }
 
@@ -1346,7 +1346,7 @@ impl Drop for Server {
         };
 
         info!(
-            "{} {:?}, session duration: {}",
+            "{} {}, session duration: {}",
             message,
             self.address,
             crate::format_duration(&duration)
