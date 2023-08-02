@@ -270,7 +270,7 @@ username = "sharding_user"
 # if `server_password` is not set.
 password = "sharding_user"
 
-pool_mode = "session"
+pool_mode = "transaction"
 
 # PostgreSQL username used to connect to the server.
 # server_username = "another_user"

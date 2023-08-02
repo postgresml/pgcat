@@ -997,7 +997,9 @@ impl Server {
             }
         }
 
-        self.deallocate(names).await?;
+        if !names.is_empty() {
+            self.deallocate(names).await?;
+        }
 
         Ok(())
     }
@@ -1013,7 +1015,7 @@ impl Server {
     /// Close a prepared statement on the server.
     pub async fn deallocate(&mut self, names: Vec<String>) -> Result<(), Error> {
         for name in &names {
-            debug!("Deallocating prepared statement `{}`", name);
+            info!("Deallocating prepared statement `{}`", name);
 
             let close = Close::new(name);
             let bytes: BytesMut = close.try_into()?;
@@ -1021,7 +1023,9 @@ impl Server {
             self.send(&bytes).await?;
         }
 
-        self.send(&flush()).await?;
+        if !names.is_empty() {
+            self.send(&flush()).await?;
+        }
 
         // Read and discard CloseComplete (3)
         for name in &names {
