@@ -760,10 +760,7 @@ impl Server {
                 Ok(())
             }
             Err(err) => {
-                error!(
-                    "Terminating server {} because of: {:?}",
-                    self.address, err
-                );
+                error!("Terminating server {} because of: {:?}", self.address, err);
                 self.bad = true;
                 Err(err)
             }
@@ -778,10 +775,7 @@ impl Server {
             let mut message = match read_message(&mut self.stream).await {
                 Ok(message) => message,
                 Err(err) => {
-                    error!(
-                        "Terminating server {} because of: {:?}",
-                        self.address, err
-                    );
+                    error!("Terminating server {} because of: {:?}", self.address, err);
                     self.bad = true;
                     return Err(err);
                 }
