@@ -1015,7 +1015,7 @@ impl Server {
     /// Close a prepared statement on the server.
     pub async fn deallocate(&mut self, names: Vec<String>) -> Result<(), Error> {
         for name in &names {
-            info!("Deallocating prepared statement `{}`", name);
+            debug!("Deallocating prepared statement `{}`", name);
 
             let close = Close::new(name);
             let bytes: BytesMut = close.try_into()?;
