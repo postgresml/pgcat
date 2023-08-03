@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use bytes::{Buf, BytesMut};
-use log::debug;
+use log::{debug};
 use crate::config::{get_config, Role};
 use crate::messages::BytesMutReader;
 
@@ -12,7 +12,7 @@ struct Query {
 
 #[derive(Debug)]
 pub struct QueryCacher {
-    // TODO use
+    fingerprints: HashSet<String>,
     _cache: HashMap<String, Query>,
     is_enabled: bool,
 }
@@ -20,6 +20,7 @@ pub struct QueryCacher {
 impl Default for QueryCacher {
     fn default() -> Self {
         QueryCacher {
+            fingerprints: HashSet::new(),
             _cache: HashMap::new(),
             is_enabled: false,
         }
@@ -28,9 +29,18 @@ impl Default for QueryCacher {
 
 impl QueryCacher {
     pub(crate) fn new() -> QueryCacher {
-        let is_enabled = get_config().query_cache.map(|c| c.enabled).unwrap_or(false);
+        let config = get_config();
+        let is_enabled = config.query_cache.clone().map(|c| c.enabled).unwrap_or(false);
+        let mut fingerprints = HashSet::new();
+        let queries = config.query_cache.clone().map(|c| c.queries).unwrap_or(Vec::new());
+        for query in queries {
+            if let Some(fingerprint) = query.fingerprint() {
+                fingerprints.insert(fingerprint);
+            }
+        }
         QueryCacher {
             _cache: HashMap::new(),
+            fingerprints,
             is_enabled,
         }
     }
@@ -45,12 +55,20 @@ impl QueryCacher {
         let char = message_cursor.get_u8() as char;
         let _len = message_cursor.get_i32() as usize;
 
-        if let 'Q' = char {
-            let query = message_cursor.read_string().unwrap();
-            if let Ok(fingerprint) = pg_query::fingerprint(&query) {
-                // store in class
-                debug!("Query: '{}', Fingerprint: '{}'", query, fingerprint.hex);
-            }
+        if char != 'Q' {
+            return;
         }
+
+        let query = message_cursor.read_string().unwrap();
+        let fingerprint_result = pg_query::fingerprint(&query);
+        if fingerprint_result.is_err() {
+            return;
+        }
+        let fingerprint = fingerprint_result.unwrap();
+        if !self.fingerprints.contains(&fingerprint.hex) {
+            return;
+        }
+
+        debug!("Query is eligible to read from cache");
     }
 }

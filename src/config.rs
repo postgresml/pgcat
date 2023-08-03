@@ -846,6 +846,9 @@ pub struct QueryCacheQuery {
 
     #[serde(default = "QueryCacheQuery::default_collect_stats")]
     pub collect_stats: bool,
+
+    #[serde(default = "QueryCacheQuery::default_ttl")]
+    pub ttl: usize,
 }
 
 
@@ -865,6 +868,22 @@ impl QueryCacheQuery {
     fn default_collect_stats() -> bool {
         true
     }
+
+    fn default_ttl() -> usize {
+        0
+    }
+
+    pub(crate) fn fingerprint(&self) -> Option<String> {
+        if self.fingerprint.is_some() {
+            return self.fingerprint.clone()
+        }
+        if let Some(query) = &self.query {
+            if let Ok(fingerprint) = pg_query::fingerprint(&query) {
+                return Some(fingerprint.hex);
+            }
+        }
+        None
+    }
 }
 
 /// General configuration.
@@ -877,7 +896,7 @@ pub struct QueryCache {
     pub collect_stats: bool,
 
     #[serde(default = "QueryCache::default_queries")]
-    pub queries: Vec<Query>,
+    pub queries: Vec<QueryCacheQuery>,
 }
 
 impl QueryCache {
@@ -889,7 +908,7 @@ impl QueryCache {
         false
     }
 
-    pub fn default_queries() -> Vec<Query> {
+    pub fn default_queries() -> Vec<QueryCacheQuery> {
         Vec::new()
     }
 }
