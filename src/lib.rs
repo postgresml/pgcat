@@ -18,6 +18,7 @@ pub mod server;
 pub mod sharding;
 pub mod stats;
 pub mod tls;
+mod query_cacher;
 
 /// Format chrono::Duration to be more human-friendly.
 ///

@@ -18,13 +18,12 @@ use std::sync::{
 use std::time::Instant;
 use tokio::sync::Notify;
 
-use crate::config::{
-    get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
-};
+use crate::config::{get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User};
 use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
 use crate::plugins::prewarmer;
+use crate::query_cacher::QueryCacher;
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
 use crate::stats::{AddressStats, ClientStats, ServerStats};
@@ -211,6 +210,8 @@ pub struct ConnectionPool {
 
     /// AuthInfo
     pub auth_hash: Arc<RwLock<Option<String>>>,
+
+    pub query_cacher: Arc<RwLock<QueryCacher>>,
 }
 
 impl ConnectionPool {
@@ -482,6 +483,7 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
+                    query_cacher: Arc::new(RwLock::new(QueryCacher::new()))
                 };
 
                 // Connect to the servers to make sure pool configuration is valid

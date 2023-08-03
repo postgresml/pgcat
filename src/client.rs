@@ -5,7 +5,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
@@ -27,7 +26,6 @@ use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
-use pg_query;
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
@@ -863,17 +861,6 @@ where
                             let _ = query_router.infer(&ast);
                         }
                     }
-
-                    if get_config().general.query_cache_enabled {
-                        let mut message_cursor = Cursor::new(&message);
-                        let _char = message_cursor.get_u8() as char;
-                        let _len = message_cursor.get_i32() as usize;
-
-                        let query = message_cursor.read_string().unwrap();
-                        if let Ok(fingerprint) = pg_query::fingerprint(&query) {
-                            debug!("Query: '{}', Fingerprint: '{}'", query, fingerprint.hex);
-                        }
-                    }
                 }
 
                 'P' => {
@@ -1038,6 +1025,8 @@ where
             if !self.admin {
                 self.stats.waiting();
             }
+
+            pool.query_cacher.read().try_read_query_results_from_cache(&message, query_router.shard(), query_router.role());
 
             // Grab a server from the pool.
             let connection = match pool

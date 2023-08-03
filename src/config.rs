@@ -833,6 +833,77 @@ impl Query {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct QueryCacheQuery {
+    #[serde(default = "QueryCacheQuery::default_query")]
+    pub query: Option<String>,
+
+    #[serde(default = "QueryCacheQuery::default_fingerprint")]
+    pub fingerprint: Option<String>,
+
+    #[serde(default = "QueryCacheQuery::default_enabled")]
+    pub enabled: bool,
+
+    #[serde(default = "QueryCacheQuery::default_collect_stats")]
+    pub collect_stats: bool,
+}
+
+
+impl QueryCacheQuery {
+    fn default_query() -> Option<String> {
+        None
+    }
+
+    fn default_fingerprint() -> Option<String> {
+        None
+    }
+
+    fn default_enabled() -> bool {
+        true
+    }
+
+    fn default_collect_stats() -> bool {
+        true
+    }
+}
+
+/// General configuration.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct QueryCache {
+    #[serde(default = "QueryCache::default_enabled")]
+    pub enabled: bool,
+
+    #[serde(default = "QueryCache::default_collect_stats")]
+    pub collect_stats: bool,
+
+    #[serde(default = "QueryCache::default_queries")]
+    pub queries: Vec<Query>,
+}
+
+impl QueryCache {
+    pub fn default_enabled() -> bool {
+        false
+    }
+
+    pub fn default_collect_stats() -> bool {
+        false
+    }
+
+    pub fn default_queries() -> Vec<Query> {
+        Vec::new()
+    }
+}
+
+impl Default for QueryCache {
+    fn default() -> QueryCache {
+        QueryCache {
+            enabled: QueryCache::default_enabled(),
+            collect_stats: QueryCache::default_collect_stats(),
+            queries: QueryCache::default_queries(),
+        }
+    }
+}
+
 /// Configuration wrapper.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Config {
@@ -858,6 +929,9 @@ pub struct Config {
 
     // Connection pools.
     pub pools: HashMap<String, Pool>,
+
+    // query caching settings.
+    pub query_cache: Option<QueryCache>,
 }
 
 impl Config {
@@ -895,6 +969,7 @@ impl Default for Config {
             general: General::default(),
             pools: HashMap::default(),
             plugins: None,
+            query_cache: None,
         }
     }
 }

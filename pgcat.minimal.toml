@@ -20,3 +20,18 @@ servers = [
   ["127.0.0.1", 5432, "primary"]
 ]
 database = "postgres"
+
+[query_cache]
+enabled = true
+collect_stats = true
+
+[[query_cache.queries]]
+query = "select 1"
+fingerprint = "asdasd"
+ttl = 10
+
+[[query_cache.queries]]
+query = "select 1"
+fingerprint = "asdasd"
+enabled = false
+
