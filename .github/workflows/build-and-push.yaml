@@ -34,6 +34,7 @@ jobs:
           tags: |
             type=sha,prefix=,format=long
             type=schedule
+            type=ref,event=tag
             type=ref,event=branch
             type=ref,event=pr
             type=raw,value=latest,enable={{ is_default_branch }}
