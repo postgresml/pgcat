@@ -142,6 +142,7 @@ pub struct PoolSettings {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+    pub auth_query_database: Option<String>,
 
     /// Plugins
     pub plugins: Option<Plugins>,
@@ -169,6 +170,7 @@ impl Default for PoolSettings {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            auth_query_database: None,
             plugins: None,
         }
     }
@@ -474,6 +476,7 @@ impl ConnectionPool {
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
+                        auth_query_database: pool_config.auth_query_database.clone(),
                         plugins: match pool_config.plugins {
                             Some(ref plugins) => Some(plugins.clone()),
                             None => config.plugins.clone(),

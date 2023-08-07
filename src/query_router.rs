@@ -1176,6 +1176,7 @@ mod test {
             auth_query: None,
             auth_query_password: None,
             auth_query_user: None,
+            auth_query_database: None,
             db: "test".to_string(),
             plugins: None,
         };
@@ -1251,6 +1252,7 @@ mod test {
             auth_query: None,
             auth_query_password: None,
             auth_query_user: None,
+            auth_query_database: None,
             db: "test".to_string(),
             plugins: None,
         };

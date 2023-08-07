@@ -297,6 +297,38 @@ Query to be sent to servers to obtain the hash used for md5 authentication. The 
 established using the database configured in the pool. This parameter is inherited by every pool
 and can be redefined in pool configuration.
 
+#### Configuration example
+
+> This example uses the `postgres` database.
+
+add on `pgcat.toml`:
+
+```toml
+auth_query = "SELECT * FROM pgcat.user_lookup('$1');"
+auth_query_user = "connection_pooler"
+auth_query_password = "user-look-up-pass"
+auth_query_database = "postgres"
+```
+
+setup in the `postgres` database:
+
+```sql
+CREATE ROLE connection_pooler PASSWORD 'user-look-up-pass' LOGIN;
+CREATE SCHEMA IF NOT EXISTS pgcat;
+
+CREATE OR REPLACE FUNCTION pgcat.user_lookup(i_username text)
+    RETURNS table ("user" text, hash text) AS $$
+SELECT usename as user, passwd as hash FROM pg_catalog.pg_shadow
+WHERE usename = i_username;
+$$ LANGUAGE sql SECURITY DEFINER;
+
+GRANT CONNECT ON DATABASE postgres TO  connection_pooler;
+GRANT USAGE ON SCHEMA pgcat TO connection_pooler;
+
+REVOKE ALL ON FUNCTION pgcat.user_lookup(text) FROM public, connection_pooler;
+GRANT EXECUTE ON FUNCTION pgcat.user_lookup(text) TO connection_pooler;
+```
+
 ### auth_query_user
 ```
 path: pools.<pool_name>.auth_query_user
@@ -318,6 +350,16 @@ example: "sharding_user"
 Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
 specified in `auth_query_user`. The connection will be established using the database configured in the pool.
 This parameter is inherited by every pool and can be redefined in pool configuration.
+
+### auth_query_database
+```
+path: pools.<pool_name>.auth_query_database
+default: <UNSET>
+example: "postgres"
+```
+
+Database to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_query`. This parameter is inherited by every pool and can be redefined in pool configuration.
 
 ### automatic_sharding_key
 ```
