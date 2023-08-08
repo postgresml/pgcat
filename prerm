@@ -1,0 +1,4 @@
+#!/bin/bash
+
+systemctl stop pgcat
+systemctl disable pgcat

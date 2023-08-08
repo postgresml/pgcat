@@ -17,14 +17,21 @@ cargo build --release
 rm -rf "$deb_dir"
 mkdir -p "$deb_dir/DEBIAN"
 mkdir -p "$deb_dir/usr/bin"
-mkdir -p "$deb_dir/etc"
+mkdir -p "$deb_dir/etc/systemd/system"
 
 cp target/release/pgcat "$deb_dir/usr/bin/pgcat"
 chmod +x "$deb_dir/usr/bin/pgcat"
 
 cp pgcat.toml "$deb_dir/etc/pgcat.toml"
+cp pgcat.service "$deb_dir/etc/systemd/system/pgcat.service"
 
 (cat control | envsubst) > "$deb_dir/DEBIAN/control"
+cp postinst "$deb_dir/DEBIAN/postinst"
+cp postrm "$deb_dir/DEBIAN/postrm"
+cp prerm "$deb_dir/DEBIAN/prerm"
+
+chmod +x ${deb_dir}/DEBIAN/post*
+chmod +x ${deb_dir}/DEBIAN/pre*
 
 dpkg-deb \
   --root-owner-group \
