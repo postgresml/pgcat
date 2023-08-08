@@ -937,7 +937,7 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                         format!("pools.{}.query_parser_max_length", pool_name),
                         match pool.query_parser_max_length {
                             Some(max_length) => max_length.to_string(),
-                            None => String::from("None"),
+                            None => String::from("unlimited"),
                         },
                     ),
                     (
