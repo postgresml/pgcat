@@ -465,7 +465,8 @@ impl ConnectionPool {
                         },
                         query_parser_enabled: pool_config.query_parser_enabled,
                         query_parser_max_length: pool_config.query_parser_max_length,
-                        query_parser_read_write_splitting: pool_config.query_parser_read_write_splitting,
+                        query_parser_read_write_splitting: pool_config
+                            .query_parser_read_write_splitting,
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
                         automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
