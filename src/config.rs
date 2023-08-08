@@ -513,7 +513,7 @@ pub struct Pool {
 
     pub query_parser_max_length: Option<usize>,
 
-    #[serde(default)] // False
+    #[serde(default = "Pool::query_parser_read_write_splitting")] // False
     pub query_parser_read_write_splitting: bool,
 
     #[serde(default)] // False
@@ -589,6 +589,10 @@ impl Pool {
     }
 
     pub fn default_cleanup_server_connections() -> bool {
+        true
+    }
+
+    pub fn query_parser_read_write_splitting() -> bool {
         true
     }
 
