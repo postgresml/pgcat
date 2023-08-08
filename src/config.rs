@@ -511,8 +511,10 @@ pub struct Pool {
     #[serde(default)] // False
     pub query_parser_enabled: bool,
 
+    pub query_parser_max_length: Option<usize>,
+
     #[serde(default)] // False
-    pub infer_role_from_query: bool,
+    pub query_parser_read_write_splitting: bool,
 
     #[serde(default)] // False
     pub primary_reads_enabled: bool,
@@ -630,8 +632,10 @@ impl Pool {
             }
         }
 
-        if self.infer_role_from_query && !self.query_parser_enabled {
-            error!("infer_role_from_query is only valid when query_parser_enabled is true");
+        if self.query_parser_read_write_splitting && !self.query_parser_enabled {
+            error!(
+                "query_parser_read_write_splitting is only valid when query_parser_enabled is true"
+            );
             return Err(Error::BadConfig);
         }
 
@@ -676,7 +680,8 @@ impl Default for Pool {
             users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
-            infer_role_from_query: false,
+            query_parser_max_length: None,
+            query_parser_read_write_splitting: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
@@ -929,8 +934,15 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                         pool.query_parser_enabled.to_string(),
                     ),
                     (
-                        format!("pools.{}.infer_role_from_query", pool_name),
-                        pool.infer_role_from_query.to_string(),
+                        format!("pools.{}.query_parser_max_length", pool_name),
+                        match pool.query_parser_max_length {
+                            Some(max_length) => max_length.to_string(),
+                            None => String::from("None"),
+                        },
+                    ),
+                    (
+                        format!("pools.{}.query_parser_read_write_splitting", pool_name),
+                        pool.query_parser_read_write_splitting.to_string(),
                     ),
                     (
                         format!("pools.{}.default_role", pool_name),
@@ -1114,9 +1126,14 @@ impl Config {
                 "[pool: {}] Query router: {}",
                 pool_name, pool_config.query_parser_enabled
             );
+
+            info!(
+                "[pool: {}] Query parser max length: {:?}",
+                pool_name, pool_config.query_parser_max_length
+            );
             info!(
                 "[pool: {}] Infer role from query: {}",
-                pool_name, pool_config.infer_role_from_query
+                pool_name, pool_config.query_parser_read_write_splitting
             );
             info!(
                 "[pool: {}] Number of shards: {}",

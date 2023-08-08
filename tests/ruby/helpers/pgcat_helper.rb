@@ -34,7 +34,7 @@ module Helpers
           "load_balancing_mode" => lb_mode,
           "primary_reads_enabled" => true,
           "query_parser_enabled" => true,
-          "infer_role_from_query" => true,
+          "query_parser_read_write_splitting" => true,
           "automatic_sharding_key" => "data.id",
           "sharding_function" => "pg_bigint_hash",
           "shards" => {

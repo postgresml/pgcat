@@ -164,7 +164,7 @@ query_parser_enabled = true
 
 # If the query parser is enabled and this setting is enabled, we'll attempt to
 # infer the role from the query itself.
-infer_role_from_query = true
+query_parser_read_write_splitting = true
 
 # If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
 # load balancing of read queries. Otherwise, the primary will only be used for write
