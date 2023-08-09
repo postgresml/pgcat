@@ -778,7 +778,7 @@ where
         let mut will_prepare = false;
 
         let client_identifier =
-            ClientIdentifier::new(&self.application_name, &self.username, &self.pool_name);
+            ClientIdentifier::new(&self.server_parameters.get_application_name(), &self.username, &self.pool_name);
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
