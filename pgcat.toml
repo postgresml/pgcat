@@ -162,6 +162,10 @@ default_role = "any"
 # we'll direct it to the primary.
 query_parser_enabled = true
 
+# If the query parser is enabled and this setting is enabled, we'll attempt to
+# infer the role from the query itself.
+query_parser_read_write_splitting = true
+
 # If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
 # load balancing of read queries. Otherwise, the primary will only be used for write
 # queries. The primary can always be explicitly selected with our custom protocol.
@@ -270,7 +274,7 @@ username = "sharding_user"
 # if `server_password` is not set.
 password = "sharding_user"
 
-pool_mode = "session"
+pool_mode = "transaction"
 
 # PostgreSQL username used to connect to the server.
 # server_username = "another_user"

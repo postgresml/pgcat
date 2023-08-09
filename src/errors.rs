@@ -12,6 +12,7 @@ pub enum Error {
     ProtocolSyncError(String),
     BadQuery(String),
     ServerError,
+    ServerMessageParserError(String),
     ServerStartupError(String, ServerIdentifier),
     ServerAuthError(String, ServerIdentifier),
     BadConfig,

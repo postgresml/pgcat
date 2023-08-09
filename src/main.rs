@@ -23,7 +23,6 @@ extern crate arc_swap;
 extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
-extern crate env_logger;
 extern crate exitcode;
 extern crate log;
 extern crate md5;

@@ -230,7 +230,7 @@ default: "random"
 
 Load balancing mode
 `random` selects the server at random
-`loc` selects the server with the least outstanding busy conncetions
+`loc` selects the server with the least outstanding busy connections
 
 ### default_role
 ```
