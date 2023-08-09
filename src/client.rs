@@ -1651,9 +1651,9 @@ where
                 .receive_server_message(server, address, pool, client_stats)
                 .await?;
 
-            pool.query_cacher
-                .write()
-                .try_write_query_results_to_cache(&message, &response);
+            // pool.query_cacher
+            //     .write()
+            //     .try_write_query_results_to_cache(&message, &response);
 
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),

@@ -913,7 +913,7 @@ impl QueryCache {
 
     pub fn fingerprints(&self) -> HashSet<String> {
         let mut fingerprints = HashSet::new();
-        for query in self.queries {
+        for query in &self.queries {
             if let Some(fingerprint) = query.fingerprint() {
                 fingerprints.insert(fingerprint);
             }
