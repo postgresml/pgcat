@@ -722,7 +722,7 @@ impl BytesMutReader for Cursor<&BytesMut> {
     fn read_string(&mut self) -> Result<String, Error> {
         let mut buf = vec![];
         match self.read_until(b'\0', &mut buf) {
-            Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len()]).to_string()),
+            Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string()),
             Err(err) => return Err(Error::ParseBytesError(err.to_string())),
         }
     }

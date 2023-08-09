@@ -27,6 +27,7 @@ use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
+use crate::query_cacher::parse_query;
 
 /// Incrementally count prepared statements
 /// to avoid random conflicts in places where the random number generator is weak.
@@ -1026,9 +1027,16 @@ where
                 self.stats.waiting();
             }
 
-            pool.query_cacher
+            let results = pool.query_cacher
                 .read()
                 .try_read_query_results_from_cache(&message);
+
+            if let Some(response) = results {
+                debug!("Read from cache {:?}", response);
+                // self.stats.hit();
+                write_all_flush(&mut self.write, &response).await?;
+                continue;
+            }
 
             // Grab a server from the pool.
             let connection = match pool
@@ -1639,6 +1647,10 @@ where
             Some(message) => message,
             None => &self.buffer,
         };
+        let query_result = parse_query(message);
+        if let Err(e) = &query_result {
+            error!("Failed to parse query: {}", e);
+        }
 
         self.send_server_message(server, message, address, pool)
             .await?;
@@ -1651,10 +1663,6 @@ where
                 .receive_server_message(server, address, pool, client_stats)
                 .await?;
 
-            // pool.query_cacher
-            //     .write()
-            //     .try_write_query_results_to_cache(&message, &response);
-
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
@@ -1662,6 +1670,12 @@ where
                     return Err(err);
                 }
             };
+
+            if let Ok(query) = &query_result {
+                let _ = pool.query_cacher
+                    .write()
+                    .try_write_query_results_to_cache(query, &response);
+            }
 
             if !server.is_data_available() {
                 break;

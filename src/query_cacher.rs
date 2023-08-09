@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
 #[derive(Debug, PartialEq, Eq)]
-struct Query {
+pub struct Query {
     text: String,
     fingerprint: String,
     hash: Vec<u8>,
@@ -17,7 +17,8 @@ struct Query {
 #[derive(Debug)]
 pub struct QueryCacher {
     fingerprints: HashSet<String>,
-    _cache: HashMap<String, Query>,
+    // map of hash to result
+    cache: HashMap<Vec<u8>, Vec<u8>>,
     is_enabled: bool,
 }
 
@@ -25,13 +26,13 @@ impl Default for QueryCacher {
     fn default() -> Self {
         QueryCacher {
             fingerprints: HashSet::new(),
-            _cache: HashMap::new(),
+            cache: HashMap::new(),
             is_enabled: false,
         }
     }
 }
 
-fn parse_query(message: &BytesMut) -> Result<Query, Error> {
+pub fn parse_query(message: &BytesMut) -> Result<Query, Error> {
     let mut message_cursor = Cursor::new(message);
     let char = message_cursor.get_u8() as char;
     if char != 'Q' {
@@ -67,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_parse_query() {
-        let text = "/* my comment */ select 1".to_string();
+        let text = "/* my comment */ select 1\0".to_string();
         let message = BytesMut::from(
             format!("Q{:04}{}", text.len(), text)
                 .into_bytes()
@@ -88,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_parse_query_ignores_comments() {
-        let query = "select 1".to_string();
+        let query = "select 1\0".to_string();
         let commented_query = format!("/* my comment */ {}", query);
         let query_message = BytesMut::from(
             format!("Q{:04}{}", query.len(), query)
@@ -100,9 +101,11 @@ mod tests {
                 .into_bytes()
                 .as_slice(),
         );
+        let parsed_query = parse_query(&query_message).unwrap();
+        let parsed_commented_query = parse_query(&commented_query_message).unwrap();
         assert_eq!(
-            parse_query(&query_message),
-            parse_query(&commented_query_message)
+            parsed_query.fingerprint,
+            parsed_commented_query.fingerprint
         );
     }
 }
@@ -121,40 +124,45 @@ impl QueryCacher {
             .map(|c| c.fingerprints())
             .unwrap_or(HashSet::new());
         QueryCacher {
-            _cache: HashMap::new(),
+            cache: HashMap::new(),
             fingerprints,
             is_enabled,
         }
     }
 
-    pub fn try_read_query_results_from_cache(&self, message: &BytesMut) -> Result<(), Error> {
+    pub fn try_read_query_results_from_cache(&self, message: &BytesMut) -> Option<Vec<u8>> {
         if !self.is_enabled {
-            return Ok(());
+            return None;
         }
 
-        let query = parse_query(message)?;
+        let query_result = parse_query(message);
+        if let Err(e) = query_result {
+            debug!("Error parsing query: {}", e);
+            return None;
+        }
+        let query = query_result.unwrap();
 
         if !self.fingerprints.contains(&query.fingerprint) {
-            return Ok(());
+            return None;
         }
 
-        debug!("Query is eligible to read from cache");
-
-        Ok(())
+        let entry = self.cache.get(&query.hash);
+        entry.cloned()
     }
 
     pub fn try_write_query_results_to_cache(
         &mut self,
-        message: &BytesMut,
+        query: &Query,
         results: &BytesMut,
     ) -> Result<(), Error> {
         if !self.is_enabled {
             return Ok(());
         }
 
-        let query = parse_query(message)?;
+        let entry = self.cache.entry(query.hash.clone()).or_insert(Vec::new());
+        entry.extend(results);
 
-        debug!("Query {:?} partial results: {:?}", query, results);
+        debug!("Written results to cache for query {:?}: {:?}", query, entry);
 
         Ok(())
     }
