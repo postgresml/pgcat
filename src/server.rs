@@ -588,8 +588,7 @@ impl Server {
 
                         // An error message will be present.
                         _ => {
-                            // Read the error message without the terminating null character.
-                            let mut error = vec![0u8; len as usize - 4 - 1];
+                            let mut error = vec![0u8; len as usize];
 
                             match stream.read_exact(&mut error).await {
                                 Ok(_) => (),
@@ -601,10 +600,14 @@ impl Server {
                                 }
                             };
 
-                            // TODO: the error message contains multiple fields; we can decode them and
-                            // present a prettier message to the user.
-                            // See: https://www.postgresql.org/docs/12/protocol-error-fields.html
-                            error!("Server error: {}", String::from_utf8_lossy(&error));
+                            let fields = match PgErrorMsg::parse(error) {
+                                Ok(f) => f,
+                                Err(err) => {
+                                    return Err(err);
+                                }
+                            };
+                            trace!("error fields: {}", &fields);
+                            error!("server error: {}: {}", fields.severity, fields.message);
                         }
                     };
 
