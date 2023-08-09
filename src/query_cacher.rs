@@ -42,7 +42,6 @@ fn parse_query(message: &BytesMut) -> Result<Query, Error> {
 
     let _len = message_cursor.get_i32() as usize;
     let text = message_cursor.read_string()?;
-    println!("text: {}", text);
     let fingerprint_result = pg_query::fingerprint(&text);
     if let Err(e) = fingerprint_result {
         return Err(Error::BadQuery(format!(
@@ -89,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_parse_query_ignores_comments() {
-        let query = r#"select 1"#.to_string();
+        let query = "select 1".to_string();
         let commented_query = format!("/* my comment */ {}", query);
         let query_message = BytesMut::from(
             format!("Q{:04}{}", query.len(), query)
