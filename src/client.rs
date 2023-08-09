@@ -1026,7 +1026,9 @@ where
                 self.stats.waiting();
             }
 
-            pool.query_cacher.read().try_read_query_results_from_cache(&message, query_router.shard(), query_router.role());
+            pool.query_cacher
+                .read()
+                .try_read_query_results_from_cache(&message);
 
             // Grab a server from the pool.
             let connection = match pool
@@ -1648,6 +1650,10 @@ where
             let response = self
                 .receive_server_message(server, address, pool, client_stats)
                 .await?;
+
+            pool.query_cacher
+                .write()
+                .try_write_query_results_to_cache(&message, &response);
 
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),

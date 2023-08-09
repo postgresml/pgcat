@@ -12,13 +12,13 @@ pub mod mirrors;
 pub mod plugins;
 pub mod pool;
 pub mod prometheus;
+mod query_cacher;
 pub mod query_router;
 pub mod scram;
 pub mod server;
 pub mod sharding;
 pub mod stats;
 pub mod tls;
-mod query_cacher;
 
 /// Format chrono::Duration to be more human-friendly.
 ///

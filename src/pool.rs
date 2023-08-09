@@ -18,7 +18,9 @@ use std::sync::{
 use std::time::Instant;
 use tokio::sync::Notify;
 
-use crate::config::{get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User};
+use crate::config::{
+    get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
+};
 use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
@@ -483,7 +485,7 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
-                    query_cacher: Arc::new(RwLock::new(QueryCacher::new()))
+                    query_cacher: Arc::new(RwLock::new(QueryCacher::new())),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid

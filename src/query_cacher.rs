@@ -1,13 +1,16 @@
+use crate::config::get_config;
+use crate::messages::BytesMutReader;
+use bytes::{Buf, BytesMut};
+use log::debug;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
-use bytes::{Buf, BytesMut};
-use log::{debug};
-use crate::config::{get_config, Role};
-use crate::messages::BytesMutReader;
 
 #[derive(Debug)]
 struct Query {
-    _query: String,
+    text: String,
+    fingerprint: String,
+    hash: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -30,14 +33,16 @@ impl Default for QueryCacher {
 impl QueryCacher {
     pub(crate) fn new() -> QueryCacher {
         let config = get_config();
-        let is_enabled = config.query_cache.clone().map(|c| c.enabled).unwrap_or(false);
-        let mut fingerprints = HashSet::new();
-        let queries = config.query_cache.clone().map(|c| c.queries).unwrap_or(Vec::new());
-        for query in queries {
-            if let Some(fingerprint) = query.fingerprint() {
-                fingerprints.insert(fingerprint);
-            }
-        }
+        let is_enabled = config
+            .query_cache
+            .clone()
+            .map(|c| c.enabled)
+            .unwrap_or(false);
+        let fingerprints = config
+            .query_cache
+            .clone()
+            .map(|c| c.fingerprints())
+            .unwrap_or(HashSet::new());
         QueryCacher {
             _cache: HashMap::new(),
             fingerprints,
@@ -45,30 +50,63 @@ impl QueryCacher {
         }
     }
 
-    pub fn try_read_query_results_from_cache(&self, message: &BytesMut, _shard: usize, _role: Option<Role>) -> () {
-        // look into using https://github.com/moka-rs/moka or a cache facade library
+    fn fingerprint_and_hash(&self, message: &BytesMut) -> Option<Query> {
+        let mut message_cursor = Cursor::new(message);
+        let char = message_cursor.get_u8() as char;
+        if char != 'Q' {
+            return None;
+        }
+
+        let _len = message_cursor.get_i32() as usize;
+        let text = message_cursor.read_string().unwrap();
+        let fingerprint_result = pg_query::fingerprint(&text);
+        if fingerprint_result.is_err() {
+            return None;
+        }
+        let fingerprint = fingerprint_result.unwrap();
+        let mut hasher = Sha256::default();
+        hasher.update(&text);
+        let hash = hasher.finalize().to_vec();
+        Some(Query {
+            text,
+            fingerprint: fingerprint.hex,
+            hash,
+        })
+    }
+
+    pub fn try_read_query_results_from_cache(&self, message: &BytesMut) -> () {
         if !self.is_enabled {
             return;
         }
 
-        let mut message_cursor = Cursor::new(message);
-        let char = message_cursor.get_u8() as char;
-        let _len = message_cursor.get_i32() as usize;
-
-        if char != 'Q' {
+        let result = self.fingerprint_and_hash(message);
+        if result.is_none() {
             return;
         }
+        let query = result.unwrap();
 
-        let query = message_cursor.read_string().unwrap();
-        let fingerprint_result = pg_query::fingerprint(&query);
-        if fingerprint_result.is_err() {
-            return;
-        }
-        let fingerprint = fingerprint_result.unwrap();
-        if !self.fingerprints.contains(&fingerprint.hex) {
+        if !self.fingerprints.contains(&query.fingerprint) {
             return;
         }
 
         debug!("Query is eligible to read from cache");
+    }
+
+    pub fn try_write_query_results_to_cache(
+        &mut self,
+        message: &BytesMut,
+        results: &BytesMut,
+    ) -> () {
+        if !self.is_enabled {
+            return;
+        }
+
+        let fingerprint_option = self.fingerprint_and_hash(message);
+        if fingerprint_option.is_none() {
+            return;
+        }
+        let query = fingerprint_option.unwrap();
+
+        debug!("Query {:?} partial results: {:?}", query, results);
     }
 }

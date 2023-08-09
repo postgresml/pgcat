@@ -851,7 +851,6 @@ pub struct QueryCacheQuery {
     pub ttl: usize,
 }
 
-
 impl QueryCacheQuery {
     fn default_query() -> Option<String> {
         None
@@ -875,7 +874,7 @@ impl QueryCacheQuery {
 
     pub(crate) fn fingerprint(&self) -> Option<String> {
         if self.fingerprint.is_some() {
-            return self.fingerprint.clone()
+            return self.fingerprint.clone();
         }
         if let Some(query) = &self.query {
             if let Ok(fingerprint) = pg_query::fingerprint(&query) {
@@ -910,6 +909,16 @@ impl QueryCache {
 
     pub fn default_queries() -> Vec<QueryCacheQuery> {
         Vec::new()
+    }
+
+    pub fn fingerprints(&self) -> HashSet<String> {
+        let mut fingerprints = HashSet::new();
+        for query in self.queries {
+            if let Some(fingerprint) = query.fingerprint() {
+                fingerprints.insert(fingerprint);
+            }
+        }
+        fingerprints
     }
 }
 
