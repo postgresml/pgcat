@@ -9,7 +9,7 @@ use postgres_protocol::message;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::mem;
 use std::net::IpAddr;
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
