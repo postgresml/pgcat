@@ -26,7 +26,7 @@ use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
-use crate::query_cacher::parse_query;
+use crate::query_cache_reporter::parse_query;
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
@@ -1700,7 +1700,7 @@ where
             if let Ok(query) = &query_result {
                 if !server.in_transaction() {
                     let _ = pool
-                        .query_cacher
+                        .query_cache_reporter
                         .write()
                         .update_result_hash(query, &response);
                 }
@@ -1713,7 +1713,10 @@ where
 
         if let Ok(query) = &query_result {
             if !server.in_transaction() {
-                let _ = pool.query_cacher.write().finalize_result_hash(query);
+                let _ = pool
+                    .query_cache_reporter
+                    .write()
+                    .finalize_result_hash(query);
             }
         }
 

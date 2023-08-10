@@ -28,7 +28,6 @@ pub enum Error {
     UnsupportedStatement,
     QueryRouterParserError(String),
     QueryRouterError(String),
-    QueryCacheMiss,
 }
 
 #[derive(Clone, PartialEq, Debug)]

@@ -88,7 +88,7 @@ pub fn parse_query(message: &BytesMut) -> Result<Query, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::query_cacher::{parse_query, Query};
+    use crate::query_cache_reporter::{parse_query, Query};
     use bytes::BytesMut;
 
     #[test]
@@ -141,12 +141,8 @@ impl QueryCacheReporter {
             .clone()
             .map(|c| c.collect_stats)
             .unwrap_or(false);
-        let sampling_rate = (config
-            .query_cache
-            .clone()
-            .map(|c| c.sample_rate)
-            .unwrap_or(0.0)
-            * 100.0) as usize;
+        let sampling_rate =
+            (&config.query_cache.map(|c| c.sample_rate).unwrap_or(0.0) * 100.0) as usize;
         QueryCacheReporter {
             is_enabled,
             sampling_rate,
@@ -202,14 +198,13 @@ impl QueryCacheReporter {
         let hasher = hasher_option.unwrap();
 
         let key = Key {
-            fingerprint: query.fingerprint.clone(),
+            fingerprint: query.fingerprint,
             query_hash: query.hash.clone(),
             result_hash: hasher.finalize().to_vec(),
         };
 
-        self
-            .statistics
-            .entry(key.clone())
+        self.statistics
+            .entry(key)
             .and_modify(|v| {
                 v.last_seen = chrono::Utc::now();
             })

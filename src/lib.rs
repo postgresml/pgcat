@@ -12,7 +12,7 @@ pub mod mirrors;
 pub mod plugins;
 pub mod pool;
 pub mod prometheus;
-mod query_cacher;
+pub mod query_cache_reporter;
 pub mod query_router;
 pub mod scram;
 pub mod server;

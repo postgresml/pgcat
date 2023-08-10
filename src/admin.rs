@@ -10,7 +10,6 @@ use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 
-
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
@@ -282,9 +281,10 @@ where
 
 /// Show query cache statistics for each pool
 async fn show_query_cache_stats<T>(stream: &mut T) -> Result<(), Error>
-    where
-        T: tokio::io::AsyncWrite + std::marker::Unpin,
-{    let mut res = BytesMut::new();
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
 
     res.put(row_description(&vec![
         ("database", DataType::Text),
@@ -296,8 +296,7 @@ async fn show_query_cache_stats<T>(stream: &mut T) -> Result<(), Error>
     ]));
 
     for (pool_identifier, pool) in get_all_pools() {
-        for (key, value) in pool.query_cacher.read().statistics.iter() {
-
+        for (key, value) in pool.query_cache_reporter.read().statistics.iter() {
             res.put(data_row(&vec![
                 pool_identifier.db.clone(),
                 pool_identifier.user.clone(),
