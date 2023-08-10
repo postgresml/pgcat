@@ -1,4 +1,9 @@
 #!/bin/bash
+set -e
 
 systemctl daemon-reload
 systemctl enable pgcat
+
+if ! id pgcat 2> /dev/null; then
+	useradd -s /usr/bin/false pgcat
+fi
