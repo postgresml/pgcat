@@ -328,7 +328,6 @@ pub struct General {
 
     #[serde(default = "General::default_prepared_statements_cache_size")]
     pub prepared_statements_cache_size: usize,
-
 }
 
 impl General {
@@ -414,7 +413,6 @@ impl General {
     pub fn default_prepared_statements_cache_size() -> usize {
         500
     }
-
 }
 
 impl Default for General {
@@ -846,101 +844,31 @@ impl Query {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct QueryCacheQuery {
-    #[serde(default = "QueryCacheQuery::default_query")]
-    pub query: Option<String>,
-
-    #[serde(default = "QueryCacheQuery::default_fingerprint")]
-    pub fingerprint: Option<String>,
-
-    #[serde(default = "QueryCacheQuery::default_enabled")]
-    pub enabled: bool,
-
-    #[serde(default = "QueryCacheQuery::default_collect_stats")]
-    pub collect_stats: bool,
-
-    #[serde(default = "QueryCacheQuery::default_ttl")]
-    pub ttl: usize,
-}
-
-impl QueryCacheQuery {
-    fn default_query() -> Option<String> {
-        None
-    }
-
-    fn default_fingerprint() -> Option<String> {
-        None
-    }
-
-    fn default_enabled() -> bool {
-        true
-    }
-
-    fn default_collect_stats() -> bool {
-        true
-    }
-
-    fn default_ttl() -> usize {
-        0
-    }
-
-    pub(crate) fn fingerprint(&self) -> Option<String> {
-        if self.fingerprint.is_some() {
-            return self.fingerprint.clone();
-        }
-        if let Some(query) = &self.query {
-            if let Ok(fingerprint) = pg_query::fingerprint(&query) {
-                return Some(fingerprint.hex);
-            }
-        }
-        None
-    }
-}
-
 /// General configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct QueryCache {
-    #[serde(default = "QueryCache::default_enabled")]
-    pub enabled: bool,
-
     #[serde(default = "QueryCache::default_collect_stats")]
     pub collect_stats: bool,
 
-    #[serde(default = "QueryCache::default_queries")]
-    pub queries: Vec<QueryCacheQuery>,
+    #[serde(default = "QueryCache::default_sample_rate")]
+    pub sample_rate: f64,
 }
 
 impl QueryCache {
-    pub fn default_enabled() -> bool {
-        false
-    }
-
     pub fn default_collect_stats() -> bool {
         false
     }
 
-    pub fn default_queries() -> Vec<QueryCacheQuery> {
-        Vec::new()
-    }
-
-    pub fn fingerprints(&self) -> HashSet<String> {
-        let mut fingerprints = HashSet::new();
-        for query in &self.queries {
-            if let Some(fingerprint) = query.fingerprint() {
-                fingerprints.insert(fingerprint);
-            }
-        }
-        fingerprints
+    pub fn default_sample_rate() -> f64 {
+        0.1
     }
 }
 
 impl Default for QueryCache {
     fn default() -> QueryCache {
         QueryCache {
-            enabled: QueryCache::default_enabled(),
             collect_stats: QueryCache::default_collect_stats(),
-            queries: QueryCache::default_queries(),
+            sample_rate: QueryCache::default_sample_rate(),
         }
     }
 }

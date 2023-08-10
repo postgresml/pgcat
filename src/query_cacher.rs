@@ -2,32 +2,55 @@ use crate::config::get_config;
 use crate::errors::Error;
 use crate::messages::BytesMutReader;
 use bytes::{Buf, BytesMut};
-use log::debug;
+use rand::Rng;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Cursor;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Query {
     text: String,
-    fingerprint: String,
+    is_read: bool,
+    fingerprint: u64,
     hash: Vec<u8>,
 }
 
-#[derive(Debug)]
-pub struct QueryCacher {
-    fingerprints: HashSet<String>,
-    // map of hash to result
-    cache: HashMap<Vec<u8>, Vec<u8>>,
-    is_enabled: bool,
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct Key {
+    pub fingerprint: u64,
+    pub query_hash: Vec<u8>,
+    pub result_hash: Vec<u8>,
 }
 
-impl Default for QueryCacher {
+#[derive(Debug, PartialEq, Eq)]
+pub struct Value {
+    pub first_seen: chrono::DateTime<chrono::Utc>,
+    pub last_seen: chrono::DateTime<chrono::Utc>,
+}
+
+impl Value {
+    pub fn duration(&self) -> chrono::Duration {
+        self.last_seen - self.first_seen
+    }
+}
+
+#[derive(Debug)]
+pub struct QueryCacheReporter {
+    is_enabled: bool,
+    // between 0 and 100
+    sampling_rate: usize,
+    // TODO limit size of hash to top 50
+    query_result_hashes: HashMap<Vec<u8>, Sha256>,
+    pub statistics: HashMap<Key, Value>,
+}
+
+impl Default for QueryCacheReporter {
     fn default() -> Self {
-        QueryCacher {
-            fingerprints: HashSet::new(),
-            cache: HashMap::new(),
+        QueryCacheReporter {
+            sampling_rate: 100,
             is_enabled: false,
+            query_result_hashes: HashMap::new(),
+            statistics: HashMap::new(),
         }
     }
 }
@@ -56,7 +79,9 @@ pub fn parse_query(message: &BytesMut) -> Result<Query, Error> {
     let hash = hasher.finalize().to_vec();
     Ok(Query {
         text,
-        fingerprint: fingerprint.hex,
+        // TODO parse selects as read
+        is_read: true,
+        fingerprint: fingerprint.value,
         hash,
     })
 }
@@ -68,9 +93,9 @@ mod tests {
 
     #[test]
     fn test_parse_query() {
-        let text = "/* my comment */ select 1\0".to_string();
+        let text = "select 1".to_string();
         let message = BytesMut::from(
-            format!("Q{:04}{}", text.len(), text)
+            format!("Q{:04}{}", text.len() + 1, text)
                 .into_bytes()
                 .as_slice(),
         );
@@ -78,7 +103,8 @@ mod tests {
             parse_query(&message),
             Ok(Query {
                 text,
-                fingerprint: "50fde20626009aba".to_string(),
+                is_read: true,
+                fingerprint: 5836069208177285818,
                 hash: vec![
                     131, 24, 219, 163, 207, 48, 13, 45, 153, 20, 131, 251, 81, 150, 90, 197, 225,
                     42, 20, 161, 105, 58, 66, 249, 38, 156, 99, 230, 126, 50, 124, 155
@@ -89,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_parse_query_ignores_comments() {
-        let query = "select 1\0".to_string();
+        let query = "select 1".to_string();
         let commented_query = format!("/* my comment */ {}", query);
         let query_message = BytesMut::from(
             format!("Q{:04}{}", query.len(), query)
@@ -103,66 +129,94 @@ mod tests {
         );
         let parsed_query = parse_query(&query_message).unwrap();
         let parsed_commented_query = parse_query(&commented_query_message).unwrap();
-        assert_eq!(
-            parsed_query.fingerprint,
-            parsed_commented_query.fingerprint
-        );
+        assert_eq!(parsed_query.fingerprint, parsed_commented_query.fingerprint);
     }
 }
 
-impl QueryCacher {
-    pub(crate) fn new() -> QueryCacher {
+impl QueryCacheReporter {
+    pub(crate) fn new() -> QueryCacheReporter {
         let config = get_config();
         let is_enabled = config
             .query_cache
             .clone()
-            .map(|c| c.enabled)
+            .map(|c| c.collect_stats)
             .unwrap_or(false);
-        let fingerprints = config
+        let sampling_rate = (config
             .query_cache
             .clone()
-            .map(|c| c.fingerprints())
-            .unwrap_or(HashSet::new());
-        QueryCacher {
-            cache: HashMap::new(),
-            fingerprints,
+            .map(|c| c.sample_rate)
+            .unwrap_or(0.0)
+            * 100.0) as usize;
+        QueryCacheReporter {
             is_enabled,
+            sampling_rate,
+            query_result_hashes: HashMap::new(),
+            statistics: HashMap::new(),
         }
     }
 
-    pub fn try_read_query_results_from_cache(&self, message: &BytesMut) -> Option<Vec<u8>> {
-        if !self.is_enabled {
-            return None;
-        }
-
-        let query_result = parse_query(message);
-        if let Err(e) = query_result {
-            debug!("Error parsing query: {}", e);
-            return None;
-        }
-        let query = query_result.unwrap();
-
-        if !self.fingerprints.contains(&query.fingerprint) {
-            return None;
-        }
-
-        let entry = self.cache.get(&query.hash);
-        entry.cloned()
+    fn should_sample(&self) -> bool {
+        rand::thread_rng().gen_range(0..100) < self.sampling_rate
     }
 
-    pub fn try_write_query_results_to_cache(
-        &mut self,
-        query: &Query,
-        results: &BytesMut,
-    ) -> Result<(), Error> {
+    pub fn update_result_hash(&mut self, query: &Query, results: &BytesMut) -> Result<(), Error> {
         if !self.is_enabled {
             return Ok(());
         }
+        if !query.is_read {
+            return Ok(());
+        }
+        if !self.should_sample() {
+            return Ok(());
+        }
 
-        let entry = self.cache.entry(query.hash.clone()).or_insert(Vec::new());
-        entry.extend(results);
+        // TODO transaction status
+        // TODO extended protocol
+        // we see `H` or `S` messages for extended protocol results
+        // TODO prepared statements
 
-        debug!("Written results to cache for query {:?}: {:?}", query, entry);
+        let entry = self
+            .query_result_hashes
+            .entry(query.hash.clone())
+            .or_insert(Sha256::default());
+        (*entry).update(results);
+
+        Ok(())
+    }
+
+    pub fn finalize_result_hash(&mut self, query: &Query) -> Result<(), Error> {
+        if !self.is_enabled {
+            return Ok(());
+        }
+        if !query.is_read {
+            return Ok(());
+        }
+        if !self.should_sample() {
+            return Ok(());
+        }
+
+        let hasher_option = self.query_result_hashes.remove(&query.hash);
+        if hasher_option.is_none() {
+            return Ok(());
+        }
+        let hasher = hasher_option.unwrap();
+
+        let key = Key {
+            fingerprint: query.fingerprint.clone(),
+            query_hash: query.hash.clone(),
+            result_hash: hasher.finalize().to_vec(),
+        };
+
+        self
+            .statistics
+            .entry(key.clone())
+            .and_modify(|v| {
+                v.last_seen = chrono::Utc::now();
+            })
+            .or_insert(Value {
+                first_seen: chrono::Utc::now(),
+                last_seen: chrono::Utc::now(),
+            });
 
         Ok(())
     }

@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 
+
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
 use crate::messages::*;
@@ -107,6 +108,10 @@ where
             "POOLS" => {
                 trace!("SHOW POOLS");
                 show_pools(stream).await
+            }
+            "QUERY_CACHE_STATS" => {
+                trace!("SHOW QUERY_CACHE_STATS");
+                show_query_cache_stats(stream).await
             }
             "CLIENTS" => {
                 trace!("SHOW CLIENTS");
@@ -268,6 +273,44 @@ where
     res.put(command_complete("SHOW"));
 
     // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Show query cache statistics for each pool
+async fn show_query_cache_stats<T>(stream: &mut T) -> Result<(), Error>
+    where
+        T: tokio::io::AsyncWrite + std::marker::Unpin,
+{    let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![
+        ("database", DataType::Text),
+        ("user", DataType::Text),
+        ("fingerprint", DataType::Numeric),
+        ("query_hash", DataType::Text),
+        ("result_hash", DataType::Text),
+        ("ttl", DataType::Text),
+    ]));
+
+    for (pool_identifier, pool) in get_all_pools() {
+        for (key, value) in pool.query_cacher.read().statistics.iter() {
+
+            res.put(data_row(&vec![
+                pool_identifier.db.clone(),
+                pool_identifier.user.clone(),
+                key.fingerprint.to_string(),
+                hex::encode(key.query_hash.clone()),
+                hex::encode(key.result_hash.clone()),
+                humantime::format_duration(value.duration().to_std().unwrap()).to_string(),
+            ]));
+        }
+    }
+
+    res.put(command_complete("SHOW"));
+
     res.put_u8(b'Z');
     res.put_i32(5);
     res.put_u8(b'I');

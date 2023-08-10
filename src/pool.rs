@@ -25,7 +25,7 @@ use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
 use crate::plugins::prewarmer;
-use crate::query_cacher::QueryCacher;
+use crate::query_cacher::QueryCacheReporter;
 use crate::server::Server;
 use crate::sharding::ShardingFunction;
 use crate::stats::{AddressStats, ClientStats, ServerStats};
@@ -221,7 +221,7 @@ pub struct ConnectionPool {
     /// AuthInfo
     pub auth_hash: Arc<RwLock<Option<String>>>,
 
-    pub query_cacher: Arc<RwLock<QueryCacher>>,
+    pub query_cacher: Arc<RwLock<QueryCacheReporter>>,
 }
 
 impl ConnectionPool {
@@ -496,7 +496,7 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
-                    query_cacher: Arc::new(RwLock::new(QueryCacher::new())),
+                    query_cacher: Arc::new(RwLock::new(QueryCacheReporter::new())),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid

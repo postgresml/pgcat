@@ -21,10 +21,5 @@ servers = [
 database = "postgres"
 
 [query_cache]
-enabled = true
 collect_stats = true
-
-[[query_cache.queries]]
-query = "select 1"
-ttl = 10
-
+sample_rate = 1.0

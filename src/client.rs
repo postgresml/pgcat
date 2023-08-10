@@ -26,8 +26,8 @@ use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
-use tokio_rustls::server::TlsStream;
 use crate::query_cacher::parse_query;
+use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
 /// to avoid random conflicts in places where the random number generator is weak.
@@ -1051,17 +1051,6 @@ where
                 self.stats.waiting();
             }
 
-            let results = pool.query_cacher
-                .read()
-                .try_read_query_results_from_cache(&message);
-
-            if let Some(response) = results {
-                debug!("Read from cache {:?}", response);
-                // self.stats.hit();
-                write_all_flush(&mut self.write, &response).await?;
-                continue;
-            }
-
             // Grab a server from the pool.
             let connection = match pool
                 .get(query_router.shard(), query_router.role(), &self.stats)
@@ -1688,9 +1677,6 @@ where
             None => &self.buffer,
         };
         let query_result = parse_query(message);
-        if let Err(e) = &query_result {
-            error!("Failed to parse query: {}", e);
-        }
 
         self.send_server_message(server, message, address, pool)
             .await?;
@@ -1712,13 +1698,22 @@ where
             };
 
             if let Ok(query) = &query_result {
-                let _ = pool.query_cacher
-                    .write()
-                    .try_write_query_results_to_cache(query, &response);
+                if !server.in_transaction() {
+                    let _ = pool
+                        .query_cacher
+                        .write()
+                        .update_result_hash(query, &response);
+                }
             }
 
             if !server.is_data_available() {
                 break;
+            }
+        }
+
+        if let Ok(query) = &query_result {
+            if !server.in_transaction() {
+                let _ = pool.query_cacher.write().finalize_result_hash(query);
             }
         }
 
@@ -1804,6 +1799,7 @@ where
 
 impl<S, T> Drop for Client<S, T> {
     fn drop(&mut self) {
+        self.stats.disconnect();
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
 
