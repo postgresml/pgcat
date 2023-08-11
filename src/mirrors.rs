@@ -62,7 +62,7 @@ impl MirroredClient {
                     Ok(server) => server,
                     Err(err) => {
                         error!(
-                            "Failed to get connection from pool, Discarding message {:?}, {}",
+                            "Failed to get connection from pool, Discarding message {:?}, {:?}",
                             err,
                             address.clone()
                         );
@@ -73,17 +73,17 @@ impl MirroredClient {
                 tokio::select! {
                     // Exit channel events
                     _ = self.disconnect_rx.recv() => {
-                        info!("Got mirror exit signal, exiting {}", address.clone());
+                        info!("Got mirror exit signal, exiting {:?}", address.clone());
                         break;
                     }
 
                     // Incoming data from server (we read to clear the socket buffer and discard the data)
                     recv_result = server.recv() => {
                         match recv_result {
-                            Ok(message) => trace!("Received from mirror: {} {}", String::from_utf8_lossy(&message[..]), address.clone()),
+                            Ok(message) => trace!("Received from mirror: {} {:?}", String::from_utf8_lossy(&message[..]), address.clone()),
                             Err(err) => {
                                 server.mark_bad();
-                                error!("Failed to receive from mirror {:?} {}", err, address.clone());
+                                error!("Failed to receive from mirror {:?} {:?}", err, address.clone());
                             }
                         }
                     }
@@ -93,15 +93,15 @@ impl MirroredClient {
                         match message {
                             Some(bytes) => {
                                 match server.send(&BytesMut::from(&bytes[..])).await {
-                                    Ok(_) => trace!("Sent to mirror: {} {}", String::from_utf8_lossy(&bytes[..]), address.clone()),
+                                    Ok(_) => trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone()),
                                     Err(err) => {
                                         server.mark_bad();
-                                        error!("Failed to send to mirror, Discarding message {:?}, {}", err, address.clone())
+                                        error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone())
                                     }
                                 }
                             }
                             None => {
-                                info!("Mirror channel closed, exiting {}", address.clone());
+                                info!("Mirror channel closed, exiting {:?}", address.clone());
                                 break;
                             },
                         }

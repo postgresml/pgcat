@@ -337,7 +337,7 @@ impl ConnectionPool {
                                         }
                                     }
 
-                                    debug!("Hash obtained for {}", address);
+                                    debug!("Hash obtained for {:?}", address);
 
                                     {
                                         let mut pool_auth_hash = pool_auth_hash.write();
@@ -631,7 +631,7 @@ impl ConnectionPool {
                 if self.try_unban(&address).await {
                     force_healthcheck = true;
                 } else {
-                    debug!("Address {} is banned", address);
+                    debug!("Address {:?} is banned", address);
                     continue;
                 }
             }
@@ -644,7 +644,7 @@ impl ConnectionPool {
                 Ok(conn) => conn,
                 Err(err) => {
                     error!(
-                        "Connection checkout error for instance {}, error: {:?}",
+                        "Connection checkout error for instance {:?}, error: {:?}",
                         address, err
                     );
                     self.ban(address, BanReason::FailedCheckout, Some(client_stats));
@@ -730,7 +730,7 @@ impl ConnectionPool {
                 // Health check failed.
                 Err(err) => {
                     error!(
-                        "Failed health check on instance {}, error: {:?}",
+                        "Failed health check on instance {:?}, error: {:?}",
                         address, err
                     );
                 }
@@ -739,7 +739,7 @@ impl ConnectionPool {
             // Health check timed out.
             Err(err) => {
                 error!(
-                    "Health check timeout on instance {}, error: {:?}",
+                    "Health check timeout on instance {:?}, error: {:?}",
                     address, err
                 );
             }
@@ -761,7 +761,7 @@ impl ConnectionPool {
             return;
         }
 
-        error!("Banning instance {}, reason: {:?}", address, reason);
+        error!("Banning instance {:?}, reason: {:?}", address, reason);
 
         let now = chrono::offset::Utc::now().naive_utc();
         let mut guard = self.banlist.write();
@@ -789,7 +789,7 @@ impl ConnectionPool {
         match guard[address.shard].get(address) {
             Some(_) => true,
             None => {
-                debug!("{} is ok", address);
+                debug!("{:?} is ok", address);
                 false
             }
         }
@@ -839,14 +839,14 @@ impl ConnectionPool {
         drop(read_guard);
 
         if exceeded_ban_time {
-            warn!("Unbanning {}", address);
+            warn!("Unbanning {:?}", address);
             let mut write_guard = self.banlist.write();
             write_guard[address.shard].remove(address);
             drop(write_guard);
 
             true
         } else {
-            debug!("{} is banned", address);
+            debug!("{:?} is banned", address);
             false
         }
     }
@@ -920,7 +920,7 @@ impl ConnectionPool {
             return 0;
         }
         let busy = provisioned - idle;
-        debug!("{} has {:?} busy connections", address, busy);
+        debug!("{:?} has {:?} busy connections", address, busy);
         return busy;
     }
 }
@@ -978,7 +978,7 @@ impl ManageConnection for ServerPool {
 
     /// Attempts to create a new connection.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        info!("Creating a new server connection {}", self.address);
+        info!("Creating a new server connection {:?}", self.address);
 
         let stats = Arc::new(ServerStats::new(
             self.address.clone(),

@@ -1086,7 +1086,7 @@ where
             self.last_server_stats = Some(server.stats());
 
             debug!(
-                "Client {:?} talking to server {}",
+                "Client {:?} talking to server {:?}",
                 self.addr,
                 server.address()
             );

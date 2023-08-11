@@ -760,7 +760,10 @@ impl Server {
                 Ok(())
             }
             Err(err) => {
-                error!("Terminating server {} because of: {:?}", self.address, err);
+                error!(
+                    "Terminating server {:?} because of: {:?}",
+                    self.address, err
+                );
                 self.bad = true;
                 Err(err)
             }
@@ -775,7 +778,10 @@ impl Server {
             let mut message = match read_message(&mut self.stream).await {
                 Ok(message) => message,
                 Err(err) => {
-                    error!("Terminating server {} because of: {:?}", self.address, err);
+                    error!(
+                        "Terminating server {:?} because of: {:?}",
+                        self.address, err
+                    );
                     self.bad = true;
                     return Err(err);
                 }
@@ -1087,7 +1093,7 @@ impl Server {
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
     pub fn mark_bad(&mut self) {
-        error!("Server {} marked bad", self.address);
+        error!("Server {:?} marked bad", self.address);
         self.bad = true;
     }
 
@@ -1109,7 +1115,7 @@ impl Server {
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
-        debug!("Running `{}` on server {}", query, self.address);
+        debug!("Running `{}` on server {:?}", query, self.address);
 
         let query = simple_query(query);
 
@@ -1340,7 +1346,7 @@ impl Drop for Server {
         };
 
         info!(
-            "{} {}, session duration: {}",
+            "{} {:?}, session duration: {}",
             message,
             self.address,
             crate::format_duration(&duration)
