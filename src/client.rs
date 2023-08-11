@@ -4,6 +4,7 @@ use crate::pool::BanReason;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicUsize, Arc};
@@ -1677,8 +1678,20 @@ where
             Some(message) => message,
             None => &self.buffer,
         };
-        let query_result = parse_query(message);
-        let mut result_hasher = Sha256::new();
+        // TODO query sample rate from config
+        let should_parse_query = pool.settings.query_parser_enabled
+            && !server.in_transaction()
+            && (rand::thread_rng().gen_range(0..100) < 100);
+        let parsed_query = if should_parse_query {
+            Some(parse_query(message))
+        } else {
+            None
+        };
+        let mut result_hasher = if should_parse_query {
+            Some(Sha256::new())
+        } else {
+            None
+        };
 
         self.send_server_message(server, message, address, pool)
             .await?;
@@ -1691,7 +1704,9 @@ where
                 .receive_server_message(server, address, pool, client_stats)
                 .await?;
 
-            result_hasher.update(&response);
+            if let Some(ref mut hasher) = result_hasher {
+                hasher.update(&response);
+            }
 
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),
@@ -1706,10 +1721,9 @@ where
             }
         }
 
-        let result_hash = result_hasher.finalize().to_vec();
-
-        if let Ok(query) = &query_result {
-            if !server.in_transaction() {
+        if should_parse_query {
+            let result_hash = result_hasher.unwrap().finalize().to_vec();
+            if let Ok(query) = parsed_query.unwrap() {
                 let _ = pool.query_result_stats.write().insert(query, result_hash);
             }
         }

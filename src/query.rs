@@ -9,7 +9,7 @@ use std::io::Cursor;
 pub struct Query {
     text: String,
     pub normalized: String,
-    pub is_read: bool,
+    pub is_select: bool,
     pub fingerprint: u64,
     pub hash: Vec<u8>,
 }
@@ -47,7 +47,7 @@ pub fn parse_query(message: &BytesMut) -> Result<Query, Error> {
         text,
         normalized,
         // TODO parse selects as read
-        is_read: true,
+        is_select: true,
         fingerprint: fingerprint.value,
         hash,
     })
@@ -71,7 +71,7 @@ mod tests {
             Ok(Query {
                 text,
                 normalized: "select ?".to_string(),
-                is_read: true,
+                is_select: true,
                 fingerprint: 5836069208177285818,
                 hash: vec![
                     131, 24, 219, 163, 207, 48, 13, 45, 153, 20, 131, 251, 81, 150, 90, 197, 225,
