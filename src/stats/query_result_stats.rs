@@ -3,6 +3,7 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use log::debug;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Key {
@@ -25,7 +26,7 @@ impl Value {
 
 #[derive(Debug)]
 pub struct QueryResultStats {
-    is_enabled: bool,
+    pub is_enabled: bool,
     pub capacity: usize,
     pub statistics: HashMap<Key, Value>,
 }
@@ -33,18 +34,19 @@ pub struct QueryResultStats {
 impl Default for QueryResultStats {
     fn default() -> Self {
         QueryResultStats {
-            is_enabled: false,
-            capacity: 1,
+            is_enabled: true,
+            capacity: 1000,
             statistics: HashMap::new(),
         }
     }
 }
 
 impl QueryResultStats {
-    pub(crate) fn new() -> QueryResultStats {
+    pub(crate) fn new(is_enabled: bool, capacity: usize) -> QueryResultStats {
+        // TODO expose those as better config options
         QueryResultStats {
-            is_enabled: true,
-            capacity: 1,
+            is_enabled,
+            capacity,
             statistics: HashMap::new(),
         }
     }
@@ -69,8 +71,10 @@ impl QueryResultStats {
             match (first_entry, second_entry) {
                 (Some(first), Some(second)) => {
                     if first.1.last_seen < second.1.last_seen {
+                        debug!("Evicting {:?}", second.0);
                         Some(first)
                     } else {
+                        debug!("Evicting {:?}", first.0);
                         Some(second)
                     }
                 }

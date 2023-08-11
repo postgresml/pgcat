@@ -511,6 +511,9 @@ pub struct Pool {
     #[serde(default)] // False
     pub query_parser_enabled: bool,
 
+    #[serde(default)]
+    pub query_result_capacity: Option<usize>,
+
     pub query_parser_max_length: Option<usize>,
 
     #[serde(default)] // False
@@ -680,6 +683,7 @@ impl Default for Pool {
             users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
+            query_result_capacity: None,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
             primary_reads_enabled: false,

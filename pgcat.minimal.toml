@@ -9,6 +9,7 @@ admin_password = "pgcat"
 
 [pools.pgml]
 query_parser_enabled = true
+query_result_capacity = 1
 
 [pools.pgml.users.0]
 username = "postgres"
