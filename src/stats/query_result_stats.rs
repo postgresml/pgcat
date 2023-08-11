@@ -1,23 +1,14 @@
 use crate::config::get_config;
 use crate::errors::Error;
-use crate::Query;
+use crate::query::Query;
 use rand::Rng;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-pub fn hash_string(hash: &[u8]) -> String {
-    // TODO assert length == 256
-    let first = u128::from_ne_bytes(hash[0..16].try_into().unwrap());
-    let second = u128::from_ne_bytes(hash[0..16].try_into().unwrap());
-    format!("{:x}{:x}", first, second)
-}
-
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Key {
-    pub normalized: String,
-    pub fingerprint: u64,
-    pub query_hash: Vec<u8>,
+    pub query: Query,
     pub result_hash: Vec<u8>,
 }
 
@@ -53,7 +44,6 @@ impl Default for QueryResultStats {
     }
 }
 
-
 // TODO rename to QueryResultStats
 impl QueryResultStats {
     pub(crate) fn new() -> QueryResultStats {
@@ -88,9 +78,7 @@ impl QueryResultStats {
         }
 
         let key = Key {
-            normalized: query.normalized.clone(),
-            fingerprint: query.fingerprint,
-            query_hash: query.hash.clone(),
+            query: query.clone(),
             result_hash,
         };
 

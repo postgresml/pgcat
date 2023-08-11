@@ -12,12 +12,11 @@ use tokio::time::Instant;
 
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
-use crate::format_duration;
+use crate::{format_duration, hash_string};
 use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
-use crate::stats::query_result_stats::hash_string;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
@@ -303,9 +302,9 @@ where
             res.put(data_row(&vec![
                 pool_identifier.db.clone(),
                 pool_identifier.user.clone(),
-                key.normalized.to_string(),
-                key.fingerprint.to_string(),
-                hash_string(&key.query_hash),
+                key.query.normalized.to_string(),
+                key.query.fingerprint.to_string(),
+                hash_string(&key.query.hash),
                 hash_string(&key.result_hash),
                 format_duration(&value.duration()),
             ]));

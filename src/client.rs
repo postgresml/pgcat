@@ -4,10 +4,10 @@ use crate::pool::BanReason;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Instant;
-use sha2::{Sha256, Digest};
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
@@ -27,7 +27,7 @@ use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
-use crate::parse_query;
+use crate::query::parse_query;
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
