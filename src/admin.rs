@@ -12,11 +12,11 @@ use tokio::time::Instant;
 
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
-use crate::{format_duration, hash_string};
 use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
+use crate::{format_duration, hash_string};
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
@@ -294,7 +294,10 @@ where
         ("fingerprint", DataType::Numeric),
         ("query_hash", DataType::Text),
         ("result_hash", DataType::Text),
-        ("ttl", DataType::Text),
+        ("count", DataType::Numeric),
+        ("first_seen", DataType::Text),
+        ("last_seen", DataType::Text),
+        ("duration", DataType::Text),
     ]));
 
     for (pool_identifier, pool) in get_all_pools() {
@@ -306,6 +309,9 @@ where
                 key.query.fingerprint.to_string(),
                 hash_string(&key.query.hash),
                 hash_string(&key.result_hash),
+                value.count.load(Ordering::Relaxed).to_string(),
+                value.first_seen.to_string(),
+                value.last_seen.to_string(),
                 format_duration(&value.duration()),
             ]));
         }
