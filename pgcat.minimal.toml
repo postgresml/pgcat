@@ -7,6 +7,9 @@ port = 6432
 admin_username = "pgcat"
 admin_password = "pgcat"
 
+[pools.pgml]
+query_parser_enabled = true
+
 [pools.pgml.users.0]
 username = "postgres"
 password = "postgres"
