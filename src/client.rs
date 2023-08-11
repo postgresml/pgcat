@@ -7,6 +7,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Instant;
+use sha2::{Sha256, Digest};
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
@@ -26,7 +27,7 @@ use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
-use crate::query_cache_reporter::parse_query;
+use crate::parse_query;
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
@@ -1677,6 +1678,7 @@ where
             None => &self.buffer,
         };
         let query_result = parse_query(message);
+        let mut result_hasher = Sha256::new();
 
         self.send_server_message(server, message, address, pool)
             .await?;
@@ -1689,6 +1691,8 @@ where
                 .receive_server_message(server, address, pool, client_stats)
                 .await?;
 
+            result_hasher.update(&response);
+
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
@@ -1697,26 +1701,16 @@ where
                 }
             };
 
-            if let Ok(query) = &query_result {
-                if !server.in_transaction() {
-                    let _ = pool
-                        .query_cache_reporter
-                        .write()
-                        .update_result_hash(query, &response);
-                }
-            }
-
             if !server.is_data_available() {
                 break;
             }
         }
 
+        let result_hash = result_hasher.finalize().to_vec();
+
         if let Ok(query) = &query_result {
             if !server.in_transaction() {
-                let _ = pool
-                    .query_cache_reporter
-                    .write()
-                    .finalize_result_hash(query);
+                let _ = pool.query_result_stats.write().insert(query, result_hash);
             }
         }
 

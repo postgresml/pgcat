@@ -12,10 +12,12 @@ use tokio::time::Instant;
 
 use crate::config::{get_config, reload_config, VERSION};
 use crate::errors::Error;
+use crate::format_duration;
 use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
+use crate::stats::query_result_stats::hash_string;
 
 pub fn generate_server_info_for_admin() -> BytesMut {
     let mut server_info = BytesMut::new();
@@ -108,9 +110,9 @@ where
                 trace!("SHOW POOLS");
                 show_pools(stream).await
             }
-            "QUERY_CACHE_STATS" => {
-                trace!("SHOW QUERY_CACHE_STATS");
-                show_query_cache_stats(stream).await
+            "QUERY_RESULT_STATS" => {
+                trace!("SHOW QUERY_RESULT_STATS");
+                show_query_result_stats(stream).await
             }
             "CLIENTS" => {
                 trace!("SHOW CLIENTS");
@@ -280,7 +282,7 @@ where
 }
 
 /// Show query cache statistics for each pool
-async fn show_query_cache_stats<T>(stream: &mut T) -> Result<(), Error>
+async fn show_query_result_stats<T>(stream: &mut T) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
@@ -289,6 +291,7 @@ where
     res.put(row_description(&vec![
         ("database", DataType::Text),
         ("user", DataType::Text),
+        ("normalized", DataType::Text),
         ("fingerprint", DataType::Numeric),
         ("query_hash", DataType::Text),
         ("result_hash", DataType::Text),
@@ -296,14 +299,15 @@ where
     ]));
 
     for (pool_identifier, pool) in get_all_pools() {
-        for (key, value) in pool.query_cache_reporter.read().statistics.iter() {
+        for (key, value) in pool.query_result_stats.read().statistics.iter() {
             res.put(data_row(&vec![
                 pool_identifier.db.clone(),
                 pool_identifier.user.clone(),
+                key.normalized.to_string(),
                 key.fingerprint.to_string(),
-                hex::encode(key.query_hash.clone()),
-                hex::encode(key.result_hash.clone()),
-                humantime::format_duration(value.duration().to_std().unwrap()).to_string(),
+                hash_string(&key.query_hash),
+                hash_string(&key.result_hash),
+                format_duration(&value.duration()),
             ]));
         }
     }
