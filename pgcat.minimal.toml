@@ -22,7 +22,3 @@ servers = [
   ["127.0.0.1", 5432, "primary"]
 ]
 database = "postgres"
-
-[query_cache]
-collect_stats = true
-sample_rate = 1.0

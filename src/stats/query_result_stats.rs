@@ -1,4 +1,5 @@
 use crate::query::Query;
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -25,7 +26,7 @@ impl Value {
 #[derive(Debug)]
 pub struct QueryResultStats {
     is_enabled: bool,
-    // TODO limit size of hash to top 50
+    pub capacity: usize,
     pub statistics: HashMap<Key, Value>,
 }
 
@@ -33,6 +34,7 @@ impl Default for QueryResultStats {
     fn default() -> Self {
         QueryResultStats {
             is_enabled: false,
+            capacity: 1,
             statistics: HashMap::new(),
         }
     }
@@ -42,7 +44,42 @@ impl QueryResultStats {
     pub(crate) fn new() -> QueryResultStats {
         QueryResultStats {
             is_enabled: true,
+            capacity: 1,
             statistics: HashMap::new(),
+        }
+    }
+
+    fn random_entry(&mut self) -> Option<(Key, Value)> {
+        let mut rng = rand::thread_rng();
+        let index = rng.gen_range(0..self.statistics.len());
+        let key = self.statistics.keys().nth(index).cloned();
+        self.statistics.remove_entry(&key.unwrap())
+    }
+
+    fn evict(&mut self) {
+        if self.statistics.len() < self.capacity {
+            return;
+        }
+
+        let entry_to_keep = {
+            // random-2 lru
+            let first_entry = self.random_entry();
+            let second_entry = self.random_entry();
+
+            match (first_entry, second_entry) {
+                (Some(first), Some(second)) => {
+                    if first.1.last_seen < second.1.last_seen {
+                        Some(first)
+                    } else {
+                        Some(second)
+                    }
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(entry_to_keep) = entry_to_keep {
+            self.statistics.insert(entry_to_keep.0, entry_to_keep.1);
         }
     }
 
@@ -50,9 +87,11 @@ impl QueryResultStats {
         if !self.is_enabled {
             return;
         }
-        if !query.is_select {
+        if !query.is_select() {
             return;
         }
+
+        self.evict();
 
         self.statistics
             .entry(Key { query, result_hash })
