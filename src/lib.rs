@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod auth_passthrough;
+pub mod cli;
 pub mod client;
 pub mod cmd_args;
 pub mod config;

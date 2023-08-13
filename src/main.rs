@@ -28,6 +28,7 @@ extern crate log;
 extern crate md5;
 extern crate num_cpus;
 extern crate once_cell;
+extern crate prettytable;
 extern crate rustls_pemfile;
 extern crate serde;
 extern crate serde_derive;
@@ -60,6 +61,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+use pgcat::cli;
 use pgcat::cmd_args;
 use pgcat::config::{get_config, reload_config, VERSION};
 use pgcat::dns_cache;
@@ -71,6 +73,7 @@ use pgcat::stats::{Collector, Reporter, REPORTER};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cmd_args::parse();
+
     logger::init(&args);
 
     info!("Welcome to PgCat! Meow. (Version {})", VERSION);
@@ -94,6 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
         });
     }
+    cli::init(&args);
 
     let config = get_config();
 
