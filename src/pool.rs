@@ -496,10 +496,7 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
-                    query_result_stats: Arc::new(RwLock::new(QueryResultStats::new(
-                        pool_config.query_parser_enabled,
-                        pool_config.query_result_capacity.unwrap_or(1000),
-                    ))),
+                    query_result_stats: Arc::new(RwLock::new(QueryResultStats::new())),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid

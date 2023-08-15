@@ -1806,7 +1806,6 @@ where
 
 impl<S, T> Drop for Client<S, T> {
     fn drop(&mut self) {
-        self.stats.disconnect();
         let mut guard = self.client_server_map.lock();
         guard.remove(&(self.process_id, self.secret_key));
 

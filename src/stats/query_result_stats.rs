@@ -26,27 +26,20 @@ impl Value {
 
 #[derive(Debug)]
 pub struct QueryResultStats {
-    pub is_enabled: bool,
-    pub capacity: usize,
     pub statistics: HashMap<Key, Value>,
 }
 
 impl Default for QueryResultStats {
     fn default() -> Self {
         QueryResultStats {
-            is_enabled: true,
-            capacity: 1000,
             statistics: HashMap::new(),
         }
     }
 }
 
 impl QueryResultStats {
-    pub(crate) fn new(is_enabled: bool, capacity: usize) -> QueryResultStats {
-        // TODO expose those as better config options
+    pub(crate) fn new() -> QueryResultStats {
         QueryResultStats {
-            is_enabled,
-            capacity,
             statistics: HashMap::new(),
         }
     }
@@ -59,10 +52,6 @@ impl QueryResultStats {
     }
 
     fn evict(&mut self) {
-        if self.statistics.len() < self.capacity {
-            return;
-        }
-
         let entry_to_keep = {
             // random-2 lru
             let first_entry = self.random_entry();
@@ -88,9 +77,6 @@ impl QueryResultStats {
     }
 
     pub fn insert(&mut self, query: Query, result_hash: Vec<u8>) {
-        if !self.is_enabled {
-            return;
-        }
         if !query.is_select() {
             return;
         }

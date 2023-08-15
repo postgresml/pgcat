@@ -511,9 +511,6 @@ pub struct Pool {
     #[serde(default)] // False
     pub query_parser_enabled: bool,
 
-    #[serde(default)]
-    pub query_result_capacity: Option<usize>,
-
     pub query_parser_max_length: Option<usize>,
 
     #[serde(default)] // False
@@ -683,7 +680,6 @@ impl Default for Pool {
             users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
-            query_result_capacity: None,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
             primary_reads_enabled: false,
@@ -848,35 +844,6 @@ impl Query {
     }
 }
 
-/// General configuration.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct QueryCache {
-    #[serde(default = "QueryCache::default_collect_stats")]
-    pub collect_stats: bool,
-
-    #[serde(default = "QueryCache::default_sample_rate")]
-    pub sample_rate: f64,
-}
-
-impl QueryCache {
-    pub fn default_collect_stats() -> bool {
-        false
-    }
-
-    pub fn default_sample_rate() -> f64 {
-        0.1
-    }
-}
-
-impl Default for QueryCache {
-    fn default() -> QueryCache {
-        QueryCache {
-            collect_stats: QueryCache::default_collect_stats(),
-            sample_rate: QueryCache::default_sample_rate(),
-        }
-    }
-}
-
 /// Configuration wrapper.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Config {
@@ -902,9 +869,6 @@ pub struct Config {
 
     // Connection pools.
     pub pools: HashMap<String, Pool>,
-
-    // query caching settings.
-    pub query_cache: Option<QueryCache>,
 }
 
 impl Config {
@@ -942,7 +906,6 @@ impl Default for Config {
             general: General::default(),
             pools: HashMap::default(),
             plugins: None,
-            query_cache: None,
         }
     }
 }
