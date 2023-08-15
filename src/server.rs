@@ -1308,8 +1308,17 @@ impl Server {
         // it before each checkin.
         if self.cleanup_state.needs_cleanup() && self.cleanup_connections {
             info!(target: "pgcat::server::cleanup", "Server returned with session state altered, discarding state ({}) for application {}", self.cleanup_state, self.application_name);
-            self.query("DISCARD ALL").await?;
-            self.query("RESET ROLE").await?;
+            let mut reset_string = String::from("RESET ROLE;");
+
+            if self.cleanup_state.needs_cleanup_set {
+                reset_string.push_str("RESET ALL;");
+            };
+
+            if self.cleanup_state.needs_cleanup_prepare {
+                reset_string.push_str("DEALLOCATE ALL;");
+            };
+
+            self.query(&reset_string).await?;
             self.cleanup_state.reset();
         }
 
