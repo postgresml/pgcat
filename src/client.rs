@@ -821,6 +821,14 @@ where
                 message_result = read_message(&mut self.read) => message_result?
             };
 
+            if message[0] as char == 'X' {
+                debug!("Client disconnecting");
+
+                self.stats.disconnect();
+
+                return Ok(());
+            }
+
             // Handle admin database queries.
             if self.admin {
                 debug!("Handling admin command");
@@ -938,14 +946,6 @@ where
                     }
 
                     continue;
-                }
-
-                'X' => {
-                    debug!("Client disconnecting");
-
-                    self.stats.disconnect();
-
-                    return Ok(());
                 }
 
                 // Close (F)
