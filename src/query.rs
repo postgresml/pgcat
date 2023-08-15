@@ -82,8 +82,8 @@ mod tests {
         let query = Query::new(&message).unwrap();
         assert_eq!(query.text, text);
         assert!(query.is_select());
-        assert_eq!(query.normalized(), "select $1".to_string());
-        assert_eq!(query.fingerprint(), 5836069208177285818);
+        assert_eq!(query.normalized(), Ok("select $1".to_string()));
+        assert_eq!(query.fingerprint(), Ok(5836069208177285818));
     }
 
     #[test]
@@ -97,15 +97,8 @@ mod tests {
         let query = Query::new(&message).unwrap();
         assert_eq!(query.text, text);
         assert!(query.is_select());
-        assert_eq!(query.normalized, "select $1".to_string());
-        assert_eq!(query.fingerprint, 5836069208177285818);
-        assert_eq!(
-            query.hash,
-            vec![
-                130, 42, 224, 125, 71, 131, 21, 139, 193, 145, 43, 182, 35, 229, 16, 124, 201, 0,
-                45, 81, 158, 17, 67, 169, 194, 0, 237, 110, 225, 139, 109, 15
-            ]
-        );
+        assert_eq!(query.normalized(), Ok("select $1".to_string()));
+        assert_eq!(query.fingerprint(), Ok(5836069208177285818));
     }
 
     #[test]
@@ -122,8 +115,12 @@ mod tests {
                 .into_bytes()
                 .as_slice(),
         );
-        let parsed_query = parse_query(&query_message).unwrap();
-        let parsed_commented_query = parse_query(&commented_query_message).unwrap();
-        assert_eq!(parsed_query.fingerprint, parsed_commented_query.fingerprint);
+        let parsed_query = Query::new(&query_message).unwrap();
+        let parsed_commented_query = Query::new(&commented_query_message).unwrap();
+        assert!(parsed_query.fingerprint().is_ok());
+        assert_eq!(
+            parsed_query.fingerprint(),
+            parsed_commented_query.fingerprint()
+        );
     }
 }
