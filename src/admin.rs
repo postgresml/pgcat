@@ -290,9 +290,9 @@ where
     res.put(row_description(&vec![
         ("database", DataType::Text),
         ("user", DataType::Text),
+        ("query", DataType::Text),
         ("normalized", DataType::Text),
         ("fingerprint", DataType::Numeric),
-        ("query_hash", DataType::Text),
         ("result_hash", DataType::Text),
         ("count", DataType::Numeric),
         ("first_seen", DataType::Text),
@@ -305,9 +305,9 @@ where
             res.put(data_row(&vec![
                 pool_identifier.db.clone(),
                 pool_identifier.user.clone(),
-                key.query.normalized.to_string(),
-                key.query.fingerprint.to_string(),
-                hash_string(&key.query.hash),
+                key.query.text.clone(),
+                key.query.normalized().unwrap_or_default(),
+                key.query.fingerprint().unwrap_or_default().to_string(),
                 hash_string(&key.result_hash),
                 value.count.load(Ordering::Relaxed).to_string(),
                 value.first_seen.to_string(),

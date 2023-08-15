@@ -4,7 +4,6 @@ use crate::pool::BanReason;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
-use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicUsize, Arc};
@@ -28,7 +27,7 @@ use crate::server::Server;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
-use crate::query::parse_query;
+use crate::query::Query;
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
@@ -1678,16 +1677,13 @@ where
             Some(message) => message,
             None => &self.buffer,
         };
-        // TODO query sample rate from config
-        let should_parse_query = pool.settings.query_parser_enabled
-            && !server.in_transaction()
-            && (rand::thread_rng().gen_range(0..100) < 100);
-        let parsed_query = if should_parse_query {
-            Some(parse_query(message))
+        let query = if !server.in_transaction() {
+            Query::new(&message)
         } else {
             None
         };
-        let mut result_hasher = if should_parse_query {
+
+        let mut result_hasher = if query.is_some() {
             Some(Sha256::new())
         } else {
             None
@@ -1721,9 +1717,9 @@ where
             }
         }
 
-        if should_parse_query {
-            let result_hash = result_hasher.unwrap().finalize().to_vec();
-            if let Ok(query) = parsed_query.unwrap() {
+        if let Some(query) = query {
+            if let Some(result_hasher) = result_hasher {
+                let result_hash = result_hasher.finalize().to_vec();
                 let _ = pool.query_result_stats.write().insert(query, result_hash);
             }
         }

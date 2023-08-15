@@ -1,9 +1,9 @@
 use crate::query::Query;
+use log::debug;
 use rand::Rng;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use log::debug;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Key {
@@ -95,7 +95,8 @@ impl QueryResultStats {
             return;
         }
 
-        self.evict();
+        // TODO limit number of entries
+        // self.evict();
 
         self.statistics
             .entry(Key { query, result_hash })
