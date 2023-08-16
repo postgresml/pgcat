@@ -371,6 +371,7 @@ impl ConnectionPool {
                                 None => config.plugins.clone(),
                             },
                             pool_config.cleanup_server_connections,
+                            pool_config.log_client_parameter_status_changes,
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -956,6 +957,9 @@ pub struct ServerPool {
 
     /// Should we clean up dirty connections before putting them into the pool?
     cleanup_connections: bool,
+
+    /// Log client parameter status changes
+    log_client_parameter_status_changes: bool,
 }
 
 impl ServerPool {
@@ -967,6 +971,7 @@ impl ServerPool {
         auth_hash: Arc<RwLock<Option<String>>>,
         plugins: Option<Plugins>,
         cleanup_connections: bool,
+        log_client_parameter_status_changes: bool,
     ) -> ServerPool {
         ServerPool {
             address,
@@ -976,6 +981,7 @@ impl ServerPool {
             auth_hash,
             plugins,
             cleanup_connections,
+            log_client_parameter_status_changes,
         }
     }
 }
@@ -1005,6 +1011,7 @@ impl ManageConnection for ServerPool {
             stats.clone(),
             self.auth_hash.clone(),
             self.cleanup_connections,
+            self.log_client_parameter_status_changes,
         )
         .await
         {
