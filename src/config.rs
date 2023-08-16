@@ -547,6 +547,9 @@ pub struct Pool {
     #[serde(default = "Pool::default_cleanup_server_connections")]
     pub cleanup_server_connections: bool,
 
+    #[serde(default)] // False
+    pub log_client_parameter_status_changes: bool,
+
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -696,6 +699,7 @@ impl Default for Pool {
             server_lifetime: None,
             plugins: None,
             cleanup_server_connections: true,
+            log_client_parameter_status_changes: false,
         }
     }
 }
@@ -1156,6 +1160,10 @@ impl Config {
             info!(
                 "[pool: {}] Cleanup server connections: {}",
                 pool_name, pool_config.cleanup_server_connections
+            );
+            info!(
+                "[pool: {}] Log client parameter status changes: {}",
+                pool_name, pool_config.log_client_parameter_status_changes
             );
             info!(
                 "[pool: {}] Plugins: {}",

@@ -322,6 +322,9 @@ pub struct Server {
     /// Should clean up dirty connections?
     cleanup_connections: bool,
 
+    /// Log client parameter status changes
+    log_client_parameter_status_changes: bool,
+
     /// Prepared statements
     prepared_statements: BTreeSet<String>,
 }
@@ -337,6 +340,7 @@ impl Server {
         stats: Arc<ServerStats>,
         auth_hash: Arc<RwLock<Option<String>>>,
         cleanup_connections: bool,
+        log_client_parameter_status_changes: bool,
     ) -> Result<Server, Error> {
         let cached_resolver = CACHED_RESOLVER.load();
         let mut addr_set: Option<AddrSet> = None;
@@ -825,6 +829,7 @@ impl Server {
                             )),
                         },
                         cleanup_connections,
+                        log_client_parameter_status_changes,
                         prepared_statements: BTreeSet::new(),
                     };
 
@@ -1009,6 +1014,9 @@ impl Server {
 
                     if let Some(client_server_parameters) = client_server_parameters.as_mut() {
                         client_server_parameters.set_param(key.clone(), value.clone(), false);
+                        if self.log_client_parameter_status_changes {
+                            info!("Client parameter status change: {} = {}", key, value)
+                        }
                     }
 
                     self.server_parameters.set_param(key, value, false);
@@ -1373,6 +1381,7 @@ impl Server {
             Arc::new(ServerStats::default()),
             Arc::new(RwLock::new(None)),
             true,
+            false,
         )
         .await?;
         debug!("Connected!, sending query.");
