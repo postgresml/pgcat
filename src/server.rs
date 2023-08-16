@@ -107,10 +107,10 @@ impl StreamInner {
 
 #[derive(Copy, Clone)]
 struct CleanupState {
-    /// If server connection requires DISCARD ALL before checkin because of set statement
+    /// If server connection requires RESET ALL before checkin because of set statement
     needs_cleanup_set: bool,
 
-    /// If server connection requires DISCARD ALL before checkin because of prepare statement
+    /// If server connection requires DEALLOCATE ALL before checkin because of prepare statement
     needs_cleanup_prepare: bool,
 }
 
@@ -296,7 +296,7 @@ pub struct Server {
     /// Is the server broken? We'll remote it from the pool if so.
     bad: bool,
 
-    /// If server connection requires DISCARD ALL before checkin
+    /// If server connection requires reset statements before checkin
     cleanup_state: CleanupState,
 
     /// Mapping of clients and servers used for query cancellation.
@@ -982,7 +982,7 @@ impl Server {
                                     // We don't detect set statements in transactions
                                     // No great way to differentiate between set and set local
                                     // As a result, we will miss cases when set statements are used in transactions
-                                    // This will reduce amount of discard statements sent
+                                    // This will reduce amount of reset statements sent
                                     if !self.in_transaction {
                                         debug!("Server connection marked for clean up");
                                         self.cleanup_state.needs_cleanup_set = true;
@@ -1304,7 +1304,7 @@ impl Server {
         // Client disconnected but it performed session-altering operations such as
         // SET statement_timeout to 1 or create a prepared statement. We clear that
         // to avoid leaking state between clients. For performance reasons we only
-        // send `DISCARD ALL` if we think the session is altered instead of just sending
+        // send `RESET ALL` if we think the session is altered instead of just sending
         // it before each checkin.
         if self.cleanup_state.needs_cleanup() && self.cleanup_connections {
             info!(target: "pgcat::server::cleanup", "Server returned with session state altered, discarding state ({}) for application {}", self.cleanup_state, self.application_name);
@@ -1345,7 +1345,7 @@ impl Server {
         self.last_activity
     }
 
-    // Marks a connection as needing DISCARD ALL at checkin
+    // Marks a connection as needing cleanup at checkin
     pub fn mark_dirty(&mut self) {
         self.cleanup_state.set_true();
     }
