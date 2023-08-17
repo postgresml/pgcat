@@ -409,6 +409,8 @@ where
         shutdown: Receiver<()>,
         admin_only: bool,
     ) -> Result<Client<S, T>, Error> {
+        let startup_time_start = Instant::now();
+
         let parameters = parse_startup(bytes.clone())?;
 
         // This parameter is mandatory by the protocol.
@@ -676,6 +678,14 @@ where
             tokio::time::Instant::now(),
         ));
 
+        stats.register(stats.clone());
+
+        stats.startup_time(
+            Instant::now()
+                .duration_since(startup_time_start)
+                .as_micros() as u64,
+        );
+
         Ok(Client {
             read: BufReader::new(read),
             write,
@@ -767,8 +777,6 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-
-        self.stats.register(self.stats.clone());
 
         // Result returned by one of the plugins.
         let mut plugin_output = None;
