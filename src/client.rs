@@ -119,6 +119,8 @@ pub async fn client_entrypoint(
     // Figure out if the client wants TLS or not.
     let addr = stream.peer_addr().unwrap();
 
+    let startup_time_start = Instant::now();
+
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
@@ -131,7 +133,15 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown, admin_only).await {
+                match startup_tls(
+                    stream,
+                    client_server_map,
+                    shutdown,
+                    admin_only,
+                    startup_time_start,
+                )
+                .await
+                {
                     Ok(mut client) => {
                         if log_client_connections {
                             info!("Client {:?} connected (TLS)", addr);
@@ -181,6 +191,7 @@ pub async fn client_entrypoint(
                             client_server_map,
                             shutdown,
                             admin_only,
+                            startup_time_start,
                         )
                         .await
                         {
@@ -235,6 +246,7 @@ pub async fn client_entrypoint(
                 client_server_map,
                 shutdown,
                 admin_only,
+                startup_time_start,
             )
             .await
             {
@@ -345,6 +357,7 @@ pub async fn startup_tls(
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
     admin_only: bool,
+    startup_time_start: Instant,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -376,6 +389,7 @@ pub async fn startup_tls(
                 client_server_map,
                 shutdown,
                 admin_only,
+                startup_time_start,
             )
             .await
         }
@@ -408,9 +422,8 @@ where
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
         admin_only: bool,
+        startup_time_start: Instant,
     ) -> Result<Client<S, T>, Error> {
-        let startup_time_start = Instant::now();
-
         let parameters = parse_startup(bytes.clone())?;
 
         // This parameter is mandatory by the protocol.
