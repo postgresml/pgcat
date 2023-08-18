@@ -121,6 +121,9 @@ pub struct PoolSettings {
     // Read from the primary as well or not.
     pub primary_reads_enabled: bool,
 
+    // Enable/disable query result stats.
+    pub query_result_stats_enabled: bool,
+
     // Sharding function.
     pub sharding_function: ShardingFunction,
 
@@ -166,6 +169,7 @@ impl Default for PoolSettings {
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
+            query_result_stats_enabled: false,
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
@@ -467,6 +471,7 @@ impl ConnectionPool {
                             _ => unreachable!(),
                         },
                         query_parser_enabled: pool_config.query_parser_enabled,
+                        query_result_stats_enabled: pool_config.query_result_stats_enabled,
                         query_parser_max_length: pool_config.query_parser_max_length,
                         query_parser_read_write_splitting: pool_config
                             .query_parser_read_write_splitting,

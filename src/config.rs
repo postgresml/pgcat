@@ -517,6 +517,9 @@ pub struct Pool {
     pub query_parser_read_write_splitting: bool,
 
     #[serde(default)] // False
+    pub query_result_stats_enabled: bool,
+
+    #[serde(default)] // False
     pub primary_reads_enabled: bool,
 
     /// Maximum time to allow for establishing a new server connection.
@@ -682,6 +685,7 @@ impl Default for Pool {
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
+            query_result_stats_enabled: false,
             primary_reads_enabled: false,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,

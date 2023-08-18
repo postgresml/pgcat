@@ -1,9 +1,6 @@
 use crate::errors::Error;
 use crate::messages::BytesMutReader;
 use bytes::{Buf, BytesMut};
-use sqlparser::ast::Statement;
-use sqlparser::dialect::PostgreSqlDialect;
-use sqlparser::parser::Parser;
 use std::io::Cursor;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -12,12 +9,16 @@ pub struct Query {
 }
 
 impl Query {
-    pub fn new(message: &BytesMut) -> Option<Query> {
+    pub fn new(message: &BytesMut, max_length: Option<usize>) -> Option<Query> {
         let mut message_cursor = Cursor::new(message);
         let char = message_cursor.get_u8() as char;
 
-        // TODO max_len
-        let _len = message_cursor.get_i32() as usize;
+        let len = message_cursor.get_i32() as usize;
+        if let Some(max_length) = max_length {
+            if len > max_length {
+                return None;
+            }
+        }
 
         let text = match char {
             // Query
@@ -38,19 +39,9 @@ impl Query {
         Some(Query { text })
     }
 
-    fn statements(&self) -> Result<Vec<Statement>, Error> {
-        Parser::parse_sql(&PostgreSqlDialect {}, &self.text)
-            .map_err(|e| Error::BadQuery(format!("Error parsing query: {}", e)))
-    }
-
     pub fn is_select(&self) -> bool {
-        self.statements()
-            .map(|statements| {
-                statements.iter().any(|s| match s {
-                    Statement::Query(_) => true,
-                    _ => false,
-                })
-            })
+        pg_query::parse(&self.text)
+            .map(|tree| tree.select_tables() == tree.tables())
             .unwrap_or(false)
     }
 

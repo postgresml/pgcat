@@ -1677,16 +1677,21 @@ where
             Some(message) => message,
             None => &self.buffer,
         };
-        let query = if !server.in_transaction() {
-            Query::new(&message)
+        let query = if pool.settings.query_result_stats_enabled {
+            Query::new(&message, pool.settings.query_parser_max_length).and_then(|q| {
+                if q.is_select() {
+                    Some(q)
+                } else {
+                    None
+                }
+            })
         } else {
             None
         };
 
-        let mut result_hasher = if query.is_some() {
-            Some(Sha256::new())
-        } else {
-            None
+        let mut result_hasher = match query {
+            Some(_) => Some(Sha256::new()),
+            None => None,
         };
 
         self.send_server_message(server, message, address, pool)
