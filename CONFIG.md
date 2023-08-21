@@ -57,6 +57,38 @@ default: 86400000 # 24 hours
 
 Max connection lifetime before it's closed, even if actively used.
 
+### server_round_robin
+```
+path: general.server_round_robin
+default: false
+```
+
+Whether to use round robin for server selection or not.
+
+### server_tls
+```
+path: general.server_tls
+default: false
+```
+
+Whether to use TLS for server connections or not.
+
+### verify_server_certificate
+```
+path: general.verify_server_certificate
+default: false
+```
+
+Whether to verify server certificate or not.
+
+### verify_config
+```
+path: general.verify_config
+default: true
+```
+
+Whether to verify config or not.
+
 ### idle_client_in_transaction_timeout
 ```
 path: general.idle_client_in_transaction_timeout
@@ -193,6 +225,55 @@ default: "admin_pass"
 ```
 
 Password to access the virtual administrative database
+
+### auth_query
+```
+path: general.auth_query
+default: <UNSET>
+example: "SELECT $1"
+```
+
+Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
+established using the database configured in the pool. This parameter is inherited by every pool
+and can be redefined in pool configuration.
+
+### auth_query_user
+```
+path: general.auth_query_user
+default: <UNSET>
+example: "sharding_user"
+```
+
+User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
+
+### auth_query_password
+```
+path: general.auth_query_password
+default: <UNSET>
+example: "sharding_user"
+```
+
+Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
+
+### prepared_statements
+```
+path: general.prepared_statements
+default: false
+```
+
+Whether to use prepared statements or not.
+
+### prepared_statements_cache_size
+```
+path: general.prepared_statements_cache_size
+default: 500
+```
+
+Size of the prepared statements cache.
 
 ### dns_cache_enabled
 ```
