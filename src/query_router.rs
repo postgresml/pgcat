@@ -141,6 +141,7 @@ impl QueryRouter {
         let mut message_cursor = Cursor::new(message_buffer);
 
         let code = message_cursor.get_u8() as char;
+        let len = message_cursor.get_i32() as usize;
 
         // Check for any sharding regex matches in any queries
         match code as char {
@@ -150,7 +151,6 @@ impl QueryRouter {
                     || self.pool_settings.sharding_key_regex.is_some()
                 {
                     // Check only the first block of bytes configured by the pool settings
-                    let len = message_cursor.get_i32() as usize;
                     let seg = cmp::min(len - 5, self.pool_settings.regex_search_limit);
                     let initial_segment = String::from_utf8_lossy(&message_buffer[0..seg]);
 
@@ -192,7 +192,6 @@ impl QueryRouter {
             return None;
         }
 
-        let _len = message_cursor.get_i32() as usize;
         let query = message_cursor.read_string().unwrap();
 
         let regex_set = match CUSTOM_SQL_REGEX_SET.get() {
