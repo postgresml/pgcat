@@ -19,9 +19,9 @@ use crate::plugins::{Intercept, Plugin, PluginOutput, QueryLogger, TableAccess};
 use crate::pool::PoolSettings;
 use crate::sharding::Sharder;
 
-use std::cmp;
 use std::collections::BTreeSet;
 use std::io::Cursor;
+use std::{cmp, mem};
 
 /// Regexes used to parse custom commands.
 const CUSTOM_SQL_REGEXES: [&str; 7] = [
@@ -152,7 +152,12 @@ impl QueryRouter {
                 {
                     // Check only the first block of bytes configured by the pool settings
                     let seg = cmp::min(len - 5, self.pool_settings.regex_search_limit);
-                    let initial_segment = String::from_utf8_lossy(&message_buffer[0..seg]);
+
+                    let query_start_index = mem::size_of::<u8>() + mem::size_of::<i32>();
+
+                    let initial_segment = String::from_utf8_lossy(
+                        &message_buffer[query_start_index..query_start_index + seg],
+                    );
 
                     // Check for a shard_id included in the query
                     if let Some(shard_id_regex) = &self.pool_settings.shard_id_regex {
