@@ -1295,6 +1295,11 @@ mod test {
         // Shard should start out unset
         assert_eq!(qr.active_shard, None);
 
+        // Don't panic when short query eg. ; is sent
+        let q0 = simple_query(";");
+        assert!(qr.try_execute_command(&q0) == None);
+        assert_eq!(qr.active_shard, None);
+
         // Make sure setting it works
         let q1 = simple_query("/* shard_id: 1 */ select 1 from foo;");
         assert!(qr.try_execute_command(&q1) == None);
