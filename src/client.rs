@@ -348,7 +348,15 @@ pub async fn startup_tls(
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
-    let addr = stream.peer_addr().unwrap();
+    let addr = match stream.peer_addr() {
+        Ok(addr) => addr,
+        Err(err) => {
+            return Err(Error::SocketError(format!(
+                "Failed to get peer address: {:?}",
+                err
+            )));
+        }
+    };
 
     let mut stream = match tls.acceptor.accept(stream).await {
         Ok(stream) => stream,
