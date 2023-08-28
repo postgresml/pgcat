@@ -117,7 +117,15 @@ pub async fn client_entrypoint(
     log_client_connections: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
-    let addr = stream.peer_addr().unwrap();
+    let addr = match stream.peer_addr() {
+    Ok(addr) => addr,
+    Err(err) => {
+        return Err(Error::SocketError(format!(
+            "Failed to get peer address: {:?}",
+            err
+        )));
+    }
+    };
 
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
