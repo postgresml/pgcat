@@ -1,5 +1,6 @@
 require 'pg'
 require 'json'
+require 'tempfile'
 require 'fileutils'
 require 'securerandom'
 
@@ -20,7 +21,7 @@ class PgcatProcess
   def initialize(log_level)
     @env = {}
     @port = rand(20000..32760)
-    @log_level = "ERROR" #log_level
+    @log_level = log_level
     @log_filename = "/tmp/pgcat_log_#{SecureRandom.urlsafe_base64}.log"
     @config_filename = "/tmp/pgcat_cfg_#{SecureRandom.urlsafe_base64}.toml"
 
@@ -46,8 +47,11 @@ class PgcatProcess
 
   def update_config(config_hash)
     @original_config = current_config
-    File.write("/tmp/4", config_hash.to_json)
-    `cat /tmp/4 | yj -jt > #{@config_filename}`
+    Tempfile.create('json_out', '/tmp') do |f|
+      f.write(config_hash.to_json)
+      f.flush
+      `cat #{f.path} | yj -jt > #{@config_filename}`
+    end
   end
 
   def current_config

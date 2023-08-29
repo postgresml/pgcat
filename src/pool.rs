@@ -36,7 +36,6 @@ pub type ServerHost = String;
 pub type ServerPort = u16;
 
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, (BanReason, NaiveDateTime)>>>>;
-//pub type ErrorList = Arc<RwLock<Vec<HashMap<Address, AtomicU64>>>>;
 pub type ClientServerMap =
     Arc<Mutex<HashMap<(ProcessId, SecretKey), (ProcessId, SecretKey, ServerHost, ServerPort)>>>;
 pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
@@ -438,7 +437,6 @@ impl ConnectionPool {
 
                     shards.push(pools);
                     addresses.push(servers);
-
                     banlist.push(HashMap::new());
                 }
 
@@ -798,6 +796,7 @@ impl ConnectionPool {
         if address.role == Role::Primary {
             return;
         }
+
         error!("Banning instance {:?}, reason: {:?}", address, reason);
 
         let now = chrono::offset::Utc::now().naive_utc();
