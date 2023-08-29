@@ -257,7 +257,7 @@ impl QueryRouter {
                             }
                         }
                     }
-                    None => self.set_shard(0),
+                    None => (),
                 }
             }
             return None;
