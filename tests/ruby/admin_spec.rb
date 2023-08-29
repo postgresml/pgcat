@@ -90,4 +90,28 @@ describe "Admin" do
       expect(results["pool_mode"]).to eq("transaction")
     end
   end
+
+  describe "PAUSE" do
+    it "pauses all pools" do
+      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+      results = admin_conn.async_exec("SHOW DATABASES").to_a
+      expect(results.map{ |r| r["paused"] }.uniq).to eq(["0"])
+
+      admin_conn.async_exec("PAUSE")
+
+      results = admin_conn.async_exec("SHOW DATABASES").to_a
+      expect(results.map{ |r| r["paused"] }.uniq).to eq(["1"])
+
+      admin_conn.async_exec("RESUME")
+
+      results = admin_conn.async_exec("SHOW DATABASES").to_a
+      expect(results.map{ |r| r["paused"] }.uniq).to eq(["0"])
+    end
+
+    it "handles errors" do
+      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+      expect { admin_conn.async_exec("PAUSE foo").to_a }.to raise_error(PG::SystemError)
+      expect { admin_conn.async_exec("PAUSE foo,bar").to_a }.to raise_error(PG::SystemError)
+    end
+  end
 end

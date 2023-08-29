@@ -74,11 +74,11 @@ where
         }
         "PAUSE" => {
             trace!("PAUSE");
-            pause(stream, query_parts[1]).await
+            pause(stream, query_parts).await
         }
         "RESUME" => {
             trace!("RESUME");
-            resume(stream, query_parts[1]).await
+            resume(stream, query_parts).await
         }
         "SHUTDOWN" => {
             trace!("SHUTDOWN");
@@ -797,96 +797,128 @@ where
 }
 
 /// Pause a pool. It won't pass any more queries to the backends.
-async fn pause<T>(stream: &mut T, query: &str) -> Result<(), Error>
+async fn pause<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let parts: Vec<&str> = query.split(",").map(|part| part.trim()).collect();
+    let parts: Vec<&str> = match tokens.len() == 2 {
+        true => tokens[1].split(",").map(|part| part.trim()).collect(),
+        false => Vec::new(),
+    };
 
-    if parts.len() != 2 {
-        error_response(
-            stream,
-            "PAUSE requires a database and a user, e.g. PAUSE my_db,my_user",
-        )
-        .await
-    } else {
-        let database = parts[0];
-        let user = parts[1];
-
-        match get_pool(database, user) {
-            Some(pool) => {
+    match parts.len() {
+        0 => {
+            for (_, pool) in get_all_pools() {
                 pool.pause();
-
-                let mut res = BytesMut::new();
-
-                res.put(command_complete(&format!("PAUSE {},{}", database, user)));
-
-                // ReadyForQuery
-                res.put_u8(b'Z');
-                res.put_i32(5);
-                res.put_u8(b'I');
-
-                write_all_half(stream, &res).await
             }
 
-            None => {
-                error_response(
-                    stream,
-                    &format!(
-                        "No pool configured for database: {}, user: {}",
-                        database, user
-                    ),
-                )
-                .await
+            let mut res = BytesMut::new();
+
+            res.put(command_complete("PAUSE"));
+
+            // ReadyForQuery
+            res.put_u8(b'Z');
+            res.put_i32(5);
+            res.put_u8(b'I');
+
+            write_all_half(stream, &res).await
+        }
+        2 => {
+            let database = parts[0];
+            let user = parts[1];
+
+            match get_pool(database, user) {
+                Some(pool) => {
+                    pool.pause();
+
+                    let mut res = BytesMut::new();
+
+                    res.put(command_complete(&format!("PAUSE {},{}", database, user)));
+
+                    // ReadyForQuery
+                    res.put_u8(b'Z');
+                    res.put_i32(5);
+                    res.put_u8(b'I');
+
+                    write_all_half(stream, &res).await
+                }
+
+                None => {
+                    error_response(
+                        stream,
+                        &format!(
+                            "No pool configured for database: {}, user: {}",
+                            database, user
+                        ),
+                    )
+                    .await
+                }
             }
         }
+        _ => error_response(stream, "usage: PAUSE [db, user]").await,
     }
 }
 
 /// Resume a pool. Queries are allowed again.
-async fn resume<T>(stream: &mut T, query: &str) -> Result<(), Error>
+async fn resume<T>(stream: &mut T, tokens: Vec<&str>) -> Result<(), Error>
 where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let parts: Vec<&str> = query.split(",").map(|part| part.trim()).collect();
+    let parts: Vec<&str> = match tokens.len() == 2 {
+        true => tokens[1].split(",").map(|part| part.trim()).collect(),
+        false => Vec::new(),
+    };
 
-    if parts.len() != 2 {
-        error_response(
-            stream,
-            "RESUME requires a database and a user, e.g. RESUME my_db,my_user",
-        )
-        .await
-    } else {
-        let database = parts[0];
-        let user = parts[1];
-
-        match get_pool(database, user) {
-            Some(pool) => {
+    match parts.len() {
+        0 => {
+            for (_, pool) in get_all_pools() {
                 pool.resume();
-
-                let mut res = BytesMut::new();
-
-                res.put(command_complete(&format!("RESUME {},{}", database, user)));
-
-                // ReadyForQuery
-                res.put_u8(b'Z');
-                res.put_i32(5);
-                res.put_u8(b'I');
-
-                write_all_half(stream, &res).await
             }
 
-            None => {
-                error_response(
-                    stream,
-                    &format!(
-                        "No pool configured for database: {}, user: {}",
-                        database, user
-                    ),
-                )
-                .await
+            let mut res = BytesMut::new();
+
+            res.put(command_complete("RESUME"));
+
+            // ReadyForQuery
+            res.put_u8(b'Z');
+            res.put_i32(5);
+            res.put_u8(b'I');
+
+            write_all_half(stream, &res).await
+        }
+        2 => {
+            let database = parts[0];
+            let user = parts[1];
+
+            match get_pool(database, user) {
+                Some(pool) => {
+                    pool.resume();
+
+                    let mut res = BytesMut::new();
+
+                    res.put(command_complete(&format!("RESUME {},{}", database, user)));
+
+                    // ReadyForQuery
+                    res.put_u8(b'Z');
+                    res.put_i32(5);
+                    res.put_u8(b'I');
+
+                    write_all_half(stream, &res).await
+                }
+
+                None => {
+                    error_response(
+                        stream,
+                        &format!(
+                            "No pool configured for database: {}, user: {}",
+                            database, user
+                        ),
+                    )
+                    .await
+                }
             }
         }
+        _ => error_response(stream, "usage: RESUME [db, user]").await,
     }
 }
 
