@@ -7,10 +7,24 @@ class PgInstance
   attr_reader :password
   attr_reader :database_name
 
+  def self.mass_takedown(databases)
+    raise StandardError "block missing" unless block_given?
+
+    databases.each do |database|
+      database.toxiproxy.toxic(:limit_data, bytes: 1).toxics.each(&:save)
+    end
+    sleep 0.1
+    yield
+  ensure
+    databases.each do |database|
+      database.toxiproxy.toxics.each(&:destroy)
+    end
+  end
+
   def initialize(port, username, password, database_name)
-    @original_port = port
+    @original_port = port.to_i
     @toxiproxy_port = 10000 + port.to_i
-    @port = @toxiproxy_port
+    @port = @toxiproxy_port.to_i
 
     @username = username
     @password = password
@@ -48,9 +62,9 @@ class PgInstance
 
   def take_down
     if block_given?
-      Toxiproxy[@toxiproxy_name].toxic(:limit_data, bytes: 5).apply { yield }
+      Toxiproxy[@toxiproxy_name].toxic(:limit_data, bytes: 1).apply { yield }
     else
-      Toxiproxy[@toxiproxy_name].toxic(:limit_data, bytes: 5).toxics.each(&:save)
+      Toxiproxy[@toxiproxy_name].toxic(:limit_data, bytes: 1).toxics.each(&:save)
     end
   end
 
@@ -89,6 +103,6 @@ class PgInstance
   end
 
   def count_select_1_plus_2
-    with_connection { |c| c.async_exec("SELECT SUM(calls) FROM pg_stat_statements WHERE query = 'SELECT $1 + $2'")[0]["sum"].to_i }
+    with_connection { |c| c.async_exec("SELECT SUM(calls) FROM pg_stat_statements WHERE query LIKE '%SELECT $1 + $2%'")[0]["sum"].to_i }
   end
 end

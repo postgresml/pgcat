@@ -1,5 +1,5 @@
 require 'pg'
-require 'toml'
+require 'json'
 require 'fileutils'
 require 'securerandom'
 
@@ -18,9 +18,9 @@ class PgcatProcess
   end
 
   def initialize(log_level)
-    @env = {"RUST_LOG" => log_level}
+    @env = {}
     @port = rand(20000..32760)
-    @log_level = log_level
+    @log_level = "ERROR" #log_level
     @log_filename = "/tmp/pgcat_log_#{SecureRandom.urlsafe_base64}.log"
     @config_filename = "/tmp/pgcat_cfg_#{SecureRandom.urlsafe_base64}.toml"
 
@@ -30,7 +30,7 @@ class PgcatProcess
                      '../../target/debug/pgcat'
                    end
 
-    @command = "#{command_path} #{@config_filename}"
+    @command = "#{command_path} #{@config_filename} --log-level #{@log_level}"
 
     FileUtils.cp("../../pgcat.toml", @config_filename)
     cfg = current_config
@@ -46,17 +46,16 @@ class PgcatProcess
 
   def update_config(config_hash)
     @original_config = current_config
-    output_to_write = TOML::Generator.new(config_hash).body
-    output_to_write = output_to_write.gsub(/,\s*["|'](\d+)["|']\s*,/, ',\1,')
-    output_to_write = output_to_write.gsub(/,\s*["|'](\d+)["|']\s*\]/, ',\1]')
-    File.write(@config_filename, output_to_write)
+    File.write("/tmp/4", config_hash.to_json)
+    `cat /tmp/4 | yj -jt > #{@config_filename}`
   end
 
   def current_config
-    loadable_string = File.read(@config_filename)
-    loadable_string = loadable_string.gsub(/,\s*(\d+)\s*,/,  ', "\1",')
-    loadable_string = loadable_string.gsub(/,\s*(\d+)\s*\]/, ', "\1"]')
-    TOML.load(loadable_string)
+    JSON.parse(`cat #{@config_filename} | yj -tj`)
+  end
+
+  def raw_config_file
+    File.read(@config_filename)
   end
 
   def reload_config
@@ -116,11 +115,11 @@ class PgcatProcess
     cfg = current_config
     user_idx, user_obj = cfg["pools"][pool_name]["users"].detect { |k, user| user["username"] == username }
     connection_string = "postgresql://#{username}:#{password || user_obj["password"]}@0.0.0.0:#{@port}/#{pool_name}"
-  
+
     # Add the additional parameters to the connection string
     parameter_string = parameters.map { |key, value| "#{key}=#{value}" }.join("&")
     connection_string += "?#{parameter_string}" unless parameter_string.empty?
-  
+
     connection_string
   end
 

@@ -1,7 +1,7 @@
 /// Route queries automatically based on explicitly requested
 /// or implied query characteristics.
 use bytes::{Buf, BytesMut};
-use log::{debug, error};
+use log::{debug, error, warn};
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexSet};
 use sqlparser::ast::Statement::{Query, StartTransaction};
@@ -12,11 +12,11 @@ use sqlparser::ast::{
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-use crate::config::Role;
+use crate::config::{NoShardSpecifiedHandling, Role};
 use crate::errors::Error;
 use crate::messages::BytesMutReader;
 use crate::plugins::{Intercept, Plugin, PluginOutput, QueryLogger, TableAccess};
-use crate::pool::PoolSettings;
+use crate::pool::{get_pool, PoolSettings};
 use crate::sharding::Sharder;
 
 use std::collections::BTreeSet;
@@ -143,13 +143,14 @@ impl QueryRouter {
         let code = message_cursor.get_u8() as char;
         let len = message_cursor.get_i32() as usize;
 
+        let comment_shard_routing_enabled = self.pool_settings.shard_id_regex.is_some()
+            || self.pool_settings.sharding_key_regex.is_some();
+
         // Check for any sharding regex matches in any queries
-        match code as char {
-            // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
-            'P' | 'Q' => {
-                if self.pool_settings.shard_id_regex.is_some()
-                    || self.pool_settings.sharding_key_regex.is_some()
-                {
+        if comment_shard_routing_enabled {
+            match code as char {
+                // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
+                'P' | 'Q' => {
                     // Check only the first block of bytes configured by the pool settings
                     let seg = cmp::min(len - 5, self.pool_settings.regex_search_limit);
 
@@ -188,8 +189,8 @@ impl QueryRouter {
                         }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
 
         // Only simple protocol supported for commands processed below
@@ -215,6 +216,50 @@ impl QueryRouter {
         // server it'll go to if the query parser is enabled.
         if matches.len() != 1 {
             debug!("Regular query, not a command");
+            if comment_shard_routing_enabled {
+                // comment_shard_routing_enabled is true, but no sharding comment was found
+                match self.pool_settings.no_shard_specified_behavior {
+                    Some(behavior) => {
+                        match behavior {
+                            NoShardSpecifiedHandling::Random => {
+                                self.set_shard(rand::random::<usize>() % self.pool_settings.shards);
+                            }
+
+                            NoShardSpecifiedHandling::RandomHealthy => {
+                                let pool = get_pool(
+                                    &self.pool_settings.db,
+                                    &self.pool_settings.user.username,
+                                );
+                                match pool {
+                                    Some(pool) => {
+                                        self.set_shard(
+                                            //pool.get_random_shard_id_with_least_errors(),
+                                            pool.get_random_healthy_shard_id(),
+                                        );
+                                    }
+                                    None => {
+                                        // Query is using an obselete pool (old pool from before config reload)
+                                        // so we fallback to just random
+                                        self.set_shard(
+                                            rand::random::<usize>() % self.pool_settings.shards,
+                                        );
+                                    }
+                                }
+                            }
+
+                            NoShardSpecifiedHandling::Shard(shard_id) => {
+                                if shard_id >= self.pool_settings.shards {
+                                    warn!("Shard id {} is out of range, defaulting to 0", shard_id);
+                                    self.set_shard(0);
+                                } else {
+                                    self.set_shard(shard_id);
+                                }
+                            }
+                        }
+                    }
+                    None => self.set_shard(0),
+                }
+            }
             return None;
         }
 
@@ -1204,6 +1249,7 @@ mod test {
             ban_time: PoolSettings::default().ban_time,
             sharding_key_regex: None,
             shard_id_regex: None,
+            no_shard_specified_behavior: None,
             regex_search_limit: 1000,
             auth_query: None,
             auth_query_password: None,
@@ -1281,6 +1327,7 @@ mod test {
             ban_time: PoolSettings::default().ban_time,
             sharding_key_regex: Some(Regex::new(r"/\* sharding_key: (\d+) \*/").unwrap()),
             shard_id_regex: Some(Regex::new(r"/\* shard_id: (\d+) \*/").unwrap()),
+            no_shard_specified_behavior: None,
             regex_search_limit: 1000,
             auth_query: None,
             auth_query_password: None,

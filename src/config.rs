@@ -3,11 +3,14 @@ use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::{Deserializer, Serializer};
 use serde_derive::{Deserialize, Serialize};
+
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -101,6 +104,9 @@ pub struct Address {
 
     /// Address stats
     pub stats: Arc<AddressStats>,
+
+    /// Number of errors encountered
+    pub error_count: Arc<AtomicU64>,
 }
 
 impl Default for Address {
@@ -118,6 +124,7 @@ impl Default for Address {
             pool_name: String::from("pool_name"),
             mirrors: Vec::new(),
             stats: Arc::new(AddressStats::default()),
+            error_count: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -181,6 +188,18 @@ impl Address {
                 self.pool_name, self.shard, self.replica_number
             ),
         }
+    }
+
+    pub fn error_count(&self) -> u64 {
+        self.error_count.load(Ordering::Relaxed)
+    }
+
+    pub fn increment_error_count(&self) {
+        self.error_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn reset_error_count(&self) {
+        self.error_count.store(0, Ordering::Relaxed);
     }
 }
 
@@ -539,6 +558,7 @@ pub struct Pool {
     pub sharding_key_regex: Option<String>,
     pub shard_id_regex: Option<String>,
     pub regex_search_limit: Option<usize>,
+    pub no_shard_specified_behavior: Option<NoShardSpecifiedHandling>,
 
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -693,6 +713,7 @@ impl Default for Pool {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: Some(1000),
+            no_shard_specified_behavior: None,
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -709,6 +730,50 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub role: Role,
+}
+
+// No Shard Specified handling.
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
+pub enum NoShardSpecifiedHandling {
+    Shard(usize),
+    Random,
+    RandomHealthy,
+}
+impl Default for NoShardSpecifiedHandling {
+    fn default() -> Self {
+        NoShardSpecifiedHandling::Shard(0)
+    }
+}
+impl serde::Serialize for NoShardSpecifiedHandling {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            NoShardSpecifiedHandling::Shard(shard) => {
+                serializer.serialize_str(&format!("shard_{}", &shard.to_string()))
+            }
+            NoShardSpecifiedHandling::Random => serializer.serialize_str("random"),
+            NoShardSpecifiedHandling::RandomHealthy => serializer.serialize_str("random_healthy"),
+        }
+    }
+}
+impl<'de> serde::Deserialize<'de> for NoShardSpecifiedHandling {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.starts_with("shard_") {
+            let shard = s[6..].parse::<usize>().map_err(serde::de::Error::custom)?;
+            return Ok(NoShardSpecifiedHandling::Shard(shard));
+        }
+
+        match s.as_str() {
+            "random" => Ok(NoShardSpecifiedHandling::Random),
+            "random_healthy" => Ok(NoShardSpecifiedHandling::RandomHealthy),
+            _ => Err(serde::de::Error::custom(
+                "invalid value for no_shard_specified_behavior",
+            )),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]

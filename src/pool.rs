@@ -10,6 +10,7 @@ use rand::thread_rng;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::sync::atomic::AtomicU64;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -18,7 +19,8 @@ use std::time::Instant;
 use tokio::sync::Notify;
 
 use crate::config::{
-    get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
+    get_config, Address, General, LoadBalancingMode, NoShardSpecifiedHandling, Plugins, PoolMode,
+    Role, User,
 };
 use crate::errors::Error;
 
@@ -34,6 +36,7 @@ pub type ServerHost = String;
 pub type ServerPort = u16;
 
 pub type BanList = Arc<RwLock<Vec<HashMap<Address, (BanReason, NaiveDateTime)>>>>;
+//pub type ErrorList = Arc<RwLock<Vec<HashMap<Address, AtomicU64>>>>;
 pub type ClientServerMap =
     Arc<Mutex<HashMap<(ProcessId, SecretKey), (ProcessId, SecretKey, ServerHost, ServerPort)>>>;
 pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
@@ -140,6 +143,9 @@ pub struct PoolSettings {
     // Regex for searching for the shard id in SQL statements
     pub shard_id_regex: Option<Regex>,
 
+    // What to do when no shard is specified in the SQL statement
+    pub no_shard_specified_behavior: Option<NoShardSpecifiedHandling>,
+
     // Limit how much of each query is searched for a potential shard regex match
     pub regex_search_limit: usize,
 
@@ -173,6 +179,7 @@ impl Default for PoolSettings {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: 1000,
+            no_shard_specified_behavior: None,
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -299,6 +306,7 @@ impl ConnectionPool {
                                     pool_name: pool_name.clone(),
                                     mirrors: vec![],
                                     stats: Arc::new(AddressStats::default()),
+                                    error_count: Arc::new(AtomicU64::new(0)),
                                 });
                                 address_id += 1;
                             }
@@ -317,6 +325,7 @@ impl ConnectionPool {
                             pool_name: pool_name.clone(),
                             mirrors: mirror_addresses,
                             stats: Arc::new(AddressStats::default()),
+                            error_count: Arc::new(AtomicU64::new(0)),
                         };
 
                         address_id += 1;
@@ -429,6 +438,7 @@ impl ConnectionPool {
 
                     shards.push(pools);
                     addresses.push(servers);
+
                     banlist.push(HashMap::new());
                 }
 
@@ -482,6 +492,9 @@ impl ConnectionPool {
                             .clone()
                             .map(|regex| Regex::new(regex.as_str()).unwrap()),
                         regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
+                        no_shard_specified_behavior: pool_config
+                            .no_shard_specified_behavior
+                            .clone(),
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
@@ -651,7 +664,10 @@ impl ConnectionPool {
                 .get()
                 .await
             {
-                Ok(conn) => conn,
+                Ok(conn) => {
+                    address.reset_error_count();
+                    conn
+                }
                 Err(err) => {
                     error!(
                         "Connection checkout error for instance {:?}, error: {:?}",
@@ -766,11 +782,22 @@ impl ConnectionPool {
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, reason: BanReason, client_info: Option<&ClientStats>) {
+        // Count the number of errors since the last successful checkout
+        // This is used to determine if the shard is down
+        match reason {
+            BanReason::FailedHealthCheck
+            | BanReason::FailedCheckout
+            | BanReason::MessageSendFailed
+            | BanReason::MessageReceiveFailed => {
+                address.increment_error_count();
+            }
+            _ => (),
+        };
+
         // Primary can never be banned
         if address.role == Role::Primary {
             return;
         }
-
         error!("Banning instance {:?}, reason: {:?}", address, reason);
 
         let now = chrono::offset::Utc::now().naive_utc();
@@ -918,6 +945,32 @@ impl ConnectionPool {
 
     pub fn server_parameters(&self) -> ServerParameters {
         self.original_server_parameters.read().clone()
+    }
+
+    pub fn get_random_healthy_shard_id(&self) -> usize {
+        let mut shards = Vec::new();
+        for shard in 0..self.shards() {
+            shards.push(shard);
+        }
+
+        // Shuffle to avoid always picking the same shard when error counts are equal
+        shards.shuffle(&mut thread_rng());
+        shards.sort_by(|a, b| {
+            let err_count_a = self.addresses[*a]
+                .iter()
+                .fold(0, |acc, address| acc + address.error_count());
+
+            let err_count_b = self.addresses[*b]
+                .iter()
+                .fold(0, |acc, address| acc + address.error_count());
+
+            err_count_a.partial_cmp(&err_count_b).unwrap()
+        });
+
+        match shards.first() {
+            Some(shard) => *shard,
+            None => 0,
+        }
     }
 
     fn busy_connection_count(&self, address: &Address) -> u32 {
