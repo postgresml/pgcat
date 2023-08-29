@@ -1,4 +1,6 @@
 FROM cimg/rust:1.67.1
+COPY --from=sclevine/yj /bin/yj /bin/yj
+RUN /bin/yj -h
 RUN sudo apt-get update && \
 	sudo apt-get install -y \
 		psmisc postgresql-contrib-14 postgresql-client-14 libpq-dev \
