@@ -117,7 +117,17 @@ pub async fn client_entrypoint(
     log_client_connections: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
-    let addr = stream.peer_addr().unwrap();
+    let addr = match stream.peer_addr() {
+        Ok(addr) => addr,
+        Err(err) => {
+            return Err(Error::SocketError(format!(
+                "Failed to get peer address: {:?}",
+                err
+            )));
+        }
+    };
+
+    let startup_time_start = Instant::now();
 
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
@@ -131,7 +141,15 @@ pub async fn client_entrypoint(
                 write_all(&mut stream, yes).await?;
 
                 // Negotiate TLS.
-                match startup_tls(stream, client_server_map, shutdown, admin_only).await {
+                match startup_tls(
+                    stream,
+                    client_server_map,
+                    shutdown,
+                    admin_only,
+                    startup_time_start,
+                )
+                .await
+                {
                     Ok(mut client) => {
                         if log_client_connections {
                             info!("Client {:?} connected (TLS)", addr);
@@ -181,6 +199,7 @@ pub async fn client_entrypoint(
                             client_server_map,
                             shutdown,
                             admin_only,
+                            startup_time_start,
                         )
                         .await
                         {
@@ -235,6 +254,7 @@ pub async fn client_entrypoint(
                 client_server_map,
                 shutdown,
                 admin_only,
+                startup_time_start,
             )
             .await
             {
@@ -345,6 +365,7 @@ pub async fn startup_tls(
     client_server_map: ClientServerMap,
     shutdown: Receiver<()>,
     admin_only: bool,
+    startup_time_start: Instant,
 ) -> Result<Client<ReadHalf<TlsStream<TcpStream>>, WriteHalf<TlsStream<TcpStream>>>, Error> {
     // Negotiate TLS.
     let tls = Tls::new()?;
@@ -384,6 +405,7 @@ pub async fn startup_tls(
                 client_server_map,
                 shutdown,
                 admin_only,
+                startup_time_start,
             )
             .await
         }
@@ -416,6 +438,7 @@ where
         client_server_map: ClientServerMap,
         shutdown: Receiver<()>,
         admin_only: bool,
+        startup_time_start: Instant,
     ) -> Result<Client<S, T>, Error> {
         let parameters = parse_startup(bytes.clone())?;
 
@@ -684,6 +707,14 @@ where
             tokio::time::Instant::now(),
         ));
 
+        stats.register(stats.clone());
+
+        stats.startup_time(
+            Instant::now()
+                .duration_since(startup_time_start)
+                .as_micros() as u64,
+        );
+
         Ok(Client {
             read: BufReader::new(read),
             write,
@@ -775,8 +806,6 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
-
-        self.stats.register(self.stats.clone());
 
         // Result returned by one of the plugins.
         let mut plugin_output = None;

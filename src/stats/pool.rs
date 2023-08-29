@@ -16,6 +16,7 @@ pub struct PoolStats {
     pub cl_active: u64,
     pub cl_waiting: u64,
     pub cl_cancel_req: u64,
+    pub cl_max_startup_time: u64,
     pub sv_active: u64,
     pub sv_idle: u64,
     pub sv_used: u64,
@@ -32,6 +33,7 @@ impl PoolStats {
             cl_active: 0,
             cl_waiting: 0,
             cl_cancel_req: 0,
+            cl_max_startup_time: 0,
             sv_active: 0,
             sv_idle: 0,
             sv_used: 0,
@@ -66,8 +68,12 @@ impl PoolStats {
                     }
                     let max_wait = client.max_wait_time.load(Ordering::Relaxed);
                     pool_stats.maxwait = std::cmp::max(pool_stats.maxwait, max_wait);
+
+                    let max_startup_time = client.max_startup_time.load(Ordering::Relaxed);
+                    pool_stats.cl_max_startup_time =
+                        std::cmp::max(pool_stats.cl_max_startup_time, max_startup_time);
                 }
-                None => debug!("Client from an obselete pool"),
+                None => debug!("Client from an obsolete pool"),
             }
         }
 
@@ -98,6 +104,7 @@ impl PoolStats {
             ("cl_active", DataType::Numeric),
             ("cl_waiting", DataType::Numeric),
             ("cl_cancel_req", DataType::Numeric),
+            ("cl_max_startup_time", DataType::Numeric),
             ("sv_active", DataType::Numeric),
             ("sv_idle", DataType::Numeric),
             ("sv_used", DataType::Numeric),
@@ -117,6 +124,7 @@ impl PoolStats {
             self.cl_active.to_string(),
             self.cl_waiting.to_string(),
             self.cl_cancel_req.to_string(),
+            self.cl_max_startup_time.to_string(),
             self.sv_active.to_string(),
             self.sv_idle.to_string(),
             self.sv_used.to_string(),
@@ -138,6 +146,7 @@ impl IntoIterator for PoolStats {
             ("cl_active".to_string(), self.cl_active),
             ("cl_waiting".to_string(), self.cl_waiting),
             ("cl_cancel_req".to_string(), self.cl_cancel_req),
+            ("cl_max_startup_time".to_string(), self.cl_max_startup_time),
             ("sv_active".to_string(), self.sv_active),
             ("sv_idle".to_string(), self.sv_idle),
             ("sv_used".to_string(), self.sv_used),

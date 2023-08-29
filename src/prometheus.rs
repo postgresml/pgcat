@@ -90,6 +90,10 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
         help: "The time a client waited for a server connection in seconds",
         ty: "gauge",
     },
+    "pools_cl_max_startup_time" => MetricHelpType {
+        help: "The maximum time a client spent waiting for a connection to be established",
+        ty: "gauge",
+    },
     "pools_cl_waiting" => MetricHelpType {
         help: "How many clients are waiting for a connection from the pool",
         ty: "gauge",
