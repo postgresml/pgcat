@@ -1,7 +1,5 @@
 name: publish-ci-docker-image
-on:
-  push:
-    branches: [ main ]
+on: [push]
 jobs:
   publish-ci-docker-image:
     runs-on: ubuntu-latest
@@ -13,8 +11,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build CI Docker image
+      - name: Build CI Docker image (arm)
+        env:
+          DOCKER_TARGET_PLATFORM: linux/arm/v8
         run: |
-          docker build . -f Dockerfile.ci --tag ghcr.io/postgresml/pgcat-ci:latest
-          docker run ghcr.io/postgresml/pgcat-ci:latest
-          docker push ghcr.io/postgresml/pgcat-ci:latest
+          docker build . -f Dockerfile.ci --tag ghcr.io/postgresml/pgcat-ci:latest-arm64
+          docker run ghcr.io/postgresml/pgcat-ci:latest-arm64
+          docker push ghcr.io/postgresml/pgcat-ci:latest-arm64
