@@ -16,5 +16,4 @@ jobs:
           DOCKER_TARGET_PLATFORM: linux/arm/v8
         run: |
           docker build . -f Dockerfile --tag ghcr.io/postgresml/pgcat:ruby-pg-fix-arm64
-          docker run ghcr.io/postgresml/pgcat:ruby-pg-fix-arm64
           docker push ghcr.io/postgresml/pgcat:ruby-pg-fix-arm64
