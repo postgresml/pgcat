@@ -1,4 +1,5 @@
 FROM rust:1.72.0-bullseye
+RUN ls -la /usr/bin
 COPY . /app
 WORKDIR /app
 RUN cargo build --release
