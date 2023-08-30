@@ -15,6 +15,6 @@ jobs:
         env:
           DOCKER_TARGET_PLATFORM: linux/arm/v8
         run: |
-          docker build . -f Dockerfile.ci --tag ghcr.io/postgresml/pgcat-ci:latest-arm64
-          docker run ghcr.io/postgresml/pgcat-ci:latest-arm64
-          docker push ghcr.io/postgresml/pgcat-ci:latest-arm64
+          docker build . -f Dockerfile --tag ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-test-arm64
+          docker run ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-test-arm64
+          docker push ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-test-arm64
