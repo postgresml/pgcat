@@ -1,7 +1,7 @@
-name: publish-ci-docker-image
+name: publish-ci-docker-imag
 on: [push]
 jobs:
-  publish-ci-docker-image:
+  publish-ci-docker-imag:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -11,10 +11,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build CI Docker image (arm)
+      - name: Build CI Docker image (ar)
         env:
           DOCKER_TARGET_PLATFORM: linux/arm/v8
         run: |
-          docker build --no-cache . -f Dockerfile --tag ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-test-arm64
-          docker run ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-test-arm64
-          docker push ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-test-arm64
+          docker build --no-cache . -f Dockerfile --tag ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-arm64
+          docker run ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-arm64
+          docker push ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-arm64
