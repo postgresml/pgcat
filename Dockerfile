@@ -1,11 +1,11 @@
-FROM rust:1.72.0-bullseye
-RUN ls -la /usr/bin
+FROM rust:bullseye AS builder
 COPY . /app
 WORKDIR /app
 RUN cargo build --release
 
-COPY /app/target/release/pgcat /usr/bin/pgcat
-COPY /app/pgcat.toml /etc/pgcat/pgcat.toml
 WORKDIR /etc/pgcat
+RUN cp /app/target/release/pgcat /usr/bin/pgcat
+RUN cp /app/pgcat.toml /etc/pgcat/pgcat.toml
+
 ENV RUST_LOG=info
 CMD ["pgcat"]

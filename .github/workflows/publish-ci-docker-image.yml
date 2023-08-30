@@ -1,22 +1,20 @@
-name: publish-ci-docker-imag
+name: publish-ci-docker-image
 on: [push]
 jobs:
-  publish-ci-docker-imag:
+  publish-ci-docker-image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
         with:
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build CI Docker image (ar)
+      - name: Build CI Docker image (arm)
         env:
           DOCKER_TARGET_PLATFORM: linux/arm/v8
         run: |
-          docker build --no-cache . -f Dockerfile --tag ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-arm64
-          docker run ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-arm64
-          docker push ghcr.io/postgresml/pgcat-ci:ruby-pg-bug-arm64
+          docker build . -f Dockerfile --tag ghcr.io/postgresml/pgcat:ruby-pg-fix-arm64
+          docker run ghcr.io/postgresml/pgcat:ruby-pg-fix-arm64
+          docker push ghcr.io/postgresml/pgcat:ruby-pg-fix-arm64
