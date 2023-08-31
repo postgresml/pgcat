@@ -187,7 +187,7 @@ sharding_function = "pg_bigint_hash"
 # Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
 # established using the database configured in the pool. This parameter is inherited by every pool
 # and can be redefined in pool configuration.
-# auth_query = "SELECT $1"
+# auth_query="SELECT usename, passwd FROM pg_shadow WHERE usename='$1'"
 
 # User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
 # specified in `auth_query_user`. The connection will be established using the database configured in the pool.
