@@ -1010,14 +1010,14 @@ where
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
                     // Selected shard is not configured.
-                    if query_router.shard() >= pool.shards() {
+                    if query_router.shard().unwrap_or(0) >= pool.shards() {
                         // Set the shard back to what it was.
                         query_router.set_shard(current_shard);
 
                         error_response(
                             &mut self.write,
                             &format!(
-                                "shard {} is more than configured {}, staying on shard {} (shard numbers start at 0)",
+                                "shard {:?} is more than configured {}, staying on shard {:?} (shard numbers start at 0)",
                                 query_router.shard(),
                                 pool.shards(),
                                 current_shard,
@@ -1093,8 +1093,10 @@ where
                         self.buffer.clear();
                     }
 
-                    error_response(&mut self.write, "could not get connection from the pool")
-                        .await?;
+                    error_response(
+                        &mut self.write,
+                        format!("could not get connection from the pool - {}", err).as_str()
+                ).await?;
 
                     error!(
                         "Could not get connection from pool: \
@@ -1234,7 +1236,7 @@ where
                                     {{ \
                                         pool_name: {}, \
                                         username: {}, \
-                                        shard: {}, \
+                                        shard: {:?}, \
                                         role: \"{:?}\" \
                                     }}",
                                     self.pool_name,

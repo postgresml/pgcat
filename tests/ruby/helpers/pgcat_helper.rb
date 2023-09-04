@@ -38,9 +38,9 @@ module Helpers
           "automatic_sharding_key" => "data.id",
           "sharding_function" => "pg_bigint_hash",
           "shards" => {
-            "0" => { "database" => "shard0", "servers" => [["localhost", primary0.port.to_s, "primary"]] },
-            "1" => { "database" => "shard1", "servers" => [["localhost", primary1.port.to_s, "primary"]] },
-            "2" => { "database" => "shard2", "servers" => [["localhost", primary2.port.to_s, "primary"]] },
+            "0" => { "database" => "shard0", "servers" => [["localhost", primary0.port.to_i, "primary"]] },
+            "1" => { "database" => "shard1", "servers" => [["localhost", primary1.port.to_i, "primary"]] },
+            "2" => { "database" => "shard2", "servers" => [["localhost", primary2.port.to_i, "primary"]] },
           },
           "users" => { "0" => user },
           "plugins" => {
@@ -100,7 +100,7 @@ module Helpers
             "0" => {
               "database" => "shard0",
               "servers" => [
-                ["localhost", primary.port.to_s, "primary"]
+                ["localhost", primary.port.to_i, "primary"]
               ]
             },
           },
@@ -146,10 +146,10 @@ module Helpers
           "0" => {
             "database" => "shard0",
             "servers" => [
-              ["localhost", primary.port.to_s, "primary"],
-              ["localhost", replica0.port.to_s, "replica"],
-              ["localhost", replica1.port.to_s, "replica"],
-              ["localhost", replica2.port.to_s, "replica"]
+              ["localhost", primary.port.to_i, "primary"],
+              ["localhost", replica0.port.to_i, "replica"],
+              ["localhost", replica1.port.to_i, "replica"],
+              ["localhost", replica2.port.to_i, "replica"]
             ]
           },
         },

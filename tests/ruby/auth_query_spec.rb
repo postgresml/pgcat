@@ -185,7 +185,7 @@ describe "Auth Query" do
               },
             }
           }
-        } 
+        }
 
         context 'and with cleartext passwords set' do
           it 'it uses local passwords' do

@@ -143,13 +143,14 @@ impl QueryRouter {
         let code = message_cursor.get_u8() as char;
         let len = message_cursor.get_i32() as usize;
 
+        let comment_shard_routing_enabled = self.pool_settings.shard_id_regex.is_some()
+            || self.pool_settings.sharding_key_regex.is_some();
+
         // Check for any sharding regex matches in any queries
-        match code as char {
-            // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
-            'P' | 'Q' => {
-                if self.pool_settings.shard_id_regex.is_some()
-                    || self.pool_settings.sharding_key_regex.is_some()
-                {
+        if comment_shard_routing_enabled {
+            match code as char {
+                // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
+                'P' | 'Q' => {
                     // Check only the first block of bytes configured by the pool settings
                     let seg = cmp::min(len - 5, self.pool_settings.regex_search_limit);
 
@@ -166,7 +167,7 @@ impl QueryRouter {
                         });
                         if let Some(shard_id) = shard_id {
                             debug!("Setting shard to {:?}", shard_id);
-                            self.set_shard(shard_id);
+                            self.set_shard(Some(shard_id));
                             // Skip other command processing since a sharding command was found
                             return None;
                         }
@@ -188,8 +189,8 @@ impl QueryRouter {
                         }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
 
         // Only simple protocol supported for commands processed below
@@ -248,7 +249,9 @@ impl QueryRouter {
                 }
             }
 
-            Command::ShowShard => self.shard().to_string(),
+            Command::ShowShard => self
+                .shard()
+                .map_or_else(|| "unset".to_string(), |x| x.to_string()),
             Command::ShowServerRole => match self.active_role {
                 Some(Role::Primary) => Role::Primary.to_string(),
                 Some(Role::Replica) => Role::Replica.to_string(),
@@ -581,7 +584,7 @@ impl QueryRouter {
         // TODO: Support multi-shard queries some day.
         if shards.len() == 1 {
             debug!("Found one sharding key");
-            self.set_shard(*shards.first().unwrap());
+            self.set_shard(Some(*shards.first().unwrap()));
             true
         } else {
             debug!("Found no sharding keys");
@@ -865,7 +868,7 @@ impl QueryRouter {
             self.pool_settings.sharding_function,
         );
         let shard = sharder.shard(sharding_key);
-        self.set_shard(shard);
+        self.set_shard(Some(shard));
         self.active_shard
     }
 
@@ -875,12 +878,12 @@ impl QueryRouter {
     }
 
     /// Get desired shard we should be talking to.
-    pub fn shard(&self) -> usize {
-        self.active_shard.unwrap_or(0)
+    pub fn shard(&self) -> Option<usize> {
+        self.active_shard
     }
 
-    pub fn set_shard(&mut self, shard: usize) {
-        self.active_shard = Some(shard);
+    pub fn set_shard(&mut self, shard: Option<usize>) {
+        self.active_shard = shard;
     }
 
     /// Should we attempt to parse queries?
@@ -1090,7 +1093,7 @@ mod test {
             qr.try_execute_command(&query),
             Some((Command::SetShardingKey, String::from("0")))
         );
-        assert_eq!(qr.shard(), 0);
+        assert_eq!(qr.shard().unwrap(), 0);
 
         // SetShard
         let query = simple_query("SET SHARD TO '1'");
@@ -1098,7 +1101,7 @@ mod test {
             qr.try_execute_command(&query),
             Some((Command::SetShard, String::from("1")))
         );
-        assert_eq!(qr.shard(), 1);
+        assert_eq!(qr.shard().unwrap(), 1);
 
         // ShowShard
         let query = simple_query("SHOW SHARD");
@@ -1204,6 +1207,7 @@ mod test {
             ban_time: PoolSettings::default().ban_time,
             sharding_key_regex: None,
             shard_id_regex: None,
+            no_shard_specified_behavior: crate::config::NoShardSpecifiedHandling::Shard(0),
             regex_search_limit: 1000,
             auth_query: None,
             auth_query_password: None,
@@ -1281,6 +1285,7 @@ mod test {
             ban_time: PoolSettings::default().ban_time,
             sharding_key_regex: Some(Regex::new(r"/\* sharding_key: (\d+) \*/").unwrap()),
             shard_id_regex: Some(Regex::new(r"/\* shard_id: (\d+) \*/").unwrap()),
+            no_shard_specified_behavior: crate::config::NoShardSpecifiedHandling::Shard(0),
             regex_search_limit: 1000,
             auth_query: None,
             auth_query_password: None,
@@ -1331,7 +1336,7 @@ mod test {
                     .unwrap(),
             )
             .is_ok());
-        assert_eq!(qr.shard(), 2);
+        assert_eq!(qr.shard().unwrap(), 2);
 
         assert!(qr
             .infer(
@@ -1341,7 +1346,7 @@ mod test {
                 .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 0);
+        assert_eq!(qr.shard().unwrap(), 0);
 
         assert!(qr
             .infer(
@@ -1354,7 +1359,7 @@ mod test {
                 .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 2);
+        assert_eq!(qr.shard().unwrap(), 2);
 
         // Shard did not move because we couldn't determine the sharding key since it could be ambiguous
         // in the query.
@@ -1366,7 +1371,7 @@ mod test {
                 .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 2);
+        assert_eq!(qr.shard().unwrap(), 2);
 
         assert!(qr
             .infer(
@@ -1376,7 +1381,7 @@ mod test {
                 .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 0);
+        assert_eq!(qr.shard().unwrap(), 0);
 
         assert!(qr
             .infer(
@@ -1386,7 +1391,7 @@ mod test {
                 .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 2);
+        assert_eq!(qr.shard().unwrap(), 2);
 
         // Super unique sharding key
         qr.pool_settings.automatic_sharding_key = Some("*.unique_enough_column_name".to_string());
@@ -1398,7 +1403,7 @@ mod test {
                 .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 0);
+        assert_eq!(qr.shard().unwrap(), 0);
 
         assert!(qr
             .infer(
@@ -1406,7 +1411,7 @@ mod test {
                     .unwrap()
             )
             .is_ok());
-        assert_eq!(qr.shard(), 0);
+        assert_eq!(qr.shard().unwrap(), 0);
     }
 
     #[test]
@@ -1434,7 +1439,7 @@ mod test {
         assert_eq!(qr.placeholders.len(), 1);
 
         assert!(qr.infer_shard_from_bind(&bind));
-        assert_eq!(qr.shard(), 2);
+        assert_eq!(qr.shard().unwrap(), 2);
         assert!(qr.placeholders.is_empty());
     }
 

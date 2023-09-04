@@ -33,18 +33,18 @@ module Helpers
             "0" => {
               "database" => "shard0",
               "servers" => [
-                ["localhost", primary.port.to_s, "primary"],
-                ["localhost", replica.port.to_s, "replica"],
+                ["localhost", primary.port.to_i, "primary"],
+                ["localhost", replica.port.to_i, "replica"],
               ]
             },
           },
           "users" => { "0" => user.merge(config_user) }
         }
       }
-      pgcat_cfg["general"]["port"] = pgcat.port
+      pgcat_cfg["general"]["port"] = pgcat.port.to_i
       pgcat.update_config(pgcat_cfg)
       pgcat.start
-      
+
       pgcat.wait_until_ready(
         pgcat.connection_string(
           "sharded_db",
@@ -92,13 +92,13 @@ module Helpers
             "0" => {
               "database" => database,
               "servers" => [
-                ["localhost", primary.port.to_s, "primary"],
-                ["localhost", replica.port.to_s, "replica"],
+                ["localhost", primary.port.to_i, "primary"],
+                ["localhost", replica.port.to_i, "replica"],
               ]
             },
           },
           "users" => { "0" => user.merge(config_user) }
-        }                                  
+        }
       end
       # Main proxy configs
       pgcat_cfg["pools"] = {
@@ -109,7 +109,7 @@ module Helpers
       pgcat_cfg["general"]["port"] = pgcat.port
       pgcat.update_config(pgcat_cfg.deep_merge(extra_conf))
       pgcat.start
-      
+
       pgcat.wait_until_ready(pgcat.connection_string("sharded_db0", pg_user['username'], pg_user['password']))
 
       OpenStruct.new.tap do |struct|

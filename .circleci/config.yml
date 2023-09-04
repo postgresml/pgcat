@@ -9,7 +9,7 @@ jobs:
     # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
     # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
-      - image: ghcr.io/levkk/pgcat-ci:1.67
+      - image: ghcr.io/levkk/pgcat-ci:latest
         environment:
           RUST_LOG: info
           LLVM_PROFILE_FILE: /tmp/pgcat-%m-%p.profraw

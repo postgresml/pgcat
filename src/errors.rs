@@ -28,6 +28,7 @@ pub enum Error {
     UnsupportedStatement,
     QueryRouterParserError(String),
     QueryRouterError(String),
+    InvalidShardId(usize),
 }
 
 #[derive(Clone, PartialEq, Debug)]
