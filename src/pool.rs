@@ -618,8 +618,7 @@ impl ConnectionPool {
         role: Option<Role>,         // primary or replica
         client_stats: &ClientStats, // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
-
-        let mut effective_shard_id:Option<usize> = shard;
+        let mut effective_shard_id: Option<usize> = shard;
 
         // The base, unsharded case
         if self.shards() == 1 {
@@ -629,22 +628,20 @@ impl ConnectionPool {
         let mut sort_by_error_count = false;
         let mut candidates: Vec<_> = match effective_shard_id {
             Some(shard_id) => self.addresses[shard_id].iter().collect(),
-            None => {
-                match self.settings.no_shard_specified_behavior {
-                    NoShardSpecifiedHandling::Random => self.addresses.iter().flatten().collect(),
-                    NoShardSpecifiedHandling::RandomHealthy => {
-                        sort_by_error_count = true;
-                        self.addresses.iter().flatten().collect()
-                    }
-                    NoShardSpecifiedHandling::Shard(shard) => {
-                        if shard >= self.shards() {
-                            return Err(Error::InvalidShardId(shard));
-                        } else {
-                            self.addresses[shard].iter().collect()
-                        }
+            None => match self.settings.no_shard_specified_behavior {
+                NoShardSpecifiedHandling::Random => self.addresses.iter().flatten().collect(),
+                NoShardSpecifiedHandling::RandomHealthy => {
+                    sort_by_error_count = true;
+                    self.addresses.iter().flatten().collect()
+                }
+                NoShardSpecifiedHandling::Shard(shard) => {
+                    if shard >= self.shards() {
+                        return Err(Error::InvalidShardId(shard));
+                    } else {
+                        self.addresses[shard].iter().collect()
                     }
                 }
-            }
+            },
         };
         candidates.retain(|address| address.role == role);
 

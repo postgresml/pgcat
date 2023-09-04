@@ -597,7 +597,7 @@ impl Pool {
         PoolMode::Transaction
     }
 
-    pub fn default_no_shard_specified_behavior()-> NoShardSpecifiedHandling {
+    pub fn default_no_shard_specified_behavior() -> NoShardSpecifiedHandling {
         NoShardSpecifiedHandling::default()
     }
 
@@ -692,13 +692,10 @@ impl Pool {
             None => None,
         };
 
-        match self.no_shard_specified_behavior  {
+        match self.no_shard_specified_behavior {
             NoShardSpecifiedHandling::Shard(shard_number) => {
                 if shard_number >= self.shards.len() {
-                    error!(
-                        "Invalid shard {:?}",
-                        shard_number
-                    );
+                    error!("Invalid shard {:?}", shard_number);
                     return Err(Error::BadConfig);
                 }
             }

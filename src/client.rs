@@ -1095,8 +1095,9 @@ where
 
                     error_response(
                         &mut self.write,
-                        format!("could not get connection from the pool - {}", err).as_str()
-                ).await?;
+                        format!("could not get connection from the pool - {}", err).as_str(),
+                    )
+                    .await?;
 
                     error!(
                         "Could not get connection from pool: \
