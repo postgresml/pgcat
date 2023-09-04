@@ -1,4 +1,4 @@
-# PgCat Configurations 
+# PgCat Configurations
 ## `general` Section
 
 ### host
@@ -56,6 +56,38 @@ default: 86400000 # 24 hours
 ```
 
 Max connection lifetime before it's closed, even if actively used.
+
+### server_round_robin
+```
+path: general.server_round_robin
+default: false
+```
+
+Whether to use round robin for server selection or not.
+
+### server_tls
+```
+path: general.server_tls
+default: false
+```
+
+Whether to use TLS for server connections or not.
+
+### verify_server_certificate
+```
+path: general.verify_server_certificate
+default: false
+```
+
+Whether to verify server certificate or not.
+
+### verify_config
+```
+path: general.verify_config
+default: true
+```
+
+Whether to verify config or not.
 
 ### idle_client_in_transaction_timeout
 ```
@@ -116,10 +148,10 @@ If we should log client disconnections
 ### autoreload
 ```
 path: general.autoreload
-default: 15000
+default: 15000 # milliseconds
 ```
 
-When set to true, PgCat reloads configs if it detects a change in the config file.
+When set, PgCat automatically reloads its configurations at the specified interval (in milliseconds) if it detects changes in the configuration file. The default interval is 15000 milliseconds or 15 seconds.
 
 ### worker_threads
 ```
@@ -151,29 +183,19 @@ path: general.tcp_keepalives_interval
 default: 5
 ```
 
-Number of seconds between keepalive packets.
-
-### prepared_statements
+### tcp_user_timeout
 ```
-path: general.prepared_statements
-default: true
+path: general.tcp_user_timeout
+default: 10000
 ```
+A linux-only parameters that defines the amount of time in milliseconds that transmitted data may remain unacknowledged or buffered data may remain untransmitted (due to zero window size) before TCP will forcibly disconnect
 
-Handle prepared statements.
-
-### prepared_statements_cache_size
-```
-path: general.prepared_statements_cache_size
-default: 500
-```
-
-Prepared statements server cache size.
 
 ### tls_certificate
 ```
 path: general.tls_certificate
 default: <UNSET>
-example: ".circleci/server.cert"
+example: "server.cert"
 ```
 
 Path to TLS Certificate file to use for TLS connections
@@ -182,26 +204,10 @@ Path to TLS Certificate file to use for TLS connections
 ```
 path: general.tls_private_key
 default: <UNSET>
-example: ".circleci/server.key"
+example: "server.key"
 ```
 
 Path to TLS private key file to use for TLS connections
-
-### server_tls
-```
-path: general.server_tls
-default: false
-```
-
-Enable/disable server TLS
-
-### verify_server_certificate
-```
-path: general.verify_server_certificate
-default: false
-```
-
-Verify server certificate is completely authentic.
 
 ### admin_username
 ```
@@ -220,15 +226,70 @@ default: "admin_pass"
 
 Password to access the virtual administrative database
 
-## `plugins` Section
+### auth_query
+```
+path: general.auth_query
+default: <UNSET>
+example: "SELECT $1"
+```
 
-## `plugins.prewarmer` Section
+Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
+established using the database configured in the pool. This parameter is inherited by every pool
+and can be redefined in pool configuration.
 
-## `plugins.query_logger` Section
+### auth_query_user
+```
+path: general.auth_query_user
+default: <UNSET>
+example: "sharding_user"
+```
 
-## `plugins.table_access` Section
+User to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
 
-## `plugins.intercept` Section
+### auth_query_password
+```
+path: general.auth_query_password
+default: <UNSET>
+example: "sharding_user"
+```
+
+Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending the query
+specified in `auth_query_user`. The connection will be established using the database configured in the pool.
+This parameter is inherited by every pool and can be redefined in pool configuration.
+
+### prepared_statements
+```
+path: general.prepared_statements
+default: false
+```
+
+Whether to use prepared statements or not.
+
+### prepared_statements_cache_size
+```
+path: general.prepared_statements_cache_size
+default: 500
+```
+
+Size of the prepared statements cache.
+
+### dns_cache_enabled
+```
+path: general.dns_cache_enabled
+default: false
+```
+When enabled, ip resolutions for server connections specified using hostnames will be cached
+and checked for changes every `dns_max_ttl` seconds. If a change in the host resolution is found
+old ip connections are closed (gracefully) and new connections will start using new ip.
+
+### dns_max_ttl
+```
+path: general.dns_max_ttl
+default: 30
+```
+Specifies how often (in seconds) cached ip addresses for servers are rechecked (see `dns_cache_enabled`).
 
 ## `pools.<pool_name>` Section
 
@@ -250,7 +311,7 @@ default: "random"
 
 Load balancing mode
 `random` selects the server at random
-`loc` selects the server with the least outstanding busy conncetions
+`loc` selects the server with the least outstanding busy connections
 
 ### default_role
 ```
@@ -274,15 +335,6 @@ every incoming query to determine if it's a read or a write.
 If it's a read query, we'll direct it to a replica. Otherwise, if it's a write,
 we'll direct it to the primary.
 
-### query_parser_read_write_splitting
-```
-path: pools.<pool_name>.query_parser_read_write_splitting
-default: true
-```
-
-If the query parser is enabled and this setting is enabled, we'll attempt to
-infer the role from the query itself.
-
 ### primary_reads_enabled
 ```
 path: pools.<pool_name>.primary_reads_enabled
@@ -303,18 +355,6 @@ example: '/\* sharding_key: (\d+) \*/'
 Allow sharding commands to be passed as statement comments instead of
 separate commands. If these are unset this functionality is disabled.
 
-### no_shard_specified_behavior
-```
-path: pools.<pool_name>.no_shard_specified_behavior
-default: <UNSET>
-example: "shard_0"
-```
-
-Defines the behavior when no shard is selected in a sharded system.
-`random`: picks a shard at random
-`random_healthy`: picks a shard at random favoring shards with the least number of recent errors
-`shard_<number>`: e.g. shard_0, shard_4, etc. picks a specific shard, everytime
-
 ### sharding_function
 ```
 path: pools.<pool_name>.sharding_function
@@ -331,7 +371,7 @@ Current options:
 ```
 path: pools.<pool_name>.auth_query
 default: <UNSET>
-example: "SELECT usename, passwd FROM pg_shadow WHERE usename='$1'"
+example: "SELECT $1"
 ```
 
 Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
@@ -384,28 +424,6 @@ default: 3000
 ```
 
 Connect timeout can be overwritten in the pool
-
-### dns_cache_enabled
-```
-path: pools.<pool_name>.dns_cache_enabled
-default: <UNSET>
-example: false
-```
-
-When enabled, ip resolutions for server connections specified using hostnames will be cached
-and checked for changes every `dns_max_ttl` seconds. If a change in the host resolution is found
-old ip connections are closed (gracefully) and new connections will start using new ip.
-
-### dns_max_ttl
-```
-path: pools.<pool_name>.dns_max_ttl
-default: <UNSET>
-example: 30
-```
-
-Specifies how often (in seconds) cached ip addresses for servers are rechecked (see `dns_cache_enabled`).
-
-## `pool.<pool_name>.plugins` Section
 
 ## `pools.<pool_name>.users.<user_index>` Section
 
