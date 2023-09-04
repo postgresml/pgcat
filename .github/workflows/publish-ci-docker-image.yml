@@ -1,7 +1,5 @@
 name: publish-ci-docker-image
-on:
-  push:
-    branches: [ main ]
+on: [push]
 jobs:
   publish-ci-docker-image:
     runs-on: ubuntu-latest
@@ -18,4 +16,3 @@ jobs:
           docker build . -f Dockerfile.ci --tag ghcr.io/postgresml/pgcat-ci:latest --tag ghcr.io/postgresml/pgcat-ci:${{ github.sha }}
           docker run ghcr.io/postgresml/pgcat-ci:latest
           docker push ghcr.io/postgresml/pgcat-ci:${{ github.sha }}
-          docker push ghcr.io/postgresml/pgcat-ci:latest
