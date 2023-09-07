@@ -559,8 +559,8 @@ pub struct Pool {
     pub shard_id_regex: Option<String>,
     pub regex_search_limit: Option<usize>,
 
-    #[serde(default = "Pool::default_no_shard_specified_behavior")]
-    pub no_shard_specified_behavior: NoShardSpecifiedHandling,
+    #[serde(default = "Pool::default_default_shard")]
+    pub default_shard: DefaultShard,
 
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -597,8 +597,8 @@ impl Pool {
         PoolMode::Transaction
     }
 
-    pub fn default_no_shard_specified_behavior() -> NoShardSpecifiedHandling {
-        NoShardSpecifiedHandling::default()
+    pub fn default_default_shard() -> DefaultShard {
+        DefaultShard::default()
     }
 
     pub fn default_load_balancing_mode() -> LoadBalancingMode {
@@ -692,8 +692,8 @@ impl Pool {
             None => None,
         };
 
-        match self.no_shard_specified_behavior {
-            NoShardSpecifiedHandling::Shard(shard_number) => {
+        match self.default_shard {
+            DefaultShard::Shard(shard_number) => {
                 if shard_number >= self.shards.len() {
                     error!("Invalid shard {:?}", shard_number);
                     return Err(Error::BadConfig);
@@ -729,7 +729,7 @@ impl Default for Pool {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: Some(1000),
-            no_shard_specified_behavior: Self::default_no_shard_specified_behavior(),
+            default_shard: Self::default_default_shard(),
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -750,28 +750,28 @@ pub struct ServerConfig {
 
 // No Shard Specified handling.
 #[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
-pub enum NoShardSpecifiedHandling {
+pub enum DefaultShard {
     Shard(usize),
     Random,
     RandomHealthy,
 }
-impl Default for NoShardSpecifiedHandling {
+impl Default for DefaultShard {
     fn default() -> Self {
-        NoShardSpecifiedHandling::Shard(0)
+        DefaultShard::Shard(0)
     }
 }
-impl serde::Serialize for NoShardSpecifiedHandling {
+impl serde::Serialize for DefaultShard {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            NoShardSpecifiedHandling::Shard(shard) => {
+            DefaultShard::Shard(shard) => {
                 serializer.serialize_str(&format!("shard_{}", &shard.to_string()))
             }
-            NoShardSpecifiedHandling::Random => serializer.serialize_str("random"),
-            NoShardSpecifiedHandling::RandomHealthy => serializer.serialize_str("random_healthy"),
+            DefaultShard::Random => serializer.serialize_str("random"),
+            DefaultShard::RandomHealthy => serializer.serialize_str("random_healthy"),
         }
     }
 }
-impl<'de> serde::Deserialize<'de> for NoShardSpecifiedHandling {
+impl<'de> serde::Deserialize<'de> for DefaultShard {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -779,12 +779,12 @@ impl<'de> serde::Deserialize<'de> for NoShardSpecifiedHandling {
         let s = String::deserialize(deserializer)?;
         if s.starts_with("shard_") {
             let shard = s[6..].parse::<usize>().map_err(serde::de::Error::custom)?;
-            return Ok(NoShardSpecifiedHandling::Shard(shard));
+            return Ok(DefaultShard::Shard(shard));
         }
 
         match s.as_str() {
-            "random" => Ok(NoShardSpecifiedHandling::Random),
-            "random_healthy" => Ok(NoShardSpecifiedHandling::RandomHealthy),
+            "random" => Ok(DefaultShard::Random),
+            "random_healthy" => Ok(DefaultShard::RandomHealthy),
             _ => Err(serde::de::Error::custom(
                 "invalid value for no_shard_specified_behavior",
             )),

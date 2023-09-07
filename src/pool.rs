@@ -19,8 +19,7 @@ use std::time::Instant;
 use tokio::sync::Notify;
 
 use crate::config::{
-    get_config, Address, General, LoadBalancingMode, NoShardSpecifiedHandling, Plugins, PoolMode,
-    Role, User,
+    get_config, Address, DefaultShard, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
 };
 use crate::errors::Error;
 
@@ -143,7 +142,7 @@ pub struct PoolSettings {
     pub shard_id_regex: Option<Regex>,
 
     // What to do when no shard is selected in a sharded system
-    pub no_shard_specified_behavior: NoShardSpecifiedHandling,
+    pub default_shard: DefaultShard,
 
     // Limit how much of each query is searched for a potential shard regex match
     pub regex_search_limit: usize,
@@ -178,7 +177,7 @@ impl Default for PoolSettings {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: 1000,
-            no_shard_specified_behavior: NoShardSpecifiedHandling::Shard(0),
+            default_shard: DefaultShard::Shard(0),
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -490,9 +489,7 @@ impl ConnectionPool {
                             .clone()
                             .map(|regex| Regex::new(regex.as_str()).unwrap()),
                         regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
-                        no_shard_specified_behavior: pool_config
-                            .no_shard_specified_behavior
-                            .clone(),
+                        default_shard: pool_config.default_shard.clone(),
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
@@ -618,48 +615,46 @@ impl ConnectionPool {
         role: Option<Role>,         // primary or replica
         client_stats: &ClientStats, // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
-        let mut effective_shard_id: Option<usize> = shard;
+        let effective_shard_id = if self.shards() == 1 {
+            // The base, unsharded case
+            Some(0)
+        } else {
+            if !self.valid_shard_id(shard) {
+                // None is valid shard ID so it is safe to unwrap here
+                return Err(Error::InvalidShardId(shard.unwrap()));
+            }
+            shard
+        };
 
-        // The base, unsharded case
-        if self.shards() == 1 {
-            effective_shard_id = Some(0);
-        }
+        let mut candidates = self
+            .addresses
+            .iter()
+            .flatten()
+            .filter(|address| address.role == role)
+            .collect::<Vec<&Address>>();
 
-        let mut sort_by_error_count = false;
-        let mut candidates: Vec<_> = match effective_shard_id {
-            Some(shard_id) => self.addresses[shard_id].iter().collect(),
-            None => match self.settings.no_shard_specified_behavior {
-                NoShardSpecifiedHandling::Random => self.addresses.iter().flatten().collect(),
-                NoShardSpecifiedHandling::RandomHealthy => {
-                    sort_by_error_count = true;
-                    self.addresses.iter().flatten().collect()
+        // We start with a shuffled list of addresses even if we end up resorting
+        // this is meant to avoid hitting instance 0 everytime if the sorting metric
+        // ends up being the same for all instances
+        candidates.shuffle(&mut thread_rng());
+
+        match effective_shard_id {
+            Some(shard_id) => candidates.retain(|address| address.shard == shard_id),
+            None => match self.settings.default_shard {
+                DefaultShard::Shard(shard_id) => {
+                    candidates.retain(|address| address.shard == shard_id)
                 }
-                NoShardSpecifiedHandling::Shard(shard) => {
-                    if shard >= self.shards() {
-                        return Err(Error::InvalidShardId(shard));
-                    } else {
-                        self.addresses[shard].iter().collect()
-                    }
+                DefaultShard::Random => (),
+                DefaultShard::RandomHealthy => {
+                    candidates.sort_by(|a, b| {
+                        b.error_count
+                            .load(Ordering::Relaxed)
+                            .partial_cmp(&a.error_count.load(Ordering::Relaxed))
+                            .unwrap()
+                    });
                 }
             },
         };
-        candidates.retain(|address| address.role == role);
-
-        // We shuffle even if least_outstanding_queries is used to avoid imbalance
-        // in cases where all candidates have more or less the same number of outstanding
-        // queries
-        candidates.shuffle(&mut thread_rng());
-
-        // The branch should only be hit if no shard is specified and we are using
-        // random healthy routing mode
-        if sort_by_error_count {
-            candidates.sort_by(|a, b| {
-                b.error_count
-                    .load(Ordering::Relaxed)
-                    .partial_cmp(&a.error_count.load(Ordering::Relaxed))
-                    .unwrap()
-            });
-        }
 
         if self.settings.load_balancing_mode == LoadBalancingMode::LeastOutstandingConnections {
             candidates.sort_by(|a, b| {
@@ -993,6 +988,13 @@ impl ConnectionPool {
         let busy = provisioned - idle;
         debug!("{:?} has {:?} busy connections", address, busy);
         return busy;
+    }
+
+    fn valid_shard_id(&self, shard: Option<usize>) -> bool {
+        match shard {
+            None => true,
+            Some(shard) => shard < self.shards(),
+        }
     }
 }
 

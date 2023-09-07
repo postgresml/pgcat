@@ -56,7 +56,7 @@ describe "Sharding" do
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
 
         current_configs = processes.pgcat.current_config
-        current_configs["pools"]["sharded_db"]["no_shard_specified_behavior"] = "shard_99"
+        current_configs["pools"]["sharded_db"]["default_shard"] = "shard_99"
 
         processes.pgcat.update_config(current_configs)
 
@@ -91,9 +91,9 @@ describe "Sharding" do
           current_configs = processes.pgcat.current_config
           current_configs["pools"]["sharded_db"][config_name] = config_value
           if no_shard_specified_behavior
-            current_configs["pools"]["sharded_db"]["no_shard_specified_behavior"] = no_shard_specified_behavior
+            current_configs["pools"]["sharded_db"]["default_shard"] = no_shard_specified_behavior
           else
-            current_configs["pools"]["sharded_db"].delete("no_shard_specified_behavior")
+            current_configs["pools"]["sharded_db"].delete("default_shard")
           end
 
           processes.pgcat.update_config(current_configs)
