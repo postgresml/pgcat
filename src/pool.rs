@@ -10,6 +10,7 @@ use rand::thread_rng;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::sync::atomic::AtomicU64;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -18,7 +19,7 @@ use std::time::Instant;
 use tokio::sync::Notify;
 
 use crate::config::{
-    get_config, Address, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
+    get_config, Address, DefaultShard, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
 };
 use crate::errors::Error;
 
@@ -140,6 +141,9 @@ pub struct PoolSettings {
     // Regex for searching for the shard id in SQL statements
     pub shard_id_regex: Option<Regex>,
 
+    // What to do when no shard is selected in a sharded system
+    pub default_shard: DefaultShard,
+
     // Limit how much of each query is searched for a potential shard regex match
     pub regex_search_limit: usize,
 
@@ -173,6 +177,7 @@ impl Default for PoolSettings {
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: 1000,
+            default_shard: DefaultShard::Shard(0),
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -299,6 +304,7 @@ impl ConnectionPool {
                                     pool_name: pool_name.clone(),
                                     mirrors: vec![],
                                     stats: Arc::new(AddressStats::default()),
+                                    error_count: Arc::new(AtomicU64::new(0)),
                                 });
                                 address_id += 1;
                             }
@@ -317,6 +323,7 @@ impl ConnectionPool {
                             pool_name: pool_name.clone(),
                             mirrors: mirror_addresses,
                             stats: Arc::new(AddressStats::default()),
+                            error_count: Arc::new(AtomicU64::new(0)),
                         };
 
                         address_id += 1;
@@ -482,6 +489,7 @@ impl ConnectionPool {
                             .clone()
                             .map(|regex| Regex::new(regex.as_str()).unwrap()),
                         regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
+                        default_shard: pool_config.default_shard.clone(),
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
@@ -603,19 +611,51 @@ impl ConnectionPool {
     /// Get a connection from the pool.
     pub async fn get(
         &self,
-        shard: usize,               // shard number
+        shard: Option<usize>,       // shard number
         role: Option<Role>,         // primary or replica
         client_stats: &ClientStats, // client id
     ) -> Result<(PooledConnection<'_, ServerPool>, Address), Error> {
-        let mut candidates: Vec<&Address> = self.addresses[shard]
-            .iter()
-            .filter(|address| address.role == role)
-            .collect();
+        let effective_shard_id = if self.shards() == 1 {
+            // The base, unsharded case
+            Some(0)
+        } else {
+            if !self.valid_shard_id(shard) {
+                // None is valid shard ID so it is safe to unwrap here
+                return Err(Error::InvalidShardId(shard.unwrap()));
+            }
+            shard
+        };
 
-        // We shuffle even if least_outstanding_queries is used to avoid imbalance
-        // in cases where all candidates have more or less the same number of outstanding
-        // queries
+        let mut candidates = self
+            .addresses
+            .iter()
+            .flatten()
+            .filter(|address| address.role == role)
+            .collect::<Vec<&Address>>();
+
+        // We start with a shuffled list of addresses even if we end up resorting
+        // this is meant to avoid hitting instance 0 everytime if the sorting metric
+        // ends up being the same for all instances
         candidates.shuffle(&mut thread_rng());
+
+        match effective_shard_id {
+            Some(shard_id) => candidates.retain(|address| address.shard == shard_id),
+            None => match self.settings.default_shard {
+                DefaultShard::Shard(shard_id) => {
+                    candidates.retain(|address| address.shard == shard_id)
+                }
+                DefaultShard::Random => (),
+                DefaultShard::RandomHealthy => {
+                    candidates.sort_by(|a, b| {
+                        b.error_count
+                            .load(Ordering::Relaxed)
+                            .partial_cmp(&a.error_count.load(Ordering::Relaxed))
+                            .unwrap()
+                    });
+                }
+            },
+        };
+
         if self.settings.load_balancing_mode == LoadBalancingMode::LeastOutstandingConnections {
             candidates.sort_by(|a, b| {
                 self.busy_connection_count(b)
@@ -651,7 +691,10 @@ impl ConnectionPool {
                 .get()
                 .await
             {
-                Ok(conn) => conn,
+                Ok(conn) => {
+                    address.reset_error_count();
+                    conn
+                }
                 Err(err) => {
                     error!(
                         "Connection checkout error for instance {:?}, error: {:?}",
@@ -766,6 +809,18 @@ impl ConnectionPool {
     /// traffic for any new transactions. Existing transactions on that replica
     /// will finish successfully or error out to the clients.
     pub fn ban(&self, address: &Address, reason: BanReason, client_info: Option<&ClientStats>) {
+        // Count the number of errors since the last successful checkout
+        // This is used to determine if the shard is down
+        match reason {
+            BanReason::FailedHealthCheck
+            | BanReason::FailedCheckout
+            | BanReason::MessageSendFailed
+            | BanReason::MessageReceiveFailed => {
+                address.increment_error_count();
+            }
+            _ => (),
+        };
+
         // Primary can never be banned
         if address.role == Role::Primary {
             return;
@@ -920,6 +975,7 @@ impl ConnectionPool {
         self.original_server_parameters.read().clone()
     }
 
+    /// Get the number of checked out connection for an address
     fn busy_connection_count(&self, address: &Address) -> u32 {
         let state = self.pool_state(address.shard, address.address_index);
         let idle = state.idle_connections;
@@ -932,6 +988,13 @@ impl ConnectionPool {
         let busy = provisioned - idle;
         debug!("{:?} has {:?} busy connections", address, busy);
         return busy;
+    }
+
+    fn valid_shard_id(&self, shard: Option<usize>) -> bool {
+        match shard {
+            None => true,
+            Some(shard) => shard < self.shards(),
+        }
     }
 }
 

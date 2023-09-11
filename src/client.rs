@@ -1009,23 +1009,27 @@ where
 
                 // SET SHARD TO
                 Some((Command::SetShard, _)) => {
-                    // Selected shard is not configured.
-                    if query_router.shard() >= pool.shards() {
-                        // Set the shard back to what it was.
-                        query_router.set_shard(current_shard);
+                    match query_router.shard() {
+                        None => (),
+                        Some(selected_shard) => {
+                            if selected_shard >= pool.shards() {
+                                // Bad shard number, send error message to client.
+                                query_router.set_shard(current_shard);
 
-                        error_response(
-                            &mut self.write,
-                            &format!(
-                                "shard {} is more than configured {}, staying on shard {} (shard numbers start at 0)",
-                                query_router.shard(),
-                                pool.shards(),
-                                current_shard,
-                            ),
-                        )
-                            .await?;
-                    } else {
-                        custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
+                                error_response(
+                                    &mut self.write,
+                                    &format!(
+                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
+                                        selected_shard,
+                                        pool.shards(),
+                                        current_shard,
+                                    ),
+                                )
+                                    .await?;
+                            } else {
+                                custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
+                            }
+                        }
                     }
                     continue;
                 }
@@ -1093,8 +1097,11 @@ where
                         self.buffer.clear();
                     }
 
-                    error_response(&mut self.write, "could not get connection from the pool")
-                        .await?;
+                    error_response(
+                        &mut self.write,
+                        format!("could not get connection from the pool - {}", err).as_str(),
+                    )
+                    .await?;
 
                     error!(
                         "Could not get connection from pool: \
@@ -1234,7 +1241,7 @@ where
                                     {{ \
                                         pool_name: {}, \
                                         username: {}, \
-                                        shard: {}, \
+                                        shard: {:?}, \
                                         role: \"{:?}\" \
                                     }}",
                                     self.pool_name,

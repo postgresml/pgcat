@@ -252,7 +252,7 @@ describe "Miscellaneous" do
         end
 
         expect(processes.primary.count_query("RESET ROLE")).to eq(10)
-      end 
+      end
     end
 
     context "transaction mode" do
@@ -317,7 +317,7 @@ describe "Miscellaneous" do
         conn.async_exec("SET statement_timeout to 1500")
         expect(conn.async_exec("SHOW statement_timeout")[0]["statement_timeout"]).to eq(orignal_statement_timeout)
       end
- 
+
     end
 
     context "transaction mode with transactions" do
@@ -354,7 +354,6 @@ describe "Miscellaneous" do
         conn.async_exec("SET statement_timeout TO 1000")
         conn.close
 
-        puts processes.pgcat.logs
         expect(processes.primary.count_query("RESET ALL")).to eq(0)
       end
 
@@ -365,7 +364,6 @@ describe "Miscellaneous" do
 
         conn.close
 
-        puts processes.pgcat.logs
         expect(processes.primary.count_query("RESET ALL")).to eq(0)
       end
     end
@@ -376,10 +374,9 @@ describe "Miscellaneous" do
       before do
         current_configs = processes.pgcat.current_config
         correct_idle_client_transaction_timeout = current_configs["general"]["idle_client_in_transaction_timeout"]
-        puts(current_configs["general"]["idle_client_in_transaction_timeout"])
-  
+
         current_configs["general"]["idle_client_in_transaction_timeout"] = 0
-  
+
         processes.pgcat.update_config(current_configs) # with timeout 0
         processes.pgcat.reload_config
       end
@@ -397,9 +394,9 @@ describe "Miscellaneous" do
     context "idle transaction timeout set to 500ms" do
       before do
         current_configs = processes.pgcat.current_config
-        correct_idle_client_transaction_timeout = current_configs["general"]["idle_client_in_transaction_timeout"]  
+        correct_idle_client_transaction_timeout = current_configs["general"]["idle_client_in_transaction_timeout"]
         current_configs["general"]["idle_client_in_transaction_timeout"] = 500
-  
+
         processes.pgcat.update_config(current_configs) # with timeout 500
         processes.pgcat.reload_config
       end
@@ -418,7 +415,7 @@ describe "Miscellaneous" do
         conn.async_exec("BEGIN")
         conn.async_exec("SELECT 1")
         sleep(1) # above 500ms
-        expect{ conn.async_exec("COMMIT") }.to raise_error(PG::SystemError, /idle transaction timeout/) 
+        expect{ conn.async_exec("COMMIT") }.to raise_error(PG::SystemError, /idle transaction timeout/)
         conn.async_exec("SELECT 1") # should be able to send another query
         conn.close
       end
