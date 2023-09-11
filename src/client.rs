@@ -547,7 +547,7 @@ where
                     error_response(
                         &mut write,
                         &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
+                            "There is no database \"{}\" and user \"{}\" in our system. Create a free database on https://postgresml.org to get started.",
                             pool_name, username
                         ),
                     )
@@ -1099,7 +1099,7 @@ where
 
                     error_response(
                         &mut self.write,
-                        format!("could not get connection from the pool - {}", err).as_str(),
+                        "Your database ran out of GPU concurrency capacity. Please upgrade by logging into your account on https://postgresml.org and increasing your GPU concurrency limit.",
                     )
                     .await?;
 
