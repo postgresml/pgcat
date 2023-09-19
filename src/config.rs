@@ -9,6 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::net::IpAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -21,6 +22,9 @@ use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
 use crate::stats::AddressStats;
 use crate::tls::{load_certs, load_keys};
+
+use ipnet::IpNet;
+use std::str::FromStr;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -347,6 +351,9 @@ pub struct General {
 
     #[serde(default = "General::default_prepared_statements_cache_size")]
     pub prepared_statements_cache_size: usize,
+
+    // HBA enable.
+    pub hba: Vec<String>,
 }
 
 impl General {
@@ -472,6 +479,7 @@ impl Default for General {
             validate_config: true,
             prepared_statements: false,
             prepared_statements_cache_size: 500,
+            hba: vec![],
         }
     }
 }
@@ -1376,6 +1384,18 @@ impl Config {
             pool.validate()?;
         }
 
+        // Validate hba networks.
+        for addr in self.general.hba.iter().as_slice() {
+            let net_parse = IpNet::from_str(&*addr);
+            match net_parse {
+                Err(err) => {
+                    error!("parse hba net {}: {}", addr, err);
+                    return Err(Error::BadConfig);
+                }
+                _ => {}
+            };
+        }
+
         Ok(())
     }
 }
@@ -1397,6 +1417,19 @@ pub fn get_prepared_statements() -> bool {
 
 pub fn get_prepared_statements_cache_size() -> usize {
     CONFIG.load().general.prepared_statements_cache_size
+}
+
+pub fn check_client_ip_in_hba(addr: IpAddr) -> bool {
+    if CONFIG.load().general.hba.len() == 0 {
+        return true;
+    }
+    for x in CONFIG.load().general.hba.iter().as_slice() {
+        let net = IpNet::from_str(x).unwrap();
+        if net.contains(&addr) {
+            return true
+        }
+    }
+    return false;
 }
 
 /// Parse the configuration file located at the path.

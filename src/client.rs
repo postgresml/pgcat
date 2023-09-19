@@ -26,6 +26,8 @@ use crate::server::{Server, ServerParameters};
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
+use crate::config::{check_client_ip_in_hba};
+
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
@@ -436,6 +438,13 @@ where
                 ))
             }
         };
+
+        if !check_client_ip_in_hba(addr.ip()) {
+                let error = Error::AuthError(format!("hba error for address: {}", addr.ip()));
+                warn!("{}", error);
+                wrong_hba(&mut write, addr.ip()).await?;
+                return Err(error);
+        }
 
         let pool_name = match parameters.get("database") {
             Some(db) => db,

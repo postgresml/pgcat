@@ -17,6 +17,7 @@ use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, Cursor};
 use std::mem;
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -372,6 +373,42 @@ where
     res.put(error);
 
     write_all_half(stream, &res).await
+}
+
+pub async fn wrong_hba<S>(stream: &mut S, addr: IpAddr) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut error = BytesMut::new();
+
+    // Error level
+    error.put_u8(b'S');
+    error.put_slice(&b"FATAL\0"[..]);
+
+    // Error level (non-translatable)
+    error.put_u8(b'V');
+    error.put_slice(&b"FATAL\0"[..]);
+
+    // Error code: not sure how much this matters.
+    error.put_u8(b'C');
+    error.put_slice(&b"28P01\0"[..]); // system_error, see Appendix A.
+
+    // The short error message.
+    error.put_u8(b'M');
+    error.put_slice(format!("hba authentication failed for ip \"{}\"\0", addr).as_bytes());
+
+    // No more fields follow.
+    error.put_u8(0);
+
+    // Compose the two message reply.
+    let mut res = BytesMut::new();
+
+    res.put_u8(b'E');
+    res.put_i32(error.len() as i32 + 4);
+
+    res.put(error);
+
+    write_all(stream, res).await
 }
 
 pub async fn wrong_password<S>(stream: &mut S, user: &str) -> Result<(), Error>

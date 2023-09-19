@@ -1005,6 +1005,7 @@ dependencies = [
  "futures",
  "hmac",
  "hyper",
+ "ipnet",
  "itertools",
  "jemallocator",
  "log",
