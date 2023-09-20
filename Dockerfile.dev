@@ -15,7 +15,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cargo build --release
+RUN cargo build
 
 FROM debian:bookworm-slim
 COPY --from=builder /app/target/release/pgcat /usr/bin/pgcat
