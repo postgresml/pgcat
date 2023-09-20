@@ -1,10 +1,20 @@
-FROM rust:1-slim-bookworm AS builder
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 
 RUN apt-get update && \
     apt-get install -y build-essential
 
-COPY . /app
 WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder 
+COPY --from=planner /app/recipe.json recipe.json
+# Build dependencies - this is the caching Docker layer!
+RUN cargo chef cook --release --recipe-path recipe.json
+# Build application
+COPY . .
 RUN cargo build --release
 
 FROM debian:bookworm-slim
