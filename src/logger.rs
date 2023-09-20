@@ -8,6 +8,7 @@ pub fn init(args: &Args) {
     let filter = EnvFilter::from_default_env().add_directive(args.log_level.into());
 
     let trace_sub = tracing_subscriber::fmt()
+        .with_thread_ids(true)
         .with_env_filter(filter)
         .with_ansi(!args.no_color);
 
