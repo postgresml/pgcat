@@ -793,12 +793,12 @@ impl<'de> serde::Deserialize<'de> for DefaultShard {
     }
 }
 
-impl fmt::Display for DefaultShard {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl ToString for DefaultShard {
+    fn to_string(&self) -> String {
         match *self {
-            DefaultShard::Shard(value) => write!(f, "shard_{}", value),
-            DefaultShard::Random => write!(f, "random"),
-            DefaultShard::RandomHealthy => write!(f, "random_healthy"),
+            DefaultShard::Shard(shard) => format!("shard_{}", shard),
+            DefaultShard::Random => "random".to_string(),
+            DefaultShard::RandomHealthy => "random_healthy".to_string(),
         }
     }
 }
