@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -788,6 +789,16 @@ impl<'de> serde::Deserialize<'de> for DefaultShard {
             _ => Err(serde::de::Error::custom(
                 "invalid value for no_shard_specified_behavior",
             )),
+        }
+    }
+}
+
+impl fmt::Display for DefaultShard {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DefaultShard::Shard(value) => write!(f, "shard_{}", value),
+            DefaultShard::Random => write!(f, "random"),
+            DefaultShard::RandomHealthy => write!(f, "random_healthy"),
         }
     }
 }
