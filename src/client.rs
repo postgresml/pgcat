@@ -155,10 +155,10 @@ pub async fn client_entrypoint(
 
                         if !client.is_admin() {
                             let _ = drain.send(-1).await;
+                        }
 
-                            if result.is_err() {
-                                client.stats.disconnect();
-                            }
+                        if result.is_err() {
+                            client.stats.disconnect();
                         }
 
                         result
@@ -207,10 +207,10 @@ pub async fn client_entrypoint(
 
                                 if !client.is_admin() {
                                     let _ = drain.send(-1).await;
+                                }
 
-                                    if result.is_err() {
-                                        client.stats.disconnect();
-                                    }
+                                if result.is_err() {
+                                    client.stats.disconnect();
                                 }
 
                                 result
@@ -261,10 +261,10 @@ pub async fn client_entrypoint(
 
                     if !client.is_admin() {
                         let _ = drain.send(-1).await;
+                    }
 
-                        if result.is_err() {
-                            client.stats.disconnect();
-                        }
+                    if result.is_err() {
+                        client.stats.disconnect();
                     }
 
                     result
@@ -290,11 +290,12 @@ pub async fn client_entrypoint(
 
                     if !client.is_admin() {
                         let _ = drain.send(-1).await;
-
-                        if result.is_err() {
-                            client.stats.disconnect();
-                        }
                     }
+
+                    if result.is_err() {
+                        client.stats.disconnect();
+                    }
+
                     result
                 }
 
@@ -1811,7 +1812,6 @@ impl<S, T> Drop for Client<S, T> {
 
         // Dirty shutdown
         // TODO: refactor, this is not the best way to handle state management.
-
         if self.connected_to_server && self.last_server_stats.is_some() {
             self.last_server_stats.as_ref().unwrap().idle();
         }
