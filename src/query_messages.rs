@@ -24,8 +24,6 @@ pub struct FieldDescription {
     format_code: i16,
 }
 
-pub type PgWireResult<T> = Result<T, Error>;
-
 /// Get null-terminated string, returns None when empty cstring read.
 ///
 /// Note that this implementation will also advance cursor by 1 after reading
@@ -73,9 +71,9 @@ pub(crate) fn decode_packet<T, F>(
     buf: &mut BytesMut,
     offset: usize,
     decode_fn: F,
-) -> PgWireResult<Option<T>>
+) -> Result<Option<T>, Error>
 where
-    F: Fn(&mut BytesMut, usize) -> PgWireResult<T>,
+    F: Fn(&mut BytesMut, usize) -> Result<T, Error>,
 {
     if let Some(msg_len) = get_length(buf, offset) {
         if buf.remaining() >= msg_len + offset {
@@ -100,16 +98,16 @@ pub trait Message: Sized {
     fn message_length(&self) -> usize;
 
     /// Encode body part of the message.
-    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()>;
+    fn encode_body(&self, buf: &mut BytesMut) -> Result<(), Error>;
 
     /// Decode body part of the message.
-    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self>;
+    fn decode_body(buf: &mut BytesMut, full_len: usize) -> Result<Self, Error>;
 
     /// Default implementation for encoding message.
     ///
     /// Message type and length are encoded in this implementation and it calls
     /// `encode_body` for remaining parts.
-    fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+    fn encode(&self, buf: &mut BytesMut) -> Result<(), Error> {
         if let Some(mt) = Self::message_type() {
             buf.put_u8(mt);
         }
@@ -123,7 +121,7 @@ pub trait Message: Sized {
     /// Message type and length are decoded in this implementation and it calls
     /// `decode_body` for remaining parts. Return `None` if the packet is not
     /// complete for parsing.
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
         let offset = Self::message_type().is_some().into();
 
         decode_packet(buf, offset, |buf, full_len| {
@@ -159,7 +157,7 @@ impl Message for RowDescription {
                 .sum::<usize>()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> Result<(), Error> {
         buf.put_i16(self.fields.len() as i16);
 
         for field in &self.fields {
@@ -175,7 +173,7 @@ impl Message for RowDescription {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> Result<Self, Error> {
         let fields_len = buf.get_i16();
         let mut fields = Vec::with_capacity(fields_len as usize);
 
@@ -229,7 +227,7 @@ impl Message for DataRow {
                 .sum::<usize>()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> Result<(), Error> {
         buf.put_i16(self.fields.len() as i16);
         for field in &self.fields {
             if let Some(bytes) = field {
@@ -243,7 +241,7 @@ impl Message for DataRow {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _msg_len: usize) -> Result<Self, Error> {
         let field_count = buf.get_i16() as usize;
 
         let mut fields = Vec::with_capacity(field_count);
@@ -429,7 +427,7 @@ impl Message for ErrorResponse {
             + 1
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> Result<(), Error> {
         for (code, value) in &self.fields {
             buf.put_u8(*code);
             put_cstring(buf, value);
@@ -440,7 +438,7 @@ impl Message for ErrorResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> Result<Self, Error> {
         let mut fields = Vec::new();
         loop {
             let code = buf.get_u8();
