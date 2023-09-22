@@ -227,7 +227,7 @@ connect_timeout = 3000
 [pool.sharded_db.plugins]
 
 [pools.sharded_db.plugins.prewarmer]
-enabled = false
+enabled = true
 queries = [
   "SELECT pg_prewarm('pgbench_accounts')",
 ]
