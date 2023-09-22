@@ -37,4 +37,4 @@ dpkg-deb \
   --root-owner-group \
   -z1 \
   --build "$deb_dir" \
-  pgcat-${PACKAGE_VERSION}-ubuntu22.04-${ARCH}.deb
+  pgcat-hypercloud-${PACKAGE_VERSION}-ubuntu22.04-${ARCH}.deb

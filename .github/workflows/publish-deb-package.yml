@@ -43,6 +43,6 @@ jobs:
 
         deb-s3 upload \
           --lock \
-          --bucket apt.postgresml.org \
-          pgcat-${{ inputs.packageVersion }}-ubuntu22.04-${ARCH}.deb \
+          --bucket apt-interval.hyperparam.ai \
+          pgcat-hypercloud-${{ inputs.packageVersion }}-ubuntu22.04-${ARCH}.deb \
           --codename $(lsb_release -cs)

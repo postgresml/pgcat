@@ -1,9 +1,10 @@
-Package: pgcat
+Package: pgcat-hypercloud
 Version: ${PACKAGE_VERSION}
 Section: database
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: PostgresML <team@postgresml.org>
-Homepage: https://postgresml.org
-Description: PgCat - NextGen PostgreSQL Pooler
+Replaces: pgcat
+Homepage: https://github.com/hyperparam/pgcat
+Description: PgCat - NextGen PostgreSQL Pooler - internal fork
  PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load balancing, failover and mirroring.
