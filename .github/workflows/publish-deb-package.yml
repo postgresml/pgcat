@@ -43,6 +43,6 @@ jobs:
 
         deb-s3 upload \
           --lock \
-          --bucket apt-interval.hyperparam.ai \
+          --bucket apt-internal.hyperparam.ai \
           pgcat-hypercloud-${{ inputs.packageVersion }}-ubuntu22.04-${ARCH}.deb \
           --codename $(lsb_release -cs)
