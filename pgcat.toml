@@ -143,7 +143,7 @@ result = [
 # Pool mode (see PgBouncer docs for more).
 # `session` one server connection per connected client
 # `transaction` one server connection per client transaction
-pool_mode = "transaction"
+pool_mode = "transparent"
 
 # Load balancing mode
 # `random` selects the server at random
@@ -227,7 +227,7 @@ connect_timeout = 3000
 [pool.sharded_db.plugins]
 
 [pools.sharded_db.plugins.prewarmer]
-enabled = true
+enabled = false
 queries = [
   "SELECT pg_prewarm('pgbench_accounts')",
 ]
@@ -279,8 +279,6 @@ username = "sharding_user"
 # PostgreSQL password used to authenticate the user and connect to the server
 # if `server_password` is not set.
 password = "sharding_user"
-
-pool_mode = "transaction"
 
 # PostgreSQL username used to connect to the server.
 # server_username = "another_user"

@@ -14,8 +14,10 @@ use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_parameters_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
+use crate::client_xact::*;
 use crate::config::{
     get_config, get_idle_client_in_transaction_timeout, get_prepared_statements, Address, PoolMode,
+    Role,
 };
 use crate::constants::*;
 use crate::messages::*;
@@ -23,6 +25,7 @@ use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::{Server, ServerParameters};
+use crate::server_xact::*;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
@@ -47,21 +50,21 @@ pub struct Client<S, T> {
 
     /// We buffer the writes ourselves because we know the protocol
     /// better than a stock buffer.
-    write: T,
+    pub(crate) write: T,
 
     /// Internal buffer, where we place messages until we have to flush
     /// them to the backend.
     buffer: BytesMut,
 
     /// Address
-    addr: std::net::SocketAddr,
+    pub(crate) addr: std::net::SocketAddr,
 
     /// The client was started with the sole reason to cancel another running query.
     cancel_mode: bool,
 
     /// In transaction mode, the connection is released after each transaction.
     /// Session mode has slightly higher throughput per client, but lower capacity.
-    transaction_mode: bool,
+    client_pool_mode: PoolMode,
 
     /// For query cancellation, the client is given a random process ID and secret on startup.
     process_id: i32,
@@ -76,7 +79,7 @@ pub struct Client<S, T> {
     parameters: HashMap<String, String>,
 
     /// Statistics related to this client
-    stats: Arc<ClientStats>,
+    pub(crate) stats: Arc<ClientStats>,
 
     /// Clients want to talk to admin database.
     admin: bool,
@@ -86,6 +89,9 @@ pub struct Client<S, T> {
 
     /// Last server process stats we talked to.
     last_server_stats: Option<Arc<ServerStats>>,
+
+    /// Last server key we talked to.
+    pub(crate) last_server_key: Option<(usize, Option<Role>)>,
 
     /// Connected to server
     connected_to_server: bool,
@@ -97,13 +103,15 @@ pub struct Client<S, T> {
     username: String,
 
     /// Server startup and session parameters that we're going to track
-    server_parameters: ServerParameters,
+    pub(crate) server_parameters: ServerParameters,
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
 
     /// Prepared statements
     prepared_statements: HashMap<String, Parse>,
+
+    pub(crate) xact_info: TransactionMetaData,
 }
 
 /// Client entrypoint.
@@ -518,7 +526,7 @@ where
         };
 
         // Authenticate admin user.
-        let (transaction_mode, mut server_parameters) = if admin {
+        let (client_pool_mode, mut server_parameters) = if admin {
             let config = get_config();
 
             // Compare server and client hashes.
@@ -537,7 +545,7 @@ where
                 return Err(error);
             }
 
-            (false, generate_server_parameters_for_admin())
+            (PoolMode::Session, generate_server_parameters_for_admin())
         }
         // Authenticate normal user.
         else {
@@ -547,7 +555,7 @@ where
                     error_response(
                         &mut write,
                         &format!(
-                            "No pool configured for database: {:?}, user: {:?}",
+                            "No pool configured for database: {:?}, user: {:?} (in startup)",
                             pool_name, username
                         ),
                     )
@@ -649,7 +657,7 @@ where
                 }
             }
 
-            let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
+            let client_pool_mode = pool.settings.pool_mode;
 
             // If the pool hasn't been validated yet,
             // connect to the servers and figure out what's what.
@@ -670,7 +678,7 @@ where
                 }
             }
 
-            (transaction_mode, pool.server_parameters())
+            (client_pool_mode, pool.server_parameters())
         };
 
         // Update the parameters to merge what the application sent and what's originally on the server
@@ -698,7 +706,7 @@ where
             addr,
             buffer: BytesMut::with_capacity(8196),
             cancel_mode: false,
-            transaction_mode,
+            client_pool_mode,
             process_id,
             secret_key,
             client_server_map,
@@ -707,12 +715,14 @@ where
             admin,
             last_address_id: None,
             last_server_stats: None,
+            last_server_key: None,
             pool_name: pool_name.clone(),
             username: username.clone(),
             server_parameters,
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
+            xact_info: Default::default(),
         })
     }
 
@@ -733,7 +743,7 @@ where
             addr,
             buffer: BytesMut::with_capacity(8196),
             cancel_mode: true,
-            transaction_mode: false,
+            client_pool_mode: PoolMode::Session,
             process_id,
             secret_key,
             client_server_map,
@@ -742,12 +752,14 @@ where
             admin: false,
             last_address_id: None,
             last_server_stats: None,
+            last_server_key: None,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
             server_parameters: ServerParameters::new(),
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
+            xact_info: Default::default(),
         })
     }
 
@@ -804,8 +816,8 @@ where
         // or issue commands for our sharding and server selection protocol.
         loop {
             trace!(
-                "Client idle, waiting for message, transaction mode: {}",
-                self.transaction_mode
+                "Client idle, waiting for message, pool mode: {:?}",
+                self.client_pool_mode
             );
 
             // Should we rewrite prepared statements and bind messages?
@@ -1000,158 +1012,21 @@ where
 
             query_router.update_pool_settings(pool.settings.clone());
 
-            let current_shard = query_router.shard();
-
-            // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(&message) {
-                // Normal query, not a custom command.
-                None => (),
-
-                // SET SHARD TO
-                Some((Command::SetShard, _)) => {
-                    match query_router.shard() {
-                        None => (),
-                        Some(selected_shard) => {
-                            if selected_shard >= pool.shards() {
-                                // Bad shard number, send error message to client.
-                                query_router.set_shard(current_shard);
-
-                                error_response(
-                                    &mut self.write,
-                                    &format!(
-                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
-                                        selected_shard,
-                                        pool.shards(),
-                                        current_shard,
-                                    ),
-                                )
-                                    .await?;
-                            } else {
-                                custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // SET PRIMARY READS TO
-                Some((Command::SetPrimaryReads, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
-                    continue;
-                }
-
-                // SET SHARDING KEY TO
-                Some((Command::SetShardingKey, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
-                    continue;
-                }
-
-                // SET SERVER ROLE TO
-                Some((Command::SetServerRole, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
-                    continue;
-                }
-
-                // SHOW SERVER ROLE
-                Some((Command::ShowServerRole, value)) => {
-                    show_response(&mut self.write, "server role", &value).await?;
-                    continue;
-                }
-
-                // SHOW SHARD
-                Some((Command::ShowShard, value)) => {
-                    show_response(&mut self.write, "shard", &value).await?;
-                    continue;
-                }
-
-                // SHOW PRIMARY READS
-                Some((Command::ShowPrimaryReads, value)) => {
-                    show_response(&mut self.write, "primary reads", &value).await?;
-                    continue;
-                }
-            };
-
-            debug!("Waiting for connection from pool");
-            if !self.admin {
-                self.stats.waiting();
-            }
-
-            // Grab a server from the pool.
-            let connection = match pool
-                .get(query_router.shard(), query_router.role(), &self.stats)
-                .await
-            {
-                Ok(conn) => {
-                    debug!("Got connection from pool");
-                    conn
-                }
-                Err(err) => {
-                    // Client is attempting to get results from the server,
-                    // but we were unable to grab a connection from the pool
-                    // We'll send back an error message and clean the extended
-                    // protocol buffer
-                    self.stats.idle();
-
-                    if message[0] as char == 'S' {
-                        error!("Got Sync message but failed to get a connection from the pool");
-                        self.buffer.clear();
-                    }
-
-                    error_response(
-                        &mut self.write,
-                        format!("could not get connection from the pool - {}", err).as_str(),
-                    )
-                    .await?;
-
-                    error!(
-                        "Could not get connection from pool: \
-                        {{ \
-                            pool_name: {:?}, \
-                            username: {:?}, \
-                            shard: {:?}, \
-                            role: \"{:?}\", \
-                            error: \"{:?}\" \
-                        }}",
-                        self.pool_name,
-                        self.username,
-                        query_router.shard(),
-                        query_router.role(),
-                        err
-                    );
-
-                    continue;
-                }
-            };
-
-            let mut reference = connection.0;
-            let address = connection.1;
-            let server = &mut *reference;
-
-            // Server is assigned to the client in case the client wants to
-            // cancel a query later.
-            server.claim(self.process_id, self.secret_key);
-            self.connected_to_server = true;
-
-            // Update statistics
-            self.stats.active();
-
-            self.last_address_id = Some(address.id);
-            self.last_server_stats = Some(server.stats());
-
-            debug!(
-                "Client {:?} talking to server {:?}",
-                self.addr,
-                server.address()
-            );
-
-            server.sync_parameters(&self.server_parameters).await?;
-
-            let mut initial_message = Some(message);
-
             let idle_client_timeout_duration = match get_idle_client_in_transaction_timeout() {
                 0 => tokio::time::Duration::MAX,
                 timeout => tokio::time::Duration::from_millis(timeout),
             };
+
+            let mut all_conns: HashMap<
+                (usize, Option<Role>),
+                (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
+            > = HashMap::new();
+            let mut initial_message = Some(message);
+
+            // Reset transaction state, as we are entering a new transaction loop.
+            reset_client_xact(self);
+
+            let mut should_continue_in_outer_loop = false;
 
             // Transaction loop. Multiple queries can be issued by the client here.
             // The connection belongs to the client until the transaction is over,
@@ -1160,10 +1035,326 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
+                let mut message = match initial_message {
+                    None => {
+                        trace!("Waiting for message inside transaction or in session mode");
+
+                        // This is not an initial message so discard the initial_parsed_ast
+                        initial_parsed_ast.take();
+
+                        match tokio::time::timeout(
+                            idle_client_timeout_duration,
+                            read_message(&mut self.read),
+                        )
+                        .await
+                        {
+                            Ok(Ok(message)) => message,
+                            Ok(Err(err)) => {
+                                // Client disconnected inside a transaction.
+                                // Clean up the server and re-use it.
+                                self.stats.disconnect();
+                                for (_, mut conn) in all_conns {
+                                    let server = &mut *conn.0;
+                                    server.checkin_cleanup().await?;
+                                }
+
+                                return Err(err);
+                            }
+                            Err(_) => {
+                                // Client idle in transaction timeout
+                                error_response_with_state(
+                                    &mut self.write,
+                                    "idle transaction timeout",
+                                    self.xact_info.state(),
+                                )
+                                .await?;
+                                error!(
+                                    "Client idle in transaction timeout: \
+                                    {{ \
+                                        pool_name: {}, \
+                                        username: {}, \
+                                        shard: {:?}, \
+                                        role: \"{:?}\" \
+                                    }}",
+                                    self.pool_name,
+                                    self.username,
+                                    query_router.shard(),
+                                    query_router.role()
+                                );
+
+                                break;
+                            }
+                        }
+                    }
+
+                    Some(message) => {
+                        initial_message = None;
+                        message
+                    }
+                };
+
+                assign_client_transaction_state(self, &all_conns);
+
+                if all_conns.is_empty() || self.is_transparent_mode() {
+                    let current_shard = query_router.shard();
+
+                    // Handle all custom protocol commands, if any.
+                    match query_router.try_execute_command(&message) {
+                        // Normal query, not a custom command.
+                        None => (),
+
+                        // SET SHARD TO
+                        Some((Command::SetShard, _)) => {
+                            match query_router.shard() {
+                                None => (),
+                                Some(selected_shard) => {
+                                    if selected_shard >= pool.shards() {
+                                        // Bad shard number, send error message to client.
+                                        query_router.set_shard(current_shard);
+
+                                        error_response_with_state(
+                                    &mut self.write,
+                                    &format!(
+                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
+                                        selected_shard,
+                                        pool.shards(),
+                                        current_shard,
+                                    ),
+                                    self.xact_info.state(),
+                                )
+                                    .await?;
+                                    } else {
+                                        custom_protocol_response_ok_with_state(
+                                            &mut self.write,
+                                            "SET SHARD",
+                                            self.xact_info.state(),
+                                        )
+                                        .await?;
+                                    }
+                                }
+                            }
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // SET PRIMARY READS TO
+                        Some((Command::SetPrimaryReads, _)) => {
+                            custom_protocol_response_ok_with_state(
+                                &mut self.write,
+                                "SET PRIMARY READS",
+                                self.xact_info.state(),
+                            )
+                            .await?;
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // SET SHARDING KEY TO
+                        Some((Command::SetShardingKey, _)) => {
+                            custom_protocol_response_ok_with_state(
+                                &mut self.write,
+                                "SET SHARDING KEY",
+                                self.xact_info.state(),
+                            )
+                            .await?;
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // SET SERVER ROLE TO
+                        Some((Command::SetServerRole, _)) => {
+                            custom_protocol_response_ok_with_state(
+                                &mut self.write,
+                                "SET SERVER ROLE",
+                                self.xact_info.state(),
+                            )
+                            .await?;
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // SHOW SERVER ROLE
+                        Some((Command::ShowServerRole, value)) => {
+                            show_response(&mut self.write, "server role", &value).await?;
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // SHOW SHARD
+                        Some((Command::ShowShard, value)) => {
+                            show_response(&mut self.write, "shard", &value).await?;
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+
+                        // SHOW PRIMARY READS
+                        Some((Command::ShowPrimaryReads, value)) => {
+                            show_response(&mut self.write, "primary reads", &value).await?;
+                            if self.is_in_idle_transaction() {
+                                should_continue_in_outer_loop = true;
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+
+                    debug!("Waiting for connection from pool");
+                    if !self.admin {
+                        self.stats.waiting();
+                    }
+
+                    let server_key = (query_router.shard().unwrap_or(0), query_router.role());
+                    let mut conn_opt = all_conns.get_mut(&server_key);
+                    if conn_opt.is_none() {
+                        // Grab a server from the pool.
+                        let connection = match pool
+                            .get(query_router.shard(), query_router.role(), &self.stats)
+                            .await
+                        {
+                            Ok(conn) => {
+                                debug!("Got connection from pool");
+                                conn
+                            }
+                            Err(err) => {
+                                // Client is attempting to get results from the server,
+                                // but we were unable to grab a connection from the pool
+                                // We'll send back an error message and clean the extended
+                                // protocol buffer
+                                self.stats.idle();
+
+                                if message[0] as char == 'S' {
+                                    error!("Got Sync message but failed to get a connection from the pool");
+                                    self.buffer.clear();
+                                }
+
+                                error_response_with_state(
+                                    &mut self.write,
+                                    format!("could not get connection from the pool - {}", err)
+                                        .as_str(),
+                                    self.xact_info.state(),
+                                )
+                                .await?;
+
+                                error!(
+                                    "Could not get connection from pool: \
+                                    {{ \
+                                        pool_name: {:?}, \
+                                        username: {:?}, \
+                                        shard: {:?}, \
+                                        role: \"{:?}\", \
+                                        error: \"{:?}\" \
+                                    }}",
+                                    self.pool_name,
+                                    self.username,
+                                    query_router.shard(),
+                                    query_router.role(),
+                                    err
+                                );
+
+                                if self.is_in_idle_transaction() {
+                                    should_continue_in_outer_loop = true;
+                                    break;
+                                } else {
+                                    continue;
+                                }
+                            }
+                        };
+
+                        // Before inserting this new connection, if we had only a single connection
+                        // before, then it means that we have started a distributed transaction.
+                        // At this point, we need to acquire the snapshot from the first server and
+                        // use that snapshot for all the other servers.
+                        if all_conns.len() == 1 {
+                            let (first_server_key, first_conn) =
+                                all_conns.iter_mut().next().unwrap();
+                            let first_server = &mut *first_conn.0;
+
+                            if !acquire_gid_and_snapshot(self, first_server_key, first_server)
+                                .await?
+                            {
+                                break;
+                            }
+                        }
+
+                        all_conns.insert(server_key, connection);
+                        let is_distributed_xact = all_conns.len() > 1;
+                        conn_opt = if is_distributed_xact {
+                            let conn_opt = all_conns.get_mut(&server_key);
+                            let conn = conn_opt.unwrap();
+                            let server = &mut *conn.0;
+                            let address = &conn.1;
+
+                            debug!(
+                                "Sending implicit BEGIN statement to server {} (in transparent mode with distributed transaction)",
+                                address
+                            );
+                            if !begin_distributed_xact(self, &server_key, server).await? {
+                                break;
+                            }
+                            Some(conn)
+                        } else {
+                            all_conns.get_mut(&server_key)
+                        }
+                    }
+                    let conn = conn_opt.unwrap();
+                    let server = &mut *conn.0;
+                    let address = &conn.1;
+
+                    // Server is assigned to the client in case the client wants to
+                    // cancel a query later.
+                    server.claim(self.process_id, self.secret_key);
+                    self.connected_to_server = true;
+
+                    // Update statistics
+                    self.stats.active();
+
+                    self.last_address_id = Some(address.id);
+                    self.last_server_stats = Some(server.stats());
+                    self.last_server_key = Some(server_key);
+
+                    debug!(
+                        "Client {:?} talking to server {:?}",
+                        self.addr,
+                        server.address()
+                    );
+
+                    server.sync_parameters(&self.server_parameters).await?;
+                }
+
+                let is_distributed_xact = all_conns.len() > 1;
+                let server_key = (query_router.shard().unwrap_or(0), query_router.role());
+                let conn = all_conns.get_mut(&server_key).unwrap();
+                let server = &mut *conn.0;
+                let address = &conn.1;
                 // Only check if we should rewrite prepared statements
                 // in session mode. In transaction mode, we check at the beginning of
                 // each transaction.
-                if !self.transaction_mode {
+                if !self.is_transaction_mode() {
                     prepared_statements_enabled = get_prepared_statements();
                 }
 
@@ -1197,7 +1388,7 @@ where
                                 Ok(_) => (),
                                 Err(err) => {
                                     pool.ban(
-                                        &address,
+                                        address,
                                         BanReason::MessageSendFailed,
                                         Some(&self.stats),
                                     );
@@ -1211,56 +1402,6 @@ where
                     prepared_statement = None;
                 }
 
-                let mut message = match initial_message {
-                    None => {
-                        trace!("Waiting for message inside transaction or in session mode");
-
-                        // This is not an initial message so discard the initial_parsed_ast
-                        initial_parsed_ast.take();
-
-                        match tokio::time::timeout(
-                            idle_client_timeout_duration,
-                            read_message(&mut self.read),
-                        )
-                        .await
-                        {
-                            Ok(Ok(message)) => message,
-                            Ok(Err(err)) => {
-                                // Client disconnected inside a transaction.
-                                // Clean up the server and re-use it.
-                                self.stats.disconnect();
-                                server.checkin_cleanup().await?;
-
-                                return Err(err);
-                            }
-                            Err(_) => {
-                                // Client idle in transaction timeout
-                                error_response(&mut self.write, "idle transaction timeout").await?;
-                                error!(
-                                    "Client idle in transaction timeout: \
-                                    {{ \
-                                        pool_name: {}, \
-                                        username: {}, \
-                                        shard: {:?}, \
-                                        role: \"{:?}\" \
-                                    }}",
-                                    self.pool_name,
-                                    self.username,
-                                    query_router.shard(),
-                                    query_router.role()
-                                );
-
-                                break;
-                            }
-                        }
-                    }
-
-                    Some(message) => {
-                        initial_message = None;
-                        message
-                    }
-                };
-
                 // The message will be forwarded to the server intact. We still would like to
                 // parse it below to figure out what to do with it.
 
@@ -1268,33 +1409,31 @@ where
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
                 let code = *message.get(0).unwrap() as char;
 
-                trace!("Message: {}", code);
+                trace!("client Message: {}", code);
 
                 match code {
                     // Query
                     'Q' => {
-                        if query_router.query_parser_enabled() {
-                            // We don't want to parse again if we already parsed it as the initial message
-                            let ast = match initial_parsed_ast {
-                                Some(_) => Some(initial_parsed_ast.take().unwrap()),
-                                None => match query_router.parse(&message) {
-                                    Ok(ast) => Some(ast),
-                                    Err(error) => {
-                                        warn!(
-                                            "Query parsing error: {} (client: {})",
-                                            error, client_identifier
-                                        );
-                                        None
-                                    }
-                                },
-                            };
+                        let mut ast = None;
+                        if is_distributed_xact || query_router.query_parser_enabled() {
+                            ast = parse_ast(
+                                &mut initial_parsed_ast,
+                                &query_router,
+                                &message,
+                                &client_identifier,
+                            );
 
-                            if let Some(ast) = ast {
+                            ast = if let Some(ast) = ast {
                                 let plugin_result = query_router.execute_plugins(&ast).await;
 
                                 match plugin_result {
                                     Ok(PluginOutput::Deny(error)) => {
-                                        error_response(&mut self.write, &error).await?;
+                                        error_response_with_state(
+                                            &mut self.write,
+                                            &error,
+                                            self.xact_info.state(),
+                                        )
+                                        .await?;
                                         continue;
                                     }
 
@@ -1305,30 +1444,64 @@ where
 
                                     _ => (),
                                 };
+
+                                if is_distributed_xact {
+                                    if set_commit_or_abort_statement(self, &ast) {
+                                        break;
+                                    }
+                                }
+
+                                Some(ast)
+                            } else {
+                                None
                             }
                         }
-                        debug!("Sending query to server");
+                        debug!("Sending query to server (in Query mode)");
+
+                        let server_was_in_transaction = server.in_transaction();
 
                         self.send_and_receive_loop(
                             code,
                             Some(&message),
                             server,
-                            &address,
+                            address,
                             &pool,
                             &self.stats.clone(),
                         )
                         .await?;
 
-                        if !server.in_transaction() {
+                        if server.in_transaction() {
+                            // If the server was not in transaction and now it is, we need to store the
+                            // begin statement. The begin statement is used if/when contacting another
+                            // server in the same transaction.
+                            if !server_was_in_transaction {
+                                if ast.is_none() {
+                                    // We don't want to parse again if we already parsed it as the initial message
+                                    ast = parse_ast(
+                                        &mut initial_parsed_ast,
+                                        &query_router,
+                                        &message,
+                                        &client_identifier,
+                                    );
+                                }
+                                assert!(ast.is_some());
+                                let ast_vec = ast.unwrap();
+                                assert_eq!(ast_vec.len(), 1);
+
+                                initialize_xact_info(self, server, &ast_vec[0]);
+                            }
+                        } else {
                             // Report transaction executed statistics.
                             self.stats.transaction();
                             server
                                 .stats()
                                 .transaction(&self.server_parameters.get_application_name());
 
-                            // Release server back to the pool if we are in transaction mode.
+                            // Release server back to the pool if we are in transaction or transparent modes.
                             // If we are in session mode, we keep the server until the client disconnects.
-                            if self.transaction_mode && !server.in_copy_mode() {
+                            if (self.is_transaction_mode() || self.is_transparent_mode())
+                                && !server.in_copy_mode()
+                            {
                                 self.stats.idle();
 
                                 break;
@@ -1422,11 +1595,16 @@ where
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {
-                        debug!("Sending query to server");
+                        debug!("Sending query to server (in Sync mode)");
 
                         match plugin_output {
                             Some(PluginOutput::Deny(error)) => {
-                                error_response(&mut self.write, &error).await?;
+                                error_response_with_state(
+                                    &mut self.write,
+                                    &error,
+                                    self.xact_info.state(),
+                                )
+                                .await?;
                                 plugin_output = None;
                                 self.buffer.clear();
                                 continue;
@@ -1464,7 +1642,7 @@ where
                             code,
                             None,
                             server,
-                            &address,
+                            address,
                             &pool,
                             &self.stats.clone(),
                         )
@@ -1478,9 +1656,11 @@ where
                                 .stats()
                                 .transaction(&self.server_parameters.get_application_name());
 
-                            // Release server back to the pool if we are in transaction mode.
+                            // Release server back to the pool if we are in transaction or transparent modes.
                             // If we are in session mode, we keep the server until the client disconnects.
-                            if self.transaction_mode && !server.in_copy_mode() {
+                            if (self.is_transaction_mode() || self.is_transparent_mode())
+                                && !server.in_copy_mode()
+                            {
                                 break;
                             }
                         }
@@ -1493,7 +1673,7 @@ where
                         // Want to limit buffer size
                         if self.buffer.len() > 8196 {
                             // Forward the data to the server,
-                            self.send_server_message(server, &self.buffer, &address, &pool)
+                            self.send_server_message(server, &self.buffer, address, &pool)
                                 .await?;
                             self.buffer.clear();
                         }
@@ -1505,14 +1685,14 @@ where
                         // We may already have some copy data in the buffer, add this message to buffer
                         self.buffer.put(&message[..]);
 
-                        self.send_server_message(server, &self.buffer, &address, &pool)
+                        self.send_server_message(server, &self.buffer, address, &pool)
                             .await?;
 
                         // Clear the buffer
                         self.buffer.clear();
 
                         let response = self
-                            .receive_server_message(server, &address, &pool, &self.stats.clone())
+                            .receive_server_message(server, address, &pool, &self.stats.clone())
                             .await?;
 
                         match write_all_flush(&mut self.write, &response).await {
@@ -1529,9 +1709,9 @@ where
                                 .stats()
                                 .transaction(self.server_parameters.get_application_name());
 
-                            // Release server back to the pool if we are in transaction mode.
+                            // Release server back to the pool if we are in transaction or transparent modes.
                             // If we are in session mode, we keep the server until the client disconnects.
-                            if self.transaction_mode {
+                            if self.is_transaction_mode() || self.is_transparent_mode() {
                                 break;
                             }
                         }
@@ -1545,16 +1725,34 @@ where
                 }
             }
 
-            // The server is no longer bound to us, we can't cancel it's queries anymore.
-            debug!("Releasing server back into the pool");
-
-            server.checkin_cleanup().await?;
-
-            if prepared_statements_enabled {
-                server.maintain_cache().await?;
+            if should_continue_in_outer_loop {
+                continue;
             }
 
-            server.stats().idle();
+            distributed_commit_or_abort(self, &mut all_conns).await?;
+
+            // Reset transaction state for safety reasons. Even if this state will be reset before
+            // the next transaction, this dirty state could be seen in-between here and there.
+            reset_client_xact(self);
+
+            debug!("Releasing servers back into the pool");
+
+            for (_, mut conn) in all_conns {
+                let server = &mut *conn.0;
+                let address = &conn.1;
+
+                // The server is no longer bound to us, we can't cancel it's queries anymore.
+                debug!("Releasing server back into the pool: {}", address);
+
+                server.checkin_cleanup().await?;
+
+                if prepared_statements_enabled {
+                    server.maintain_cache().await?;
+                }
+
+                server.stats().idle();
+            }
+
             self.connected_to_server = false;
 
             self.release();
@@ -1571,7 +1769,7 @@ where
                 error_response(
                     &mut self.write,
                     &format!(
-                        "No pool configured for database: {}, user: {}",
+                        "No pool configured for database: {}, user: {} (in get_pool)",
                         self.pool_name, self.username
                     ),
                 )
@@ -1801,6 +1999,40 @@ where
                 Err(Error::StatementTimeout)
             }
         }
+    }
+
+    pub fn is_transaction_mode(&self) -> bool {
+        self.client_pool_mode == PoolMode::Transaction
+    }
+
+    pub fn is_transparent_mode(&self) -> bool {
+        self.client_pool_mode == PoolMode::Transparent
+    }
+
+    pub fn is_in_idle_transaction(&self) -> bool {
+        self.xact_info.is_idle()
+    }
+}
+
+fn parse_ast(
+    initial_parsed_ast: &mut Option<Vec<sqlparser::ast::Statement>>,
+    query_router: &QueryRouter,
+    message: &BytesMut,
+    client_identifier: &ClientIdentifier,
+) -> Option<Vec<sqlparser::ast::Statement>> {
+    // We don't want to parse again if we already parsed it as the initial message
+    match *initial_parsed_ast {
+        Some(_) => Some(initial_parsed_ast.take().unwrap()),
+        None => match query_router.parse(message) {
+            Ok(ast) => Some(ast),
+            Err(error) => {
+                warn!(
+                    "Query parsing error: {} (client: {})",
+                    error, client_identifier
+                );
+                None
+            }
+        },
     }
 }
 

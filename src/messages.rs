@@ -12,6 +12,7 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 use crate::constants::MESSAGE_TERMINATOR;
+use crate::server_xact::TransactionState;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
@@ -118,13 +119,28 @@ pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
+    ready_for_query_with_state(stream, TransactionState::Idle).await
+}
+
+/// Tell the client we're ready for another query or not, based on the given transaction state.
+pub async fn ready_for_query_with_state<S>(
+    stream: &mut S,
+    t_state: TransactionState,
+) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     let mut bytes = BytesMut::with_capacity(
         mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
     );
 
     bytes.put_u8(b'Z');
     bytes.put_i32(5);
-    bytes.put_u8(b'I'); // Idle
+    match t_state {
+        TransactionState::Idle => bytes.put_u8(b'I'),
+        TransactionState::InTransaction => bytes.put_u8(b'T'),
+        TransactionState::InFailedTransaction => bytes.put_u8(b'E'),
+    }
 
     write_all(stream, bytes).await
 }
@@ -311,6 +327,24 @@ pub async fn custom_protocol_response_ok<S>(stream: &mut S, message: &str) -> Re
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
+    custom_protocol_response_ok_with_state(stream, message, TransactionState::Idle).await
+}
+
+/// Implements a response to our custom `SET SHARDING KEY`
+/// and `SET SERVER ROLE` commands.
+/// This tells the client we're ready for the next query or not, based on the state.
+pub async fn custom_protocol_response_ok_with_state<S>(
+    stream: &mut S,
+    message: &str,
+    t_state: TransactionState,
+) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    debug!(
+        "Sending custom protocol response: {} at {:?} state.",
+        message, t_state
+    );
     let mut res = BytesMut::with_capacity(25);
 
     let set_complete = BytesMut::from(&format!("{}\0", message)[..]);
@@ -322,7 +356,7 @@ where
     res.put_slice(&set_complete[..]);
 
     write_all_half(stream, &res).await?;
-    ready_for_query(stream).await
+    ready_for_query_with_state(stream, t_state).await
 }
 
 /// Send a custom error message to the client.
@@ -332,8 +366,24 @@ pub async fn error_response<S>(stream: &mut S, message: &str) -> Result<(), Erro
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
+    error_response_with_state(stream, message, TransactionState::Idle).await
+}
+
+/// Send a custom error message to the client.
+/// Tell the client we are ready for the next query. Given the current transaction state, no
+/// rollback is necessary if it's in the "idle" or "transaction" state (i.e., not already in the
+/// rollback state).
+/// Docs on error codes: <https://www.postgresql.org/docs/12/errcodes-appendix.html>.
+pub async fn error_response_with_state<S>(
+    stream: &mut S,
+    message: &str,
+    t_state: TransactionState,
+) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
     error_response_terminal(stream, message).await?;
-    ready_for_query(stream).await
+    ready_for_query_with_state(stream, t_state).await
 }
 
 /// Send a custom error message to the client.
