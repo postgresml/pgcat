@@ -871,26 +871,15 @@ pub struct Plugins {
     pub prewarmer: Option<Prewarmer>,
 }
 
-pub trait Plugin {
-    fn is_enabled(&self) -> bool;
-}
-
 impl std::fmt::Display for Plugins {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        fn is_enabled<T: Plugin>(arg: Option<&T>) -> bool {
-            if arg.is_some() {
-                arg.unwrap().is_enabled()
-            } else {
-                false
-            }
-        }
         write!(
             f,
             "interceptor: {}, table_access: {}, query_logger: {}, prewarmer: {}",
-            is_enabled(self.intercept.as_ref()),
-            is_enabled(self.table_access.as_ref()),
-            is_enabled(self.query_logger.as_ref()),
-            is_enabled(self.prewarmer.as_ref()),
+            self.intercept.is_some(),
+            self.table_access.is_some(),
+            self.query_logger.is_some(),
+            self.prewarmer.is_some(),
         )
     }
 }
@@ -901,22 +890,10 @@ pub struct Intercept {
     pub queries: BTreeMap<String, Query>,
 }
 
-impl Plugin for Intercept {
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct TableAccess {
     pub enabled: bool,
     pub tables: Vec<String>,
-}
-
-impl Plugin for TableAccess {
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
@@ -924,22 +901,10 @@ pub struct QueryLogger {
     pub enabled: bool,
 }
 
-impl Plugin for QueryLogger {
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Prewarmer {
     pub enabled: bool,
     pub queries: Vec<String>,
-}
-
-impl Plugin for Prewarmer {
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
 }
 
 impl Intercept {
