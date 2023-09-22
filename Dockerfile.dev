@@ -1,16 +1,7 @@
-FROM ubuntu:23.04 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 
 RUN apt-get update && \
-    apt-get install -y build-essential curl
-
-# Get Rust
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# We only pay the installation cost once, 
-# it will be cached from the second build onwards
-RUN cargo install cargo-chef 
+    apt-get install -y build-essential
 
 WORKDIR /app
 
@@ -24,10 +15,10 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cargo build --release
+RUN cargo build
 
-FROM ubuntu:23.04
-COPY --from=builder /app/target/release /usr/bin/
+FROM debian:bookworm-slim
+COPY --from=builder /app/target/release/pgcat /usr/bin/pgcat
 COPY --from=builder /app/pgcat.toml /etc/pgcat/pgcat.toml
 WORKDIR /etc/pgcat
 ENV RUST_LOG=info
