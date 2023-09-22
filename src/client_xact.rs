@@ -2,8 +2,6 @@ use crate::client::Client;
 use crate::errors::Error;
 use crate::query_messages::{ErrorInfo, ErrorResponse, Message};
 use bytes::BytesMut;
-/// Handle clients by pretending to be a PostgreSQL server.
-use chrono::NaiveDateTime;
 use futures::future::join_all;
 use itertools::Either;
 use log::{debug, warn};
@@ -15,32 +13,6 @@ use crate::config::{Address, Role};
 use crate::messages::*;
 use crate::server::Server;
 use crate::server_xact::*;
-
-/// DistributedPrepareResult is an accumulator for the results of the 'PREPARE TRANSACTION's.
-#[derive(Debug, Default)]
-struct DistributedPrepareResult {
-    max_prepare_timestamp: NaiveDateTime,
-}
-
-impl DistributedPrepareResult {
-    /// Returns the maximum prepare timestamp of all servers.
-    pub fn get_max_prepare_timestamp(&self) -> NaiveDateTime {
-        self.max_prepare_timestamp
-    }
-
-    /// Accumulates the results of a 'PREPARE TRANSACTION'.
-    /// The result is true if the server has a 'PREPARE TRANSACTION' timestamp.
-    pub fn accumulate(&mut self, server: &Server) -> bool {
-        let prep_timestamp = server.transaction_metadata().get_prepared_timestamp();
-        if prep_timestamp.is_none() {
-            false
-        } else {
-            self.max_prepare_timestamp =
-                std::cmp::max(self.max_prepare_timestamp, prep_timestamp.unwrap());
-            true
-        }
-    }
-}
 
 /// This function starts a distributed transaction by sending a BEGIN statement to the first server.
 /// It is called on the first server, as soon as client wants to interact with another server,
@@ -383,11 +355,10 @@ where
     if res.is_right() {
         return Ok(res.right());
     }
-    let res = res.left().unwrap();
 
     let commit_prepared_results = join_all(all_conns.iter_mut().map(|(_, conn)| {
         let server = &mut *conn.0;
-        local_server_commit_prepared(server, res.get_max_prepare_timestamp())
+        local_server_commit_prepared(server)
     }))
     .await;
 
@@ -455,7 +426,7 @@ async fn distributed_prepare<S, T>(
         (usize, Option<Role>),
         (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
     >,
-) -> Result<Either<DistributedPrepareResult, ErrorResponse>, Error>
+) -> Result<Either<(), ErrorResponse>, Error>
 where
     S: tokio::io::AsyncRead + std::marker::Unpin,
     T: tokio::io::AsyncWrite + std::marker::Unpin,
@@ -475,20 +446,13 @@ where
     });
 
     // If there was any error, we need to abort the transaction.
-    let mut res = DistributedPrepareResult::default();
     for prepare_res in prepare_results {
         if let Some(err) = prepare_res? {
             // For now, we just return the first error we encounter.
             return Ok(Either::Right(err));
         }
     }
-
-    // Otherwise, accumulate the results of 'PREPARE TRANSACTION'.
-    all_conns.iter_mut().for_each(|(_, conn)| {
-        let server = &mut *conn.0;
-        res.accumulate(&server);
-    });
-    Ok(Either::Left(res))
+    Ok(Either::Left(()))
 }
 
 /// This function is called when the client sends a query to the server without requiring an answer.

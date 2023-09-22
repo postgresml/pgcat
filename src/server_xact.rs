@@ -1,7 +1,6 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
 use bytes::Buf;
-use chrono::NaiveDateTime;
 use itertools::Either;
 use log::{debug, warn};
 use once_cell::sync::Lazy;
@@ -216,7 +215,6 @@ pub struct TransactionMetaData {
 
     xact_gid: Option<String>,
     snapshot: Option<String>,
-    prepared_timestamp: Option<NaiveDateTime>,
 
     begin_statement: Option<Statement>,
     commit_statement: Option<Statement>,
@@ -285,18 +283,6 @@ impl TransactionMetaData {
         self.snapshot.clone()
     }
 
-    pub fn set_prepared_timestamp(&mut self, prepared_timestamp: Option<NaiveDateTime>) {
-        self.prepared_timestamp = prepared_timestamp;
-    }
-
-    pub fn get_prepared_timestamp(&self) -> Option<NaiveDateTime> {
-        self.prepared_timestamp
-    }
-
-    pub fn has_done_prepare_transaction(&self) -> bool {
-        self.prepared_timestamp.is_some()
-    }
-
     pub fn set_begin_statement(&mut self, begin_statement: Option<Statement>) {
         self.begin_statement = begin_statement;
     }
@@ -328,7 +314,6 @@ impl Default for TransactionMetaData {
             state: TransactionState::Idle,
             xact_gid: None,
             snapshot: None,
-            prepared_timestamp: None,
             begin_statement: None,
             commit_statement: None,
             abort_statement: None,
@@ -495,15 +480,6 @@ pub async fn local_server_prepare_transaction(
     }
     let xact_gid = xact_gid.unwrap();
 
-    if let Some(prep_time) = server.transaction_metadata.get_prepared_timestamp() {
-        return Err(Error::BadQuery(format!(
-            "The server ({}) was prepared in the past: {} (with gid: {})",
-            server.address(),
-            prep_time,
-            xact_gid,
-        )));
-    }
-
     let qres = server
         .query(&format!("PREPARE TRANSACTION '{}'", xact_gid))
         .await?;
@@ -516,12 +492,8 @@ pub async fn local_server_prepare_transaction(
 
 pub async fn local_server_commit_prepared(
     server: &mut Server,
-    commit_ts: NaiveDateTime,
 ) -> Result<Option<ErrorResponse>, Error> {
-    debug!(
-        "Called local_server_commit_prepared on {} with commit_ts: {:?}",
-        server.address, commit_ts
-    );
+    debug!("Called local_server_commit_prepared on {}.", server.address);
 
     let xact_gid = server.transaction_metadata.get_xact_gid();
     if xact_gid.is_none() {
