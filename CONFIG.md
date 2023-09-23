@@ -81,6 +81,16 @@ default: false
 
 Whether to verify server certificate or not.
 
+### trust_os_certificates
+```
+path: general.trust_os_certificates
+default: false
+```
+
+If the `verify_server_certificate` setting is enabled, the database
+server certificate will be verified not only through the built-in root
+certificates, but also through the operating system root certificates.
+
 ### verify_config
 ```
 path: general.verify_config

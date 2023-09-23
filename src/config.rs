@@ -331,6 +331,9 @@ pub struct General {
     #[serde(default)] // false
     pub verify_server_certificate: bool,
 
+    #[serde(default)]
+    pub trust_os_certificates: bool,
+
     pub admin_username: String,
     pub admin_password: String,
 
@@ -462,6 +465,7 @@ impl Default for General {
             tls_private_key: None,
             server_tls: false,
             verify_server_certificate: false,
+            trust_os_certificates: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
             auth_query: None,
