@@ -407,6 +407,20 @@ impl Server {
                         }),
                     );
 
+                    // Load OS root certificates, if enabled in the configuration.
+                    if config.general.trust_os_certificates {
+                        let os_certs = match rustls_native_certs::load_native_certs() {
+                            Ok(certs) => certs,
+                            Err(err) => {
+                                return Err(Error::SocketError(format!("Server TLS error: failed to load OS root certificates: {:?}", err)));
+                            }
+                        };
+
+                        let result = root_store.add_parsable_certificates(&os_certs);
+
+                        debug!("Loaded {} OS root certificates, failed to load {}", result.0, result.1);
+                    }
+
                     let mut tls_config = rustls::ClientConfig::builder()
                         .with_safe_defaults()
                         .with_root_certificates(root_store)
