@@ -26,6 +26,7 @@ use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
+use crate::tls::get_os_root_certificates;
 use std::io::Write;
 
 use pin_project::pin_project;
@@ -409,16 +410,14 @@ impl Server {
 
                     // Load OS root certificates, if enabled in the configuration.
                     if config.general.trust_os_certificates {
-                        let os_certs = match rustls_native_certs::load_native_certs() {
-                            Ok(certs) => certs,
-                            Err(err) => {
-                                return Err(Error::SocketError(format!("Server TLS error: failed to load OS root certificates: {:?}", err)));
-                            }
-                        };
+                        match get_os_root_certificates() {
+                            Ok(os_certs) => {
+                                let result = root_store.add_parsable_certificates(os_certs);
 
-                        let result = root_store.add_parsable_certificates(&os_certs);
-
-                        debug!("Loaded {} OS root certificates, failed to load {}", result.0, result.1);
+                                debug!("{} get_os_root_certificates processed {} valid and {} invalid certs", address, result.0, result.1);
+                            },
+                            Err(err) => warn!("{} Failed to load OS root certificates: {:?}", address, err)
+                        }
                     }
 
                     let mut tls_config = rustls::ClientConfig::builder()
