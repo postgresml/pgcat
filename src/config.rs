@@ -259,8 +259,8 @@ impl User {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum CertificateVerificationVariant {
-    Bool(bool),    // false -> prefer, true - verify-full
-    String(String) // "only-ca" -> verify-full
+    Bool(bool),     // false -> prefer, true - verify-full
+    String(String), // "only-ca" -> verify-full
 }
 
 impl std::fmt::Display for CertificateVerificationVariant {
@@ -271,10 +271,11 @@ impl std::fmt::Display for CertificateVerificationVariant {
             match self {
                 Self::Bool(v) => match v {
                     true => "true",
-                    false => "false"
+                    false => "false",
                 },
-                Self::String(v) => v.as_str()
-        })
+                Self::String(v) => v.as_str(),
+            }
+        )
     }
 }
 

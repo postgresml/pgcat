@@ -7,9 +7,9 @@ use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tokio_rustls::rustls::{
     self,
-    client::{ServerCertVerified, ServerCertVerifier, verify_server_cert_signed_by_trust_anchor},
-    Certificate, PrivateKey, ServerName,
-    server::ParsedCertificate, RootCertStore
+    client::{verify_server_cert_signed_by_trust_anchor, ServerCertVerified, ServerCertVerifier},
+    server::ParsedCertificate,
+    Certificate, PrivateKey, RootCertStore, ServerName,
 };
 use tokio_rustls::TlsAcceptor;
 

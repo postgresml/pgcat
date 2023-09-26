@@ -417,7 +417,7 @@ impl Server {
                                 let result = root_store.add_parsable_certificates(os_certs);
 
                                 debug!("{} get_os_root_certificates processed {} valid and {} invalid certs", address, result.0, result.1);
-                            },
+                            }
                             Err(err) => {
                                 warn!("{} Failed to load OS root certificates: {:?}", address, err)
                             }
@@ -434,7 +434,7 @@ impl Server {
 
                         match config.general.verify_server_certificate {
                             CertificateVerificationVariant::Bool(v) => match v {
-                                true => { /* NOP */ }, // verify-full (by default rustls checks certificates completely)
+                                true => { /* NOP */ } // verify-full (by default rustls checks certificates completely)
                                 false => {
                                     // prefer
                                     dangerous.set_certificate_verifier(Arc::new(
@@ -447,15 +447,15 @@ impl Server {
                                     // verify-ca
                                     dangerous.set_certificate_verifier(Arc::new(
                                         crate::tls::OnlyRootCertificateVerification {
-                                            roots: root_store.clone()
+                                            roots: root_store.clone(),
                                         },
                                     ));
-                                },
+                                }
                                 _ => {
                                     error!("The `general.verify_server_certificate` setting has an invalid value: {}", v);
                                     return Err(Error::BadConfig);
                                 }
-                            }
+                            },
                         }
                     }
 
