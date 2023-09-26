@@ -1416,44 +1416,46 @@ where
                     'Q' => {
                         let mut ast = None;
                         if is_distributed_xact || query_router.query_parser_enabled() {
-                            ast = parse_ast(
-                                &mut initial_parsed_ast,
-                                &query_router,
-                                &message,
-                                &client_identifier,
-                            );
+                            ast = match query_router.parse(&message) {
+                                Ok(ast) => {
+                                    let plugin_result = query_router.execute_plugins(&ast).await;
 
-                            ast = if let Some(ast) = ast {
-                                let plugin_result = query_router.execute_plugins(&ast).await;
+                                    match plugin_result {
+                                        Ok(PluginOutput::Deny(error)) => {
+                                            error_response_with_state(
+                                                &mut self.write,
+                                                &error,
+                                                self.xact_info.state(),
+                                            )
+                                            .await?;
+                                            continue;
+                                        }
 
-                                match plugin_result {
-                                    Ok(PluginOutput::Deny(error)) => {
-                                        error_response_with_state(
-                                            &mut self.write,
-                                            &error,
-                                            self.xact_info.state(),
-                                        )
-                                        .await?;
-                                        continue;
+                                        Ok(PluginOutput::Intercept(result)) => {
+                                            write_all(&mut self.write, result).await?;
+                                            continue;
+                                        }
+
+                                        _ => (),
+                                    };
+
+                                    let _ = query_router.infer(&ast);
+
+                                    if is_distributed_xact {
+                                        if set_commit_or_abort_statement(self, &ast) {
+                                            break;
+                                        }
                                     }
 
-                                    Ok(PluginOutput::Intercept(result)) => {
-                                        write_all(&mut self.write, result).await?;
-                                        continue;
-                                    }
-
-                                    _ => (),
-                                };
-
-                                if is_distributed_xact {
-                                    if set_commit_or_abort_statement(self, &ast) {
-                                        break;
-                                    }
+                                    Some(ast)
                                 }
-
-                                Some(ast)
-                            } else {
-                                None
+                                Err(error) => {
+                                    warn!(
+                                        "Query parsing error: {} (client: {})",
+                                        error, client_identifier
+                                    );
+                                    None
+                                }
                             }
                         }
                         debug!("Sending query to server (in Query mode)");
