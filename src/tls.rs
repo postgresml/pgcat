@@ -17,8 +17,11 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 // OS Root certificates
-static OS_ROOT_CERTIFICATES: OnceLock<Result<Vec<rustls_native_certs::Certificate>, std::io::Error>> = OnceLock::new();
-pub fn get_os_root_certificates() -> &'static Result<Vec<rustls_native_certs::Certificate>, std::io::Error> {
+static OS_ROOT_CERTIFICATES: OnceLock<
+    Result<Vec<rustls_native_certs::Certificate>, std::io::Error>,
+> = OnceLock::new();
+pub fn get_os_root_certificates(
+) -> &'static Result<Vec<rustls_native_certs::Certificate>, std::io::Error> {
     OS_ROOT_CERTIFICATES.get_or_init(|| rustls_native_certs::load_native_certs())
 }
 
@@ -98,7 +101,7 @@ impl ServerCertVerifier for NoCertificateVerification {
 /// This structure is a stub for certificate validation in `rustls` and is needed for
 /// the "only-ca" certificate validation mode. (verify_server_certificate = "only-ca")
 pub struct OnlyRootCertificateVerification {
-    pub roots: RootCertStore
+    pub roots: RootCertStore,
 }
 
 impl ServerCertVerifier for OnlyRootCertificateVerification {
@@ -111,9 +114,9 @@ impl ServerCertVerifier for OnlyRootCertificateVerification {
         end_entity: &Certificate,
         intermediates: &[Certificate],
         _server_name: &ServerName,
-        _scts: &mut dyn Iterator<Item=&[u8]>,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
-        now: SystemTime
+        now: SystemTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         let cert = ParsedCertificate::try_from(end_entity)?;
 
@@ -143,4 +146,3 @@ impl ServerCertVerifier for OnlyRootCertificateVerification {
         Ok(ServerCertVerified::assertion())
     }
 }
-

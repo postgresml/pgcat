@@ -16,7 +16,9 @@ use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, get_prepared_statements_cache_size, Address, User, CertificateVerificationVariant};
+use crate::config::{
+    get_config, get_prepared_statements_cache_size, Address, CertificateVerificationVariant, User,
+};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -416,7 +418,9 @@ impl Server {
 
                                 debug!("{} get_os_root_certificates processed {} valid and {} invalid certs", address, result.0, result.1);
                             },
-                            Err(err) => warn!("{} Failed to load OS root certificates: {:?}", address, err)
+                            Err(err) => {
+                                warn!("{} Failed to load OS root certificates: {:?}", address, err)
+                            }
                         }
                     }
 
@@ -430,24 +434,28 @@ impl Server {
 
                         match config.general.verify_server_certificate {
                             CertificateVerificationVariant::Bool(v) => match v {
-                                true => {/* NOP */}, // verify-full (by default rustls checks certificates completely)
-                                false => { // prefer
+                                true => { /* NOP */ }, // verify-full (by default rustls checks certificates completely)
+                                false => {
+                                    // prefer
                                     dangerous.set_certificate_verifier(Arc::new(
                                         crate::tls::NoCertificateVerification {},
                                     ));
-                                },
+                                }
                             },
                             CertificateVerificationVariant::String(v) => match v.as_str() {
-                                "only-ca" => { // verify-ca
+                                "only-ca" => {
+                                    // verify-ca
                                     dangerous.set_certificate_verifier(Arc::new(
-                                        crate::tls::OnlyRootCertificateVerification { roots: root_store.clone() },
+                                        crate::tls::OnlyRootCertificateVerification {
+                                            roots: root_store.clone()
+                                        },
                                     ));
                                 },
                                 _ => {
                                     error!("The `general.verify_server_certificate` setting has an invalid value: {}", v);
                                     return Err(Error::BadConfig);
                                 }
-                            },
+                            }
                         }
                     }
 

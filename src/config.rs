@@ -259,18 +259,21 @@ impl User {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum CertificateVerificationVariant {
-    Bool(bool), // false -> prefer, true - verify-full
+    Bool(bool),    // false -> prefer, true - verify-full
     String(String) // "only-ca" -> verify-full
 }
 
 impl std::fmt::Display for CertificateVerificationVariant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Self::Bool(v) => match v {
-                true => "true",
-                false => "false"
-            },
-            Self::String(v) => v.as_str()
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Bool(v) => match v {
+                    true => "true",
+                    false => "false"
+                },
+                Self::String(v) => v.as_str()
         })
     }
 }
