@@ -281,49 +281,6 @@ impl Default for CertificateVerificationVariant {
     }
 }
 
-/*
-impl CustomSerialize for CertificateVerificationVariant {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-    {
-        match self {
-            Self::Bool(val) => serializer.serialize_bool(*val),
-            Self::String(val) => serializer.serialize_str(val.as_str()),
-        }
-    }
-}
-
-impl<'de> CustomDeserialize<'de> for CertificateVerificationVariant {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        deserializer.deserialize_bool()
-
-        /*
-        match String::deserialize(deserializer) {
-            Ok(v) => match v.as_str() {
-                "only-ca" => {},
-                _ => return Err(D::Error::unknown_variant(v.as_str(), []))
-            },
-            Err(err) => {}
-        }
-
-
-        //error!("Invalid shard {:?}", shard_number);
-        //return Err(Error::BadConfig);
-
-        Ok(match variant.to_lowercase().as_str() {
-            "false" => VerifyServerCertificate::Prefer,
-            "true" => VerifyServerCertificate::VerifyCa,
-            "only-ca" => VerifyServerCertificate::VerifyFull,
-            _ => {}
-        })*/
-    }
-}
-*/
-
 /// General configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct General {
