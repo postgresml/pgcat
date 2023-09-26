@@ -16,7 +16,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, get_prepared_statements_cache_size, Address, User};
+use crate::config::{get_config, get_prepared_statements_cache_size, Address, User, CertificateVerificationVariant};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -422,17 +422,36 @@ impl Server {
 
                     let mut tls_config = rustls::ClientConfig::builder()
                         .with_safe_defaults()
-                        .with_root_certificates(root_store)
+                        .with_root_certificates(root_store.clone())
                         .with_no_client_auth();
 
-                    // Equivalent to sslmode=prefer which is fine most places.
-                    // If you want verify-full, change `verify_server_certificate` to true.
-                    if !config.general.verify_server_certificate {
-                        let mut dangerous = tls_config.dangerous();
-                        dangerous.set_certificate_verifier(Arc::new(
-                            crate::tls::NoCertificateVerification {},
-                        ));
+                    {
+                        let mut dangerous = tls_config.dangerous(); // for security reasons, we will hide this variable from external scope
+
+                        match config.general.verify_server_certificate {
+                            CertificateVerificationVariant::Bool(v) => match v {
+                                true => {/* NOP */}, // verify-full (by default rustls checks certificates completely)
+                                false => { // prefer
+                                    dangerous.set_certificate_verifier(Arc::new(
+                                        crate::tls::NoCertificateVerification {},
+                                    ));
+                                },
+                            },
+                            CertificateVerificationVariant::String(v) => match v.as_str() {
+                                "only-ca" => { // verify-ca
+                                    dangerous.set_certificate_verifier(Arc::new(
+                                        crate::tls::OnlyRootCertificateVerification { roots: root_store.clone() },
+                                    ));
+                                },
+                                _ => {
+                                    error!("The `general.verify_server_certificate` setting has an invalid value: {}", v);
+                                    return Err(Error::BadConfig);
+                                }
+                            },
+                        }
                     }
+
+                    drop(root_store); // free memory
 
                     let connector = TlsConnector::from(Arc::new(tls_config));
                     let stream = match connector

@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -254,6 +255,75 @@ impl User {
     }
 }
 
+/// TLS connection mode to the server.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum CertificateVerificationVariant {
+    Bool(bool), // false -> prefer, true - verify-full
+    String(String) // "only-ca" -> verify-full
+}
+
+impl std::fmt::Display for CertificateVerificationVariant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::Bool(v) => match v {
+                true => "true",
+                false => "false"
+            },
+            Self::String(v) => v.as_str()
+        })
+    }
+}
+
+impl Default for CertificateVerificationVariant {
+    fn default() -> Self {
+        Self::Bool(false)
+    }
+}
+
+/*
+impl CustomSerialize for CertificateVerificationVariant {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        match self {
+            Self::Bool(val) => serializer.serialize_bool(*val),
+            Self::String(val) => serializer.serialize_str(val.as_str()),
+        }
+    }
+}
+
+impl<'de> CustomDeserialize<'de> for CertificateVerificationVariant {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        deserializer.deserialize_bool()
+
+        /*
+        match String::deserialize(deserializer) {
+            Ok(v) => match v.as_str() {
+                "only-ca" => {},
+                _ => return Err(D::Error::unknown_variant(v.as_str(), []))
+            },
+            Err(err) => {}
+        }
+
+
+        //error!("Invalid shard {:?}", shard_number);
+        //return Err(Error::BadConfig);
+
+        Ok(match variant.to_lowercase().as_str() {
+            "false" => VerifyServerCertificate::Prefer,
+            "true" => VerifyServerCertificate::VerifyCa,
+            "only-ca" => VerifyServerCertificate::VerifyFull,
+            _ => {}
+        })*/
+    }
+}
+*/
+
 /// General configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct General {
@@ -328,8 +398,8 @@ pub struct General {
     #[serde(default)] // false
     pub server_tls: bool,
 
-    #[serde(default)] // false
-    pub verify_server_certificate: bool,
+    #[serde(default)] // CertificateVerificationVariant::Bool(false)
+    pub verify_server_certificate: CertificateVerificationVariant,
 
     #[serde(default)]
     pub trust_os_certificates: bool,
@@ -464,7 +534,7 @@ impl Default for General {
             tls_certificate: None,
             tls_private_key: None,
             server_tls: false,
-            verify_server_certificate: false,
+            verify_server_certificate: CertificateVerificationVariant::Bool(false), // equivalent to false in earlier versions
             trust_os_certificates: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),

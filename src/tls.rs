@@ -7,8 +7,9 @@ use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 use tokio_rustls::rustls::{
     self,
-    client::{ServerCertVerified, ServerCertVerifier},
+    client::{ServerCertVerified, ServerCertVerifier, verify_server_cert_signed_by_trust_anchor},
     Certificate, PrivateKey, ServerName,
+    server::ParsedCertificate, RootCertStore
 };
 use tokio_rustls::TlsAcceptor;
 
@@ -76,6 +77,8 @@ impl Tls {
     }
 }
 
+/// This structure is a stub for certificate validation in `rustls` and is needed for
+/// the "prefer" certificate validation mode. (verify_server_certificate = false)
 pub struct NoCertificateVerification;
 
 impl ServerCertVerifier for NoCertificateVerification {
@@ -91,3 +94,53 @@ impl ServerCertVerifier for NoCertificateVerification {
         Ok(ServerCertVerified::assertion())
     }
 }
+
+/// This structure is a stub for certificate validation in `rustls` and is needed for
+/// the "only-ca" certificate validation mode. (verify_server_certificate = "only-ca")
+pub struct OnlyRootCertificateVerification {
+    pub roots: RootCertStore
+}
+
+impl ServerCertVerifier for OnlyRootCertificateVerification {
+    /// This piece of code is taken from `tokio_rustls::rustls::client::WebPkiVerifier`.
+    /// And it does everything the same, except for two things: which are either
+    /// not needed by `PGCat` at this point in time, or not needed for the current
+    /// implementation. (see commented out fragments below)
+    fn verify_server_cert(
+        &self,
+        end_entity: &Certificate,
+        intermediates: &[Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item=&[u8]>,
+        _ocsp_response: &[u8],
+        now: SystemTime
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        let cert = ParsedCertificate::try_from(end_entity)?;
+
+        verify_server_cert_signed_by_trust_anchor(&cert, &self.roots, intermediates, now)?;
+
+        // skip the policy check, for the reason that when `verify_server_certificate` is used,
+        // this verification is not used in PGCat now.
+        /*
+        if let Some(policy) = &self.ct_policy {
+            policy.verify(end_entity, now, scts)?;
+        }
+        */
+
+        // omit trace output, since the rustls::log crate is private.
+        /*
+        if !ocsp_response.is_empty() {
+            trace!("Unvalidated OCSP response: {:?}", ocsp_response.to_vec());
+        }
+        */
+
+        // skip server name validation, for the reason that this code section is not needed for
+        // the "only-ca" validation mode.
+        /*
+        verify_server_name(&cert, server_name)?;
+        */
+
+        Ok(ServerCertVerified::assertion())
+    }
+}
+

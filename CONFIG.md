@@ -63,7 +63,7 @@ path: general.server_round_robin
 default: false
 ```
 
-Whether to use round robin for server selection or not.
+Whether to use round-robin for server selection or not.
 
 ### server_tls
 ```
@@ -71,15 +71,34 @@ path: general.server_tls
 default: false
 ```
 
-Whether to use TLS for server connections or not.
+Attempt to establish a TLS connection to the DB server.
+
+When enabling this feature, it is also important to configure the `general.verify_server_certificate` setting.
+
+If this is disabled, it is equivalent to `sslmode=disable`.
+
 
 ### verify_server_certificate
 ```
 path: general.verify_server_certificate
 default: false
+accepted values: true / false / "only-ca"
 ```
 
 Whether to verify server certificate or not.
+
+This feature only works when the `general.server_tls` setting is enabled.
+
+`false` - Server certificate validation is not performed at all. If the server
+allows to establish TLS connection, the connection will be established via
+https protocol, if not, it will be established via http. (similar to the
+`sslmode=prefer` mode)
+
+`true` - Connection to the DB server will be made with full server certificate
+verification. (similar to `sslmode=verify-full` mode)
+
+`"only-ca"` - Connection to the DB server will be made with full server
+certificate verification except for the hostname. (similar to `sslmode=verify-ca` mode)
 
 ### trust_os_certificates
 ```
