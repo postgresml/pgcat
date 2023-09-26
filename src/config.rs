@@ -1,6 +1,6 @@
 /// Parse the configuration file.
 use arc_swap::ArcSwap;
-use log::{error, info};
+use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserializer, Serializer};
@@ -1342,30 +1342,38 @@ impl Config {
         }
 
         // Validate TLS!
-        match self.general.tls_certificate.clone() {
-            Some(tls_certificate) => {
+        match self.general.tls_certificate {
+            Some(ref mut tls_certificate) => {
                 match load_certs(Path::new(&tls_certificate)) {
                     Ok(_) => {
                         // Cert is okay, but what about the private key?
-                        match self.general.tls_private_key.clone() {
-                            Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    error!("tls_private_key is incorrectly configured: {:?}", err);
-                                    return Err(Error::BadConfig);
+                        match self.general.tls_private_key {
+                            Some(ref tls_private_key) => {
+                                match load_keys(Path::new(&tls_private_key)) {
+                                    Ok(_) => (),
+                                    Err(err) => {
+                                        warn!(
+                                            "tls_private_key is incorrectly configured: {:?}",
+                                            err
+                                        );
+                                        self.general.tls_private_key = None;
+                                        self.general.tls_certificate = None;
+                                    }
                                 }
-                            },
+                            }
 
                             None => {
-                                error!("tls_certificate is set, but the tls_private_key is not");
-                                return Err(Error::BadConfig);
+                                warn!("tls_certificate is set, but the tls_private_key is not");
+                                self.general.tls_private_key = None;
+                                self.general.tls_certificate = None;
                             }
                         };
                     }
 
                     Err(err) => {
-                        error!("tls_certificate is incorrectly configured: {:?}", err);
-                        return Err(Error::BadConfig);
+                        warn!("tls_certificate is incorrectly configured: {:?}", err);
+                        self.general.tls_private_key = None;
+                        self.general.tls_certificate = None;
                     }
                 }
             }
