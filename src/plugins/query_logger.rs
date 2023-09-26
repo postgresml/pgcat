@@ -31,7 +31,7 @@ impl<'a> Plugin for QueryLogger<'a> {
             .map(|q| q.to_string())
             .collect::<Vec<String>>()
             .join("; ");
-        info!("[pool: {}][user: {}] {}", self.user, self.db, query);
+        info!("[pool: {}][user: {}] {}", self.db, self.user, query);
 
         Ok(PluginOutput::Allow)
     }
