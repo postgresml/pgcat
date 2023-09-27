@@ -1,9 +1,10 @@
 // Stream wrapper.
 
+use once_cell::sync::OnceCell;
 use rustls_pemfile::{certs, read_one, Item};
 use std::iter;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio_rustls::rustls::{
     self,
@@ -17,11 +18,12 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 // OS Root certificates
-static OS_ROOT_CERTIFICATES: OnceLock<
-    Result<Vec<rustls_native_certs::Certificate>, std::io::Error>,
-> = OnceLock::new();
 pub fn get_os_root_certificates(
 ) -> &'static Result<Vec<rustls_native_certs::Certificate>, std::io::Error> {
+    static OS_ROOT_CERTIFICATES: OnceCell<
+        Result<Vec<rustls_native_certs::Certificate>, std::io::Error>,
+    > = OnceCell::new();
+
     OS_ROOT_CERTIFICATES.get_or_init(|| rustls_native_certs::load_native_certs())
 }
 
