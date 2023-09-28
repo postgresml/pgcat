@@ -1,6 +1,5 @@
 // Stream wrapper.
 
-use once_cell::sync::OnceCell;
 use rustls_pemfile::{certs, read_one, Item};
 use std::iter;
 use std::path::Path;
@@ -17,14 +16,47 @@ use tokio_rustls::TlsAcceptor;
 use crate::config::get_config;
 use crate::errors::Error;
 
-// OS Root certificates
-pub fn get_os_root_certificates(
-) -> &'static Result<Vec<rustls_native_certs::Certificate>, std::io::Error> {
-    static OS_ROOT_CERTIFICATES: OnceCell<
-        Result<Vec<rustls_native_certs::Certificate>, std::io::Error>,
-    > = OnceCell::new();
+use arc_swap::ArcSwap;
+use log::{error, info};
+use once_cell::sync::Lazy;
 
-    OS_ROOT_CERTIFICATES.get_or_init(|| rustls_native_certs::load_native_certs())
+static ROOT_CERT_STORE: Lazy<ArcSwap<RootCertStore>> =
+    Lazy::new(|| ArcSwap::from_pointee(RootCertStore::empty()));
+
+/// Get a read-only instance of the configuration
+/// from anywhere in the app.
+/// ArcSwap makes this cheap and quick.
+pub fn get_root_cert_store() -> RootCertStore {
+    (*(*ROOT_CERT_STORE.load())).clone()
+}
+
+pub async fn reload_root_cert_store() -> Result<(), Error> {
+    let mut store = RootCertStore::empty();
+
+    match rustls_native_certs::load_native_certs() {
+        Ok(certs) => {
+            if certs.is_empty() {
+                info!("The OS does not have root certificates");
+            } else {
+                let result = store.add_parsable_certificates(&certs);
+
+                info!(
+                    "Root certificates have been reloaded: {} valid and {} invalid certs",
+                    result.0, result.1
+                );
+
+                ROOT_CERT_STORE.store(Arc::new(store));
+            }
+
+            Ok(())
+        }
+
+        Err(err) => {
+            error!("Root certificates reload error: {:?}", err);
+
+            Err(Error::TlsError)
+        }
+    }
 }
 
 // TLS
@@ -101,10 +133,8 @@ impl ServerCertVerifier for NoCertificateVerification {
 }
 
 /// This structure is a stub for certificate validation in `rustls` and is needed for
-/// the "only-ca" certificate validation mode. (verify_server_certificate = "only-ca")
-pub struct OnlyRootCertificateVerification {
-    pub roots: RootCertStore,
-}
+/// the "verify-ca" certificate validation mode. (verify_server_certificate = "verify-ca")
+pub struct OnlyRootCertificateVerification {}
 
 impl ServerCertVerifier for OnlyRootCertificateVerification {
     /// This piece of code is taken from `tokio_rustls::rustls::client::WebPkiVerifier`.
@@ -122,7 +152,12 @@ impl ServerCertVerifier for OnlyRootCertificateVerification {
     ) -> Result<ServerCertVerified, rustls::Error> {
         let cert = ParsedCertificate::try_from(end_entity)?;
 
-        verify_server_cert_signed_by_trust_anchor(&cert, &self.roots, intermediates, now)?;
+        verify_server_cert_signed_by_trust_anchor(
+            &cert,
+            &get_root_cert_store(),
+            intermediates,
+            now,
+        )?;
 
         // skip the policy check, for the reason that when `verify_server_certificate` is used,
         // this verification is not used in PGCat now.
@@ -140,7 +175,7 @@ impl ServerCertVerifier for OnlyRootCertificateVerification {
         */
 
         // skip server name validation, for the reason that this code section is not needed for
-        // the "only-ca" validation mode.
+        // the "verify-ca" validation mode.
         /*
         verify_server_name(&cert, server_name)?;
         */

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
-use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use crate::config::{
@@ -28,7 +27,7 @@ use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
-use crate::tls::get_os_root_certificates;
+use crate::tls::get_root_cert_store;
 use std::io::Write;
 
 use pin_project::pin_project;
@@ -399,34 +398,9 @@ impl Server {
                 'S' => {
                     debug!("Connecting to server using TLS");
 
-                    let mut root_store = RootCertStore::empty();
-                    root_store.add_server_trust_anchors(
-                        webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-                            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                                ta.subject,
-                                ta.spki,
-                                ta.name_constraints,
-                            )
-                        }),
-                    );
-
-                    // Load OS root certificates, if enabled in the configuration.
-                    if config.general.trust_os_certificates {
-                        match get_os_root_certificates() {
-                            Ok(os_certs) => {
-                                let result = root_store.add_parsable_certificates(os_certs);
-
-                                debug!("{} get_os_root_certificates processed {} valid and {} invalid certs", address, result.0, result.1);
-                            }
-                            Err(err) => {
-                                warn!("{} Failed to load OS root certificates: {:?}", address, err)
-                            }
-                        }
-                    }
-
                     let mut tls_config = rustls::ClientConfig::builder()
                         .with_safe_defaults()
-                        .with_root_certificates(root_store.clone())
+                        .with_root_certificates(get_root_cert_store())
                         .with_no_client_auth();
 
                     {
@@ -443,12 +417,10 @@ impl Server {
                                 }
                             },
                             CertificateVerificationVariant::String(v) => match v.as_str() {
-                                "only-ca" => {
+                                "verify-ca" => {
                                     // verify-ca
                                     dangerous.set_certificate_verifier(Arc::new(
-                                        crate::tls::OnlyRootCertificateVerification {
-                                            roots: root_store.clone(),
-                                        },
+                                        crate::tls::OnlyRootCertificateVerification {},
                                     ));
                                 }
                                 _ => {
@@ -458,8 +430,6 @@ impl Server {
                             },
                         }
                     }
-
-                    drop(root_store); // free memory
 
                     let connector = TlsConnector::from(Arc::new(tls_config));
                     let stream = match connector

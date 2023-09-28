@@ -259,8 +259,14 @@ impl User {
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum CertificateVerificationVariant {
-    Bool(bool),     // false -> prefer, true - verify-full
-    String(String), // "only-ca" -> verify-full
+    Bool(bool),     //  FALSE means "prefer", TRUE means "verify-full"
+    String(String), // "verify-ca"
+}
+
+impl CertificateVerificationVariant {
+    pub fn is_enabled(&self) -> bool {
+        *self != CertificateVerificationVariant::Bool(true)
+    }
 }
 
 impl std::fmt::Display for CertificateVerificationVariant {
@@ -273,7 +279,7 @@ impl std::fmt::Display for CertificateVerificationVariant {
                     true => "true",
                     false => "false",
                 },
-                Self::String(v) => v.as_str(),
+                Self::String(v) => v,
             }
         )
     }
@@ -361,9 +367,6 @@ pub struct General {
 
     #[serde(default)] // CertificateVerificationVariant::Bool(false)
     pub verify_server_certificate: CertificateVerificationVariant,
-
-    #[serde(default)]
-    pub trust_os_certificates: bool,
 
     pub admin_username: String,
     pub admin_password: String,
@@ -496,7 +499,6 @@ impl Default for General {
             tls_private_key: None,
             server_tls: false,
             verify_server_certificate: CertificateVerificationVariant::Bool(false), // equivalent to false in earlier versions
-            trust_os_certificates: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
             auth_query: None,

@@ -82,7 +82,7 @@ If this is disabled, it is equivalent to `sslmode=disable`.
 ```
 path: general.verify_server_certificate
 default: false
-accepted values: true / false / "only-ca"
+accepted values: true / false / "verify-ca"
 ```
 
 Whether to verify server certificate or not.
@@ -97,18 +97,8 @@ https protocol, if not, it will be established via http. (similar to the
 `true` - Connection to the DB server will be made with full server certificate
 verification. (similar to `sslmode=verify-full` mode)
 
-`"only-ca"` - Connection to the DB server will be made with full server
+`"verify-ca"` - Connection to the DB server will be made with full server
 certificate verification except for the hostname. (similar to `sslmode=verify-ca` mode)
-
-### trust_os_certificates
-```
-path: general.trust_os_certificates
-default: false
-```
-
-If the `verify_server_certificate` setting is enabled, the database
-server certificate will be verified not only through the built-in root
-certificates, but also through the operating system root certificates.
 
 ### verify_config
 ```

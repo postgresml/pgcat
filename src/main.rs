@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(exitcode::CONFIG);
     }
 
-    // Create a transient runtime for loading the config for the first time.
+    // Create a transient runtime for loading the config and the root cert store for the first time.
     {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
@@ -92,6 +92,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(exitcode::CONFIG);
                 }
             };
+
+            match pgcat::tls::reload_root_cert_store().await {
+                Ok(_) => (),
+                Err(_) => {
+                    // no need for the error! macro, because the reload_root_cert_store()
+                    // function already uses the error! macro.
+                    std::process::exit(exitcode::OSFILE);
+                }
+            }
         });
     }
 
@@ -187,7 +196,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         };
 
+        {
+            let mut autoreload_tls_interval = tokio::time::interval(tokio::time::Duration::from_secs(60 * 60)); // update root certificates every hour
+            let autoreload_client_server_map = client_server_map.clone();
 
+            tokio::task::spawn(async move {
+                loop {
+                    autoreload_tls_interval.tick().await;
+                    debug!("Automatically reloading root certificates");
+
+                    // reload root certs
+                    if let Ok(_) = pgcat::tls::reload_root_cert_store().await {
+                        // reload pools
+                        let _ = ConnectionPool::from_config(autoreload_client_server_map.clone()).await;
+                    }
+                }
+            });
+        }
 
         #[cfg(windows)]
         let mut term_signal = win_signal::ctrl_close().unwrap();

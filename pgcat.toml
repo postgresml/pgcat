@@ -77,11 +77,6 @@ server_tls = false
 # Verify server certificate is completely authentic.
 verify_server_certificate = false
 
-# If the `verify_server_certificate` setting is enabled, the database
-# server certificate will be verified not only through the built-in root
-# certificates, but also through the operating system root certificates.
-trust_os_certificates = false
-
 # User name to access the virtual administrative database (pgbouncer or pgcat)
 # Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DATABASES`, etc..
 admin_username = "admin_user"
