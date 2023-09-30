@@ -17,6 +17,7 @@ use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
+use crate::tls::reload_root_cert_store;
 
 pub fn generate_server_parameters_for_admin() -> ServerParameters {
     let mut server_parameters = ServerParameters::new();
@@ -562,7 +563,13 @@ where
 
     reload_config(client_server_map).await?;
 
-    get_config().show();
+    let cfg = get_config();
+    cfg.show();
+
+    if cfg.general.verify_server_certificate.is_enabled() {
+        info!("Reloading root certificates");
+        _ = reload_root_cert_store().await?;
+    }
 
     let mut res = BytesMut::new();
 

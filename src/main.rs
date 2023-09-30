@@ -68,6 +68,7 @@ use pgcat::messages::configure_socket;
 use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
+use pgcat::tls::reload_root_cert_store;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cmd_args::parse();
@@ -80,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(exitcode::CONFIG);
     }
 
-    // Create a transient runtime for loading the config and the root cert store for the first time.
+    // Create a transient runtime for loading the config for the first time.
     {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
@@ -92,15 +93,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(exitcode::CONFIG);
                 }
             };
-
-            match pgcat::tls::reload_root_cert_store().await {
-                Ok(_) => (),
-                Err(_) => {
-                    // no need for the error! macro, because the reload_root_cert_store()
-                    // function already uses the error! macro.
-                    std::process::exit(exitcode::OSFILE);
-                }
-            }
         });
     }
 
@@ -237,14 +229,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             tokio::select! {
-                // Reload config:
+                // Reload config & root certificates:
                 // kill -SIGHUP $(pgrep pgcat)
                 _ = sighup_signal.recv() => {
                     info!("Reloading config");
 
                     _ = reload_config(client_server_map.clone()).await;
 
-                    get_config().show();
+                    let cfg = get_config();
+                    cfg.show();
+
+                    if cfg.general.verify_server_certificate.is_enabled() {
+                        info!("Reloading root certificates");
+                        _ = reload_root_cert_store().await;
+                    }
                 },
 
                 // Initiate graceful shutdown sequence on sig int
