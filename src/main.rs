@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(exitcode::CONFIG);
     }
 
-    // Create a transient runtime for loading the config for the first time.
+    // Create a transient runtime for loading the config and root cert store for the first time.
     {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
@@ -93,6 +93,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(exitcode::CONFIG);
                 }
             };
+
+            if get_config().general.verify_server_certificate.is_enabled() {
+                match reload_root_cert_store() {
+                    Ok(_) => (),
+                    Err(err) => {
+                        // no need for the error! macro, because the reload_root_cert_store()
+                        // function already uses the error! macro.
+                        std::process::exit(exitcode::OSFILE);
+                    }
+                }
+            }
         });
     }
 
