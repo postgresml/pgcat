@@ -27,7 +27,7 @@ use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
-use crate::tls::get_root_cert_store;
+use crate::tls::ROOT_CERT_STORE;
 use std::io::Write;
 
 use pin_project::pin_project;
@@ -400,7 +400,7 @@ impl Server {
 
                     let mut tls_config = rustls::ClientConfig::builder()
                         .with_safe_defaults()
-                        .with_root_certificates(get_root_cert_store())
+                        .with_root_certificates((*(*ROOT_CERT_STORE.load())).clone()) // Either way, it still needs to be cloned here
                         .with_no_client_auth();
 
                     {

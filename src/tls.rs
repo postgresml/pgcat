@@ -20,15 +20,8 @@ use arc_swap::ArcSwap;
 use log::{error, info};
 use once_cell::sync::Lazy;
 
-static ROOT_CERT_STORE: Lazy<ArcSwap<RootCertStore>> =
+pub(crate) static ROOT_CERT_STORE: Lazy<ArcSwap<RootCertStore>> =
     Lazy::new(|| ArcSwap::from_pointee(RootCertStore::empty()));
-
-/// Get a read-only instance of the configuration
-/// from anywhere in the app.
-/// ArcSwap makes this cheap and quick.
-pub fn get_root_cert_store() -> RootCertStore {
-    (*(*ROOT_CERT_STORE.load())).clone()
-}
 
 pub async fn reload_root_cert_store() -> Result<(), Error> {
     let mut store = RootCertStore::empty();
@@ -154,7 +147,7 @@ impl ServerCertVerifier for OnlyRootCertificateVerification {
 
         verify_server_cert_signed_by_trust_anchor(
             &cert,
-            &get_root_cert_store(),
+            &(*(*ROOT_CERT_STORE.load())),
             intermediates,
             now,
         )?;
