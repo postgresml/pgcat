@@ -264,8 +264,14 @@ pub enum CertificateVerificationVariant {
 }
 
 impl CertificateVerificationVariant {
+    #[inline]
     pub fn is_enabled(&self) -> bool {
         *self != CertificateVerificationVariant::Bool(false)
+    }
+
+    #[inline]
+    pub fn is_disabled(&self) -> bool {
+        !self.is_enabled()
     }
 }
 

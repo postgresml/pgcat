@@ -17,10 +17,10 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 use arc_swap::ArcSwap;
-use log::{error, info};
+use log::{error, info, warn};
 use once_cell::sync::Lazy;
 
-pub(crate) static ROOT_CERT_STORE: Lazy<ArcSwap<RootCertStore>> =
+pub static ROOT_CERT_STORE: Lazy<ArcSwap<RootCertStore>> =
     Lazy::new(|| ArcSwap::from_pointee(RootCertStore::empty()));
 
 pub async fn reload_root_cert_store() -> Result<(), Error> {
@@ -29,7 +29,7 @@ pub async fn reload_root_cert_store() -> Result<(), Error> {
     match rustls_native_certs::load_native_certs() {
         Ok(certs) => {
             if certs.is_empty() {
-                info!("The OS does not have root certificates");
+                warn!("The OS does not have root certificates");
             } else {
                 let result = store.add_parsable_certificates(&certs);
 

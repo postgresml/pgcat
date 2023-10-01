@@ -68,7 +68,7 @@ use pgcat::messages::configure_socket;
 use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
-use pgcat::tls::reload_root_cert_store;
+use pgcat::tls::{reload_root_cert_store, ROOT_CERT_STORE};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cmd_args::parse();
@@ -190,9 +190,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     autoreload_interval.tick().await;
                     debug!("Automatically reloading config");
 
+                    let before_verify_status = get_config().general.verify_server_certificate;
+
                     if let Ok(changed) = reload_config(autoreload_client_server_map.clone()).await {
                         if changed {
-                            get_config().show()
+                            let cfg = get_config();
+                            cfg.show();
+
+                            // If for some reason server certificate verification was enabled after
+                            // the configuration was automatically reloaded, then the root certificates
+                            // must be loaded.
+                            let after_verify_status = cfg.general.verify_server_certificate;
+
+                            if before_verify_status.is_disabled() && after_verify_status.is_enabled() {
+                                info!("Reloading root certificates");
+                                _ = reload_root_cert_store().await;
+                            }
                         }
                     };
                 }
