@@ -1,8 +1,8 @@
-use crate::pool::BanReason;
+use crate::pool::{reload_pools, BanReason};
 use crate::server::ServerParameters;
 use crate::stats::pool::PoolStats;
 use bytes::{Buf, BufMut, BytesMut};
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;
@@ -561,14 +561,28 @@ where
 {
     info!("Reloading config");
 
-    reload_config(client_server_map).await?;
+    _ = reload_config().await?;
 
     let cfg = get_config();
     cfg.show();
 
+    // Root certificates will only be reloaded if server certificate
+    // verification is enabled
     if cfg.general.verify_server_certificate.is_enabled() {
-        info!("Reloading root certificates");
+        debug!("Reloading root certificates");
         _ = reload_root_cert_store().await?;
+    }
+
+    debug!("Reloading connection pools");
+
+    match reload_pools(client_server_map).await {
+        Ok(_) => {
+            debug!("Pools reloaded");
+        }
+
+        Err(err) => {
+            return Err(err);
+        }
     }
 
     let mut res = BytesMut::new();

@@ -43,6 +43,12 @@ pub type PoolMap = HashMap<PoolIdentifier, ConnectionPool>;
 /// The pool is recreated dynamically when the config is reloaded.
 pub static POOLS: Lazy<ArcSwap<PoolMap>> = Lazy::new(|| ArcSwap::from_pointee(HashMap::default()));
 
+/// Reloads connection pools to the postgresql server.
+/// For example, this needs to be done after a configuration reboot or on demand.
+pub async fn reload_pools(client_server_map: ClientServerMap) -> Result<(), Error> {
+    ConnectionPool::from_config(client_server_map).await
+}
+
 // Reasons for banning a server.
 #[derive(Debug, PartialEq, Clone)]
 pub enum BanReason {

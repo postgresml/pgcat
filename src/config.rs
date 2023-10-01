@@ -1,6 +1,6 @@
 /// Parse the configuration file.
 use arc_swap::ArcSwap;
-use log::{error, info};
+use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserializer, Serializer};
@@ -18,7 +18,6 @@ use tokio::io::AsyncReadExt;
 
 use crate::dns_cache::CachedResolver;
 use crate::errors::Error;
-use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
 use crate::stats::AddressStats;
 use crate::tls::{load_certs, load_keys};
@@ -282,8 +281,8 @@ impl std::fmt::Display for CertificateVerificationVariant {
             "{}",
             match self {
                 Self::Bool(v) => match v {
-                    true => "true",
-                    false => "false",
+                    true => "true (verify-full)",
+                    false => "false (prefer)",
                 },
                 Self::String(v) => v,
             }
@@ -1480,11 +1479,11 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
+pub async fn reload_config() -> Result<bool, Error> {
     let old_config = get_config();
 
     match parse(&old_config.path).await {
-        Ok(()) => (),
+        Ok(_) => (),
         Err(err) => {
             error!("Config reload error: {:?}", err);
             return Err(Error::BadConfig);
@@ -1499,10 +1498,10 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
     };
 
     if old_config != new_config {
-        info!("Config changed, reloading");
-        ConnectionPool::from_config(client_server_map).await?;
+        info!("Config changed, requires pools to be reloaded");
         Ok(true)
     } else {
+        debug!("Config has not changed, no pools need to be reloaded");
         Ok(false)
     }
 }

@@ -65,10 +65,10 @@ use pgcat::config::{get_config, reload_config, VERSION};
 use pgcat::dns_cache;
 use pgcat::logger;
 use pgcat::messages::configure_socket;
-use pgcat::pool::{ClientServerMap, ConnectionPool};
+use pgcat::pool::{reload_pools, ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
-use pgcat::tls::{reload_root_cert_store, ROOT_CERT_STORE};
+use pgcat::tls::reload_root_cert_store;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cmd_args::parse();
@@ -192,7 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let before_verify_status = get_config().general.verify_server_certificate;
 
-                    if let Ok(changed) = reload_config(autoreload_client_server_map.clone()).await {
+                    if let Ok(changed) = reload_config().await {
                         if changed {
                             let cfg = get_config();
                             cfg.show();
@@ -200,11 +200,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // If for some reason server certificate verification was enabled after
                             // the configuration was automatically reloaded, then the root certificates
                             // must be loaded.
-                            let after_verify_status = cfg.general.verify_server_certificate;
+                            {
+                                let after_verify_status = cfg.general.verify_server_certificate;
 
-                            if before_verify_status.is_disabled() && after_verify_status.is_enabled() {
-                                info!("Reloading root certificates");
-                                _ = reload_root_cert_store().await;
+                                if before_verify_status.is_disabled() && after_verify_status.is_enabled() {
+                                    debug!("Reloading root certificates");
+                                    _ = reload_root_cert_store().await;
+                                }
+                            }
+
+                            debug!("Reloading connection pools");
+
+                            // reload pools
+                            if let Ok(_) = reload_pools(autoreload_client_server_map.clone()).await {
+                                debug!("Pools reloaded");
                             }
                         }
                     };
@@ -235,19 +244,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             tokio::select! {
-                // Reload config & root certificates:
+                // Reload config, root certificates & connection pools:
                 // kill -SIGHUP $(pgrep pgcat)
                 _ = sighup_signal.recv() => {
                     info!("Reloading config");
 
-                    _ = reload_config(client_server_map.clone()).await;
+                    _ = reload_config().await;
 
                     let cfg = get_config();
                     cfg.show();
 
+                    // Root certificates will only be reloaded if server certificate
+                    // verification is enabled
                     if cfg.general.verify_server_certificate.is_enabled() {
-                        info!("Reloading root certificates");
+                        debug!("Reloading root certificates");
                         _ = reload_root_cert_store().await;
+                    }
+
+                    debug!("Reloading connection pools");
+
+                    if let Ok(_) = reload_pools(client_server_map.clone()).await {
+                        debug!("Pools reloaded");
                     }
                 },
 
