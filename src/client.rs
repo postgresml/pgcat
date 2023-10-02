@@ -1012,6 +1012,8 @@ where
 
             query_router.update_pool_settings(pool.settings.clone());
 
+            let mut is_initial_message = true;
+
             let idle_client_timeout_duration = match get_idle_client_in_transaction_timeout() {
                 0 => tokio::time::Duration::MAX,
                 timeout => tokio::time::Duration::from_millis(timeout),
@@ -1021,11 +1023,12 @@ where
                 (usize, Option<Role>),
                 (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
             > = HashMap::new();
-            let mut initial_message = Some(message);
 
             // Reset transaction state, as we are entering a new transaction loop.
             reset_client_xact(self);
 
+            // if we want to jump out of the transaction loop, but still want to `continue` in the
+            // custom protocol loop, we set this flag to true.
             let mut should_continue_in_outer_loop = false;
 
             // Transaction loop. Multiple queries can be issued by the client here.
@@ -1035,66 +1038,6 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                let mut message = match initial_message {
-                    None => {
-                        trace!("Waiting for message inside transaction or in session mode");
-
-                        // This is not an initial message so discard the initial_parsed_ast
-                        initial_parsed_ast.take();
-
-                        match tokio::time::timeout(
-                            idle_client_timeout_duration,
-                            read_message(&mut self.read),
-                        )
-                        .await
-                        {
-                            Ok(Ok(message)) => message,
-                            Ok(Err(err)) => {
-                                // Client disconnected inside a transaction.
-                                // Clean up the server and re-use it.
-                                self.stats.disconnect();
-                                for (_, mut conn) in all_conns {
-                                    let server = &mut *conn.0;
-                                    server.checkin_cleanup().await?;
-                                }
-
-                                return Err(err);
-                            }
-                            Err(_) => {
-                                // Client idle in transaction timeout
-                                error_response_with_state(
-                                    &mut self.write,
-                                    "idle transaction timeout",
-                                    self.xact_info.state(),
-                                )
-                                .await?;
-                                error!(
-                                    "Client idle in transaction timeout: \
-                                    {{ \
-                                        pool_name: {}, \
-                                        username: {}, \
-                                        shard: {:?}, \
-                                        role: \"{:?}\" \
-                                    }}",
-                                    self.pool_name,
-                                    self.username,
-                                    query_router.shard(),
-                                    query_router.role()
-                                );
-
-                                break;
-                            }
-                        }
-                    }
-
-                    Some(message) => {
-                        initial_message = None;
-                        message
-                    }
-                };
-
-                assign_client_transaction_state(self, &all_conns);
-
                 if all_conns.is_empty() || self.is_transparent_mode() {
                     let current_shard = query_router.shard();
 
@@ -1322,8 +1265,8 @@ where
                         }
                     }
                     let conn = conn_opt.unwrap();
-                    let server = &mut *conn.0;
                     let address = &conn.1;
+                    let server = &mut *conn.0;
 
                     // Server is assigned to the client in case the client wants to
                     // cancel a query later.
@@ -1346,11 +1289,14 @@ where
                     server.sync_parameters(&self.server_parameters).await?;
                 }
 
+                assign_client_transaction_state(self, &all_conns);
+
                 let is_distributed_xact = all_conns.len() > 1;
                 let server_key = (query_router.shard().unwrap_or(0), query_router.role());
                 let conn = all_conns.get_mut(&server_key).unwrap();
                 let server = &mut *conn.0;
                 let address = &conn.1;
+
                 // Only check if we should rewrite prepared statements
                 // in session mode. In transaction mode, we check at the beginning of
                 // each transaction.
@@ -1402,6 +1348,59 @@ where
                     prepared_statement = None;
                 }
 
+                if !is_initial_message {
+                    is_initial_message = false;
+                } else {
+                    trace!("Waiting for message inside transaction or in session mode");
+
+                    // This is not an initial message so discard the initial_parsed_ast
+                    initial_parsed_ast.take();
+
+                    match tokio::time::timeout(
+                        idle_client_timeout_duration,
+                        read_message(&mut self.read),
+                    )
+                    .await
+                    {
+                        Ok(Ok(msg)) => message = msg,
+                        Ok(Err(err)) => {
+                            // Client disconnected inside a transaction.
+                            // Clean up the server and re-use it.
+                            self.stats.disconnect();
+                            for (_, mut conn) in all_conns {
+                                let server = &mut *conn.0;
+                                server.checkin_cleanup().await?;
+                            }
+
+                            return Err(err);
+                        }
+                        Err(_) => {
+                            // Client idle in transaction timeout
+                            error_response_with_state(
+                                &mut self.write,
+                                "idle transaction timeout",
+                                self.xact_info.state(),
+                            )
+                            .await?;
+                            error!(
+                                "Client idle in transaction timeout: \
+                                    {{ \
+                                        pool_name: {}, \
+                                        username: {}, \
+                                        shard: {:?}, \
+                                        role: \"{:?}\" \
+                                    }}",
+                                self.pool_name,
+                                self.username,
+                                query_router.shard(),
+                                query_router.role()
+                            );
+
+                            break;
+                        }
+                    };
+                };
+
                 // The message will be forwarded to the server intact. We still would like to
                 // parse it below to figure out what to do with it.
 
@@ -1416,45 +1415,40 @@ where
                     'Q' => {
                         let mut ast = None;
                         if is_distributed_xact || query_router.query_parser_enabled() {
-                            ast = match query_router.parse(&message) {
-                                Ok(ast) => {
-                                    let plugin_result = query_router.execute_plugins(&ast).await;
+                            // We don't want to parse again if we already parsed it as the initial message
+                            ast = parse_ast(
+                                &mut initial_parsed_ast,
+                                &mut query_router,
+                                &message,
+                                &client_identifier,
+                            );
 
-                                    match plugin_result {
-                                        Ok(PluginOutput::Deny(error)) => {
-                                            error_response_with_state(
-                                                &mut self.write,
-                                                &error,
-                                                self.xact_info.state(),
-                                            )
-                                            .await?;
-                                            continue;
-                                        }
+                            if let Some(ast) = &ast {
+                                let plugin_result = query_router.execute_plugins(ast).await;
 
-                                        Ok(PluginOutput::Intercept(result)) => {
-                                            write_all(&mut self.write, result).await?;
-                                            continue;
-                                        }
-
-                                        _ => (),
-                                    };
-
-                                    let _ = query_router.infer(&ast);
-
-                                    if is_distributed_xact {
-                                        if set_commit_or_abort_statement(self, &ast) {
-                                            break;
-                                        }
+                                match plugin_result {
+                                    Ok(PluginOutput::Deny(error)) => {
+                                        error_response_with_state(
+                                            &mut self.write,
+                                            &error,
+                                            self.xact_info.state(),
+                                        )
+                                        .await?;
+                                        continue;
                                     }
 
-                                    Some(ast)
-                                }
-                                Err(error) => {
-                                    warn!(
-                                        "Query parsing error: {} (client: {})",
-                                        error, client_identifier
-                                    );
-                                    None
+                                    Ok(PluginOutput::Intercept(result)) => {
+                                        write_all(&mut self.write, result).await?;
+                                        continue;
+                                    }
+
+                                    _ => (),
+                                };
+
+                                if is_distributed_xact {
+                                    if set_commit_or_abort_statement(self, &ast) {
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -1481,7 +1475,7 @@ where
                                     // We don't want to parse again if we already parsed it as the initial message
                                     ast = parse_ast(
                                         &mut initial_parsed_ast,
-                                        &query_router,
+                                        &mut query_router,
                                         &message,
                                         &client_identifier,
                                     );
@@ -2018,7 +2012,7 @@ where
 
 fn parse_ast(
     initial_parsed_ast: &mut Option<Vec<sqlparser::ast::Statement>>,
-    query_router: &QueryRouter,
+    query_router: &mut QueryRouter,
     message: &BytesMut,
     client_identifier: &ClientIdentifier,
 ) -> Option<Vec<sqlparser::ast::Statement>> {
@@ -2026,7 +2020,10 @@ fn parse_ast(
     match *initial_parsed_ast {
         Some(_) => Some(initial_parsed_ast.take().unwrap()),
         None => match query_router.parse(message) {
-            Ok(ast) => Some(ast),
+            Ok(ast) => {
+                let _ = query_router.infer(&ast);
+                Some(ast)
+            }
             Err(error) => {
                 warn!(
                     "Query parsing error: {} (client: {})",
