@@ -770,8 +770,8 @@ pub trait Plugin {
 impl std::fmt::Display for Plugins {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         fn is_enabled<T: Plugin>(arg: Option<&T>) -> bool {
-            if arg.is_some() {
-                arg.unwrap().is_enabled()
+            if let Some(ref arg) = arg {
+                arg.is_enabled()
             } else {
                 false
             }
