@@ -1241,7 +1241,7 @@ where
                                 let _ = query_router.infer(&ast);
                             }
                         }
-                        debug!("Sending query to server (in Query mode)");
+                        debug!("Sending query to server");
 
                         self.send_and_receive_loop(
                             code,
@@ -1354,7 +1354,7 @@ where
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {
-                        debug!("Sending query to server with extended protocol");
+                        debug!("Sending query to server");
 
                         match plugin_output {
                             Some(PluginOutput::Deny(error)) => {
