@@ -9,17 +9,19 @@ use sqlparser::ast::{Statement, TransactionAccessMode, TransactionMode};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::config::{Address, Role};
+use crate::config::Address;
 use crate::messages::*;
 use crate::server::Server;
 use crate::server_xact::*;
+
+pub type ServerId = usize;
 
 /// This function starts a distributed transaction by sending a BEGIN statement to the first server.
 /// It is called on the first server, as soon as client wants to interact with another server,
 /// which hints that the client wants to start a distributed transaction.
 pub async fn begin_distributed_xact<S, T>(
     clnt: &mut Client<S, T>,
-    server_key: &(usize, Option<Role>),
+    server_key: ServerId,
     server: &mut Server,
 ) -> Result<bool, Error>
 where
@@ -74,7 +76,7 @@ where
 /// Also, if the transaction is repeatable read or higher, it acquires a snapshot from the server.
 pub async fn acquire_gid_and_snapshot<S, T>(
     clnt: &mut Client<S, T>,
-    server_key: &(usize, Option<Role>),
+    server_key: ServerId,
     server: &mut Server,
 ) -> Result<bool, Error>
 where
@@ -134,17 +136,14 @@ fn generate_xact_gid<S, T>(clnt: &Client<S, T>) -> String {
 
 /// Generates a server-specific GID for a transaction. We need this, because it's possible that
 /// multiple servers might actually be the same server (which commonly happens in testing).
-fn gen_server_specific_gid(server_key: &(usize, Option<Role>), gid: &str) -> String {
-    format!("{}_{}", server_key.0, gid)
+fn gen_server_specific_gid(server_key: ServerId, gid: &str) -> String {
+    format!("{}_{}", server_key, gid)
 }
 
 /// Assigns the transaction state based on the state of all servers.
 pub fn assign_client_transaction_state<S, T>(
     clnt: &mut Client<S, T>,
-    all_conns: &HashMap<
-        (usize, Option<Role>),
-        (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
-    >,
+    all_conns: &HashMap<ServerId, (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address)>,
 ) {
     clnt.xact_info.set_state(if all_conns.is_empty() {
         // if there's no server, we're in idle mode.
@@ -162,10 +161,7 @@ pub fn assign_client_transaction_state<S, T>(
 
 /// Returns true if any server is in a failed transaction.
 fn is_any_server_in_failed_xact(
-    all_conns: &HashMap<
-        (usize, Option<Role>),
-        (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
-    >,
+    all_conns: &HashMap<ServerId, (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address)>,
 ) -> bool {
     all_conns
         .iter()
@@ -173,15 +169,26 @@ fn is_any_server_in_failed_xact(
 }
 
 /// This function initializes the transaction parameters based on the first BEGIN statement.
-pub fn initialize_xact_info<S, T>(
+pub fn initialize_xact_info<S, T>(clnt: &mut Client<S, T>, begin_stmt: &Statement) {
+    if let Statement::StartTransaction { .. } = begin_stmt {
+        // This is the first BEGIN statement. We need to register it for later executions.
+        clnt.xact_info.set_begin_statement(Some(begin_stmt.clone()));
+
+        clnt.xact_info.set_state(TransactionState::InTransaction);
+    } else {
+        // If we were not in a transaction and the first statement is
+        // not a BEGIN, then it's an irrecovable error.
+        assert!(false);
+    }
+}
+
+/// This function initializes the transaction parameters based on the server's default.
+pub fn initialize_xact_params<S, T>(
     clnt: &mut Client<S, T>,
     server: &mut Server,
     begin_stmt: &Statement,
 ) {
     if let Statement::StartTransaction { modes } = begin_stmt {
-        // This is the first BEGIN statement. We need
-        clnt.xact_info.set_begin_statement(Some(begin_stmt.clone()));
-
         // Initialize transaction parameters using the server's default.
         clnt.xact_info.params = server_default_transaction_parameters(server);
         for mode in modes {
@@ -207,8 +214,7 @@ pub fn initialize_xact_info<S, T>(
         // Set the transaction parameters on the first server.
         server.transaction_metadata_mut().params = clnt.xact_info.params.clone();
     } else {
-        // If we were not in a transaction and the first statement is
-        // not a BEGIN, then it's an irrecovable error.
+        // If it's not a BEGIN, then it's an irrecovable error.
         assert!(false);
     }
 }
@@ -222,7 +228,7 @@ pub fn initialize_xact_info<S, T>(
 pub async fn distributed_commit_or_abort<S, T>(
     clnt: &mut Client<S, T>,
     all_conns: &mut HashMap<
-        (usize, Option<Role>),
+        ServerId,
         (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
     >,
 ) -> Result<(), Error>
@@ -321,7 +327,7 @@ pub fn reset_client_xact<S, T>(clnt: &mut Client<S, T>) {
 async fn distributed_commit<S, T>(
     clnt: &mut Client<S, T>,
     all_conns: &mut HashMap<
-        (usize, Option<Role>),
+        ServerId,
         (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
     >,
 ) -> Result<Option<ErrorResponse>, Error>
@@ -387,7 +393,7 @@ fn set_post_query_state<S, T>(clnt: &mut Client<S, T>, server: &mut Server) {
 async fn distributed_abort<S, T>(
     clnt: &mut Client<S, T>,
     all_conns: &mut HashMap<
-        (usize, Option<Role>),
+        ServerId,
         (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
     >,
     abort_stmt: &String,
@@ -423,7 +429,7 @@ where
 async fn distributed_prepare<S, T>(
     clnt: &mut Client<S, T>,
     all_conns: &mut HashMap<
-        (usize, Option<Role>),
+        ServerId,
         (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
     >,
 ) -> Result<Either<(), ErrorResponse>, Error>
@@ -456,7 +462,7 @@ where
 }
 
 /// This function is called when the client sends a query to the server without requiring an answer.
-async fn query_server<S, T>(
+pub async fn query_server<S, T>(
     clnt: &mut Client<S, T>,
     server: &mut Server,
     stmt: &str,

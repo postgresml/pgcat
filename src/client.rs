@@ -17,7 +17,6 @@ use crate::auth_passthrough::refetch_auth_hash;
 use crate::client_xact::*;
 use crate::config::{
     get_config, get_idle_client_in_transaction_timeout, get_prepared_statements, Address, PoolMode,
-    Role,
 };
 use crate::constants::*;
 use crate::messages::*;
@@ -91,7 +90,7 @@ pub struct Client<S, T> {
     last_server_stats: Option<Arc<ServerStats>>,
 
     /// Last server key we talked to.
-    pub(crate) last_server_key: Option<(usize, Option<Role>)>,
+    pub(crate) last_server_key: Option<ServerId>,
 
     /// Connected to server
     connected_to_server: bool,
@@ -1012,7 +1011,7 @@ where
 
             query_router.update_pool_settings(pool.settings.clone());
 
-            let mut is_initial_message = true;
+            let mut initial_message = Some(message);
 
             let idle_client_timeout_duration = match get_idle_client_in_transaction_timeout() {
                 0 => tokio::time::Duration::MAX,
@@ -1020,7 +1019,7 @@ where
             };
 
             let mut all_conns: HashMap<
-                (usize, Option<Role>),
+                ServerId,
                 (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
             > = HashMap::new();
 
@@ -1038,6 +1037,116 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
+                let is_first_message_to_server = all_conns.is_empty();
+
+                let mut message = match initial_message {
+                    None => {
+                        trace!("Waiting for message inside transaction or in session mode");
+
+                        // This is not an initial message so discard the initial_parsed_ast
+                        initial_parsed_ast.take();
+
+                        match tokio::time::timeout(
+                            idle_client_timeout_duration,
+                            read_message(&mut self.read),
+                        )
+                        .await
+                        {
+                            Ok(Ok(message)) => message,
+                            Ok(Err(err)) => {
+                                // Client disconnected inside a transaction.
+                                // Clean up the server and re-use it.
+                                self.stats.disconnect();
+                                for (_, mut conn) in all_conns {
+                                    let server = &mut *conn.0;
+                                    server.checkin_cleanup().await?;
+                                }
+
+                                return Err(err);
+                            }
+                            Err(_) => {
+                                // Client idle in transaction timeout
+                                error_response_with_state(
+                                    &mut self.write,
+                                    "idle transaction timeout",
+                                    self.xact_info.state(),
+                                )
+                                .await?;
+                                error!(
+                                    "Client idle in transaction timeout: \
+                                    {{ \
+                                        pool_name: {}, \
+                                        username: {}, \
+                                        shard: {:?}, \
+                                        role: \"{:?}\" \
+                                    }}",
+                                    self.pool_name,
+                                    self.username,
+                                    query_router.shard(),
+                                    query_router.role()
+                                );
+
+                                break;
+                            }
+                        }
+                    }
+
+                    Some(message) => {
+                        initial_message = None;
+                        message
+                    }
+                };
+
+                // Safe to unwrap because we know this message has a certain length and has the code
+                // This reads the first byte without advancing the internal pointer and mutating the bytes
+                let code = *message.get(0).unwrap() as char;
+                let mut ast = None;
+
+                match code {
+                    // Query
+                    'Q' => {
+                        // If the first message is a `BEGIN` statement, then we are starting a
+                        // transaction. However, we might not still be on the right shard (as the
+                        // shard might be inferred from the first query). So we parse the query and
+                        // store the `BEGIN` statement. Upon receiving the next query (and possibly
+                        // determining the shard), we will execute the `BEGIN` statement.
+                        if let Some(ast_vec) = initial_parsed_ast.as_ref() {
+                            if Self::is_begin_statement(ast_vec) {
+                                assert_eq!(ast_vec.len(), 1);
+
+                                initialize_xact_info(self, &ast_vec[0]);
+
+                                custom_protocol_response_ok_with_state(
+                                    &mut self.write,
+                                    "BEGIN",
+                                    self.xact_info.state(),
+                                )
+                                .await?;
+
+                                continue;
+                            }
+                        }
+
+                        if query_router.query_parser_enabled() {
+                            let should_continue;
+                            (should_continue, ast) = self
+                                .parse_ast_helper(
+                                    &mut query_router,
+                                    &mut initial_parsed_ast,
+                                    &message,
+                                    &client_identifier,
+                                )
+                                .await?;
+                            if !should_continue {
+                                continue;
+                            }
+                        }
+                    }
+                    _ => (),
+                };
+
+                assign_client_transaction_state(self, &all_conns);
+
                 if all_conns.is_empty() || self.is_transparent_mode() {
                     let current_shard = query_router.shard();
 
@@ -1171,12 +1280,13 @@ where
                         self.stats.waiting();
                     }
 
-                    let server_key = (query_router.shard().unwrap_or(0), query_router.role());
+                    let query_router_shard = query_router.shard();
+                    let server_key = query_router_shard.unwrap_or(0);
                     let mut conn_opt = all_conns.get_mut(&server_key);
                     if conn_opt.is_none() {
                         // Grab a server from the pool.
                         let connection = match pool
-                            .get(query_router.shard(), query_router.role(), &self.stats)
+                            .get(query_router_shard, query_router.role(), &self.stats)
                             .await
                         {
                             Ok(conn) => {
@@ -1237,7 +1347,7 @@ where
                                 all_conns.iter_mut().next().unwrap();
                             let first_server = &mut *first_conn.0;
 
-                            if !acquire_gid_and_snapshot(self, first_server_key, first_server)
+                            if !acquire_gid_and_snapshot(self, *first_server_key, first_server)
                                 .await?
                             {
                                 break;
@@ -1256,7 +1366,7 @@ where
                                 "Sending implicit BEGIN statement to server {} (in transparent mode with distributed transaction)",
                                 address
                             );
-                            if !begin_distributed_xact(self, &server_key, server).await? {
+                            if !begin_distributed_xact(self, server_key, server).await? {
                                 break;
                             }
                             Some(conn)
@@ -1289,10 +1399,8 @@ where
                     server.sync_parameters(&self.server_parameters).await?;
                 }
 
-                assign_client_transaction_state(self, &all_conns);
-
                 let is_distributed_xact = all_conns.len() > 1;
-                let server_key = (query_router.shard().unwrap_or(0), query_router.role());
+                let server_key = query_router.shard().unwrap_or(0);
                 let conn = all_conns.get_mut(&server_key).unwrap();
                 let server = &mut *conn.0;
                 let address = &conn.1;
@@ -1348,103 +1456,36 @@ where
                     prepared_statement = None;
                 }
 
-                if !is_initial_message {
-                    is_initial_message = false;
-                } else {
-                    trace!("Waiting for message inside transaction or in session mode");
-
-                    // This is not an initial message so discard the initial_parsed_ast
-                    initial_parsed_ast.take();
-
-                    match tokio::time::timeout(
-                        idle_client_timeout_duration,
-                        read_message(&mut self.read),
-                    )
-                    .await
-                    {
-                        Ok(Ok(msg)) => message = msg,
-                        Ok(Err(err)) => {
-                            // Client disconnected inside a transaction.
-                            // Clean up the server and re-use it.
-                            self.stats.disconnect();
-                            for (_, mut conn) in all_conns {
-                                let server = &mut *conn.0;
-                                server.checkin_cleanup().await?;
-                            }
-
-                            return Err(err);
-                        }
-                        Err(_) => {
-                            // Client idle in transaction timeout
-                            error_response_with_state(
-                                &mut self.write,
-                                "idle transaction timeout",
-                                self.xact_info.state(),
-                            )
-                            .await?;
-                            error!(
-                                "Client idle in transaction timeout: \
-                                    {{ \
-                                        pool_name: {}, \
-                                        username: {}, \
-                                        shard: {:?}, \
-                                        role: \"{:?}\" \
-                                    }}",
-                                self.pool_name,
-                                self.username,
-                                query_router.shard(),
-                                query_router.role()
-                            );
-
-                            break;
-                        }
-                    };
-                };
-
                 // The message will be forwarded to the server intact. We still would like to
                 // parse it below to figure out what to do with it.
-
-                // Safe to unwrap because we know this message has a certain length and has the code
-                // This reads the first byte without advancing the internal pointer and mutating the bytes
-                let code = *message.get(0).unwrap() as char;
 
                 trace!("client Message: {}", code);
 
                 match code {
                     // Query
                     'Q' => {
-                        let mut ast = None;
-                        if is_distributed_xact || query_router.query_parser_enabled() {
-                            // We don't want to parse again if we already parsed it as the initial message
-                            ast = parse_ast(
-                                &mut initial_parsed_ast,
-                                &mut query_router,
-                                &message,
-                                &client_identifier,
-                            );
+                        if is_distributed_xact {
+                            // if we are in a distributed transaction, we need to parse the query
+                            // to figure out if it's a COMMIT or ABORT statement.
+                            // If query parsing is disabled, we need to parse it here. Otherwise,
+                            // it's already parsed.
+                            if !query_router.query_parser_enabled() {
+                                assert_eq!(ast, None);
+                                let should_continue;
+                                (should_continue, ast) = self
+                                    .parse_ast_helper(
+                                        &mut query_router,
+                                        &mut initial_parsed_ast,
+                                        &message,
+                                        &client_identifier,
+                                    )
+                                    .await?;
+                                if !should_continue {
+                                    continue;
+                                }
+                            }
 
                             if let Some(ast) = &ast {
-                                let plugin_result = query_router.execute_plugins(ast).await;
-
-                                match plugin_result {
-                                    Ok(PluginOutput::Deny(error)) => {
-                                        error_response_with_state(
-                                            &mut self.write,
-                                            &error,
-                                            self.xact_info.state(),
-                                        )
-                                        .await?;
-                                        continue;
-                                    }
-
-                                    Ok(PluginOutput::Intercept(result)) => {
-                                        write_all(&mut self.write, result).await?;
-                                        continue;
-                                    }
-
-                                    _ => (),
-                                };
-
                                 if is_distributed_xact {
                                     if set_commit_or_abort_statement(self, &ast) {
                                         break;
@@ -1454,7 +1495,30 @@ where
                         }
                         debug!("Sending query to server (in Query mode)");
 
-                        let server_was_in_transaction = server.in_transaction();
+                        // If this is the first message that we're actually sending to the server,
+                        // we need to send the 'BEGIN' statement first if it was issued before this.
+                        // This is the case when the client is in transparent mode and A 'BEGIN'
+                        // statement was issued before the first query.
+                        if is_first_message_to_server {
+                            if let Some(begin_stmt) = self.xact_info.get_begin_statement() {
+                                let begin_stmt = begin_stmt.clone();
+                                if let Some(err) =
+                                    query_server(self, server, &begin_stmt.to_string()).await?
+                                {
+                                    error_response_stmt(
+                                        &mut self.write,
+                                        &err,
+                                        self.xact_info.state(),
+                                    )
+                                    .await?;
+                                    break;
+                                }
+
+                                initialize_xact_params(self, server, &begin_stmt);
+
+                                assert!(server.in_transaction());
+                            }
+                        }
 
                         self.send_and_receive_loop(
                             code,
@@ -1466,27 +1530,7 @@ where
                         )
                         .await?;
 
-                        if server.in_transaction() {
-                            // If the server was not in transaction and now it is, we need to store the
-                            // begin statement. The begin statement is used if/when contacting another
-                            // server in the same transaction.
-                            if !server_was_in_transaction {
-                                if ast.is_none() {
-                                    // We don't want to parse again if we already parsed it as the initial message
-                                    ast = parse_ast(
-                                        &mut initial_parsed_ast,
-                                        &mut query_router,
-                                        &message,
-                                        &client_identifier,
-                                    );
-                                }
-                                assert!(ast.is_some());
-                                let ast_vec = ast.unwrap();
-                                assert_eq!(ast_vec.len(), 1);
-
-                                initialize_xact_info(self, server, &ast_vec[0]);
-                            }
-                        } else {
+                        if !server.in_transaction() {
                             // Report transaction executed statistics.
                             self.stats.transaction();
                             server
@@ -1756,6 +1800,40 @@ where
         }
     }
 
+    async fn parse_ast_helper(
+        &mut self,
+        query_router: &mut QueryRouter,
+        initial_parsed_ast: &mut Option<Vec<sqlparser::ast::Statement>>,
+        message: &BytesMut,
+        client_identifier: &ClientIdentifier,
+    ) -> Result<(bool, Option<Vec<sqlparser::ast::Statement>>), Error> {
+        Ok({
+            // We don't want to parse again if we already parsed it as the initial message
+            let ast = parse_ast(initial_parsed_ast, query_router, message, client_identifier);
+
+            if let Some(ast_ref) = &ast {
+                let plugin_result = query_router.execute_plugins(ast_ref).await;
+
+                match plugin_result {
+                    Ok(PluginOutput::Deny(error)) => {
+                        error_response_with_state(&mut self.write, &error, self.xact_info.state())
+                            .await?;
+                        (false, None)
+                    }
+
+                    Ok(PluginOutput::Intercept(result)) => {
+                        write_all(&mut self.write, result).await?;
+                        (false, None)
+                    }
+
+                    _ => (true, ast),
+                }
+            } else {
+                (true, None)
+            }
+        })
+    }
+
     /// Retrieve connection pool, if it exists.
     /// Return an error to the client otherwise.
     async fn get_pool(&mut self) -> Result<ConnectionPool, Error> {
@@ -2007,6 +2085,14 @@ where
 
     pub fn is_in_idle_transaction(&self) -> bool {
         self.xact_info.is_idle()
+    }
+
+    fn is_begin_statement(ast_vec: &[sqlparser::ast::Statement]) -> bool {
+        ast_vec.len() == 1
+            && matches!(
+                ast_vec[0],
+                sqlparser::ast::Statement::StartTransaction { .. }
+            )
     }
 }
 

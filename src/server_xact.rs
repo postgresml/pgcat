@@ -306,6 +306,10 @@ impl TransactionMetaData {
     pub fn get_abort_statement(&self) -> Option<&Statement> {
         self.abort_statement.as_ref()
     }
+
+    pub fn is_transaction_started(&self) -> bool {
+        self.begin_statement.is_some()
+    }
 }
 
 impl Default for TransactionMetaData {
