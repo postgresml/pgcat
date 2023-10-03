@@ -720,7 +720,7 @@ impl ConnectionPool {
             // since we last checked the server is ok.
             // Health checks are pretty expensive.
             if !require_healthcheck {
-                let checkout_time: u64 = now.elapsed().as_micros() as u64;
+                let checkout_time = now.elapsed().as_micros() as u64;
                 client_stats.checkout_time(checkout_time);
                 server
                     .stats()
@@ -734,7 +734,7 @@ impl ConnectionPool {
                 .run_health_check(address, server, now, client_stats)
                 .await
             {
-                let checkout_time: u64 = now.elapsed().as_micros() as u64;
+                let checkout_time = now.elapsed().as_micros() as u64;
                 client_stats.checkout_time(checkout_time);
                 server
                     .stats()
@@ -746,7 +746,12 @@ impl ConnectionPool {
                 continue;
             }
         }
+
         client_stats.idle();
+
+        let checkout_time = now.elapsed().as_micros() as u64;
+        client_stats.checkout_time(checkout_time);
+
         Err(Error::AllServersDown)
     }
 
