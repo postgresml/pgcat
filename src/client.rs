@@ -1354,7 +1354,7 @@ where
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {
-                        debug!("Sending query to server  (in Sync mode)");
+                        debug!("Sending query to server with extended protocol");
 
                         match plugin_output {
                             Some(PluginOutput::Deny(error)) => {
