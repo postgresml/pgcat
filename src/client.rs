@@ -531,7 +531,7 @@ where
                     error_response(
                         &mut write,
                         &format!(
-                            "No pool configured for database: {:?}, user: {:?} (in startup)",
+                            "No pool configured for database: {:?}, user: {:?}",
                             pool_name, username
                         ),
                     )
@@ -1499,7 +1499,7 @@ where
                 error_response(
                     &mut self.write,
                     &format!(
-                        "No pool configured for database: {}, user: {} (in get_pool)",
+                        "No pool configured for database: {}, user: {}",
                         self.pool_name, self.username
                     ),
                 )
