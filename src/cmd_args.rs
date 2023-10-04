@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing::Level;
 
 /// PgCat: Nextgen PostgreSQL Pooler
@@ -22,10 +22,9 @@ pub struct Args {
         help = "disable colors in the log output"
     )]
     pub no_color: bool,
-}
 
-pub fn parse() -> Args {
-    return Args::parse();
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -33,4 +32,35 @@ pub enum LogFormat {
     Text,
     Structured,
     Debug,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Manages the configuration
+    #[command(subcommand)]
+    Config(ConfigSubcommands),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigSubcommands {
+    /// Show general configuration
+    Show,
+
+    /// Manage pool's configuration
+    #[command(subcommand)]
+    Pools(ConfigPoolsSubcommands),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigPoolsSubcommands {
+    /// List pools, users and shards
+    List,
+    // /// not implemented
+    // Add,
+    // /// not implemented
+    // Remove,
+}
+
+pub fn parse() -> Args {
+    return Args::parse();
 }
