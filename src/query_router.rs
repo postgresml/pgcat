@@ -91,7 +91,7 @@ impl QueryRouter {
     /// One-time initialization of regexes
     /// that parse our custom SQL protocol.
     pub fn setup() -> bool {
-        let set = match RegexSet::new(CUSTOM_SQL_REGEXES) {
+        let set = match RegexSet::new(&CUSTOM_SQL_REGEXES) {
             Ok(rgx) => rgx,
             Err(err) => {
                 error!("QueryRouter::setup Could not compile regex set: {:?}", err);
@@ -132,7 +132,7 @@ impl QueryRouter {
         self.pool_settings = pool_settings;
     }
 
-    pub fn pool_settings(&self) -> &PoolSettings {
+    pub fn pool_settings<'a>(&'a self) -> &'a PoolSettings {
         &self.pool_settings
     }
 
@@ -148,7 +148,7 @@ impl QueryRouter {
 
         // Check for any sharding regex matches in any queries
         if comment_shard_routing_enabled {
-            match code {
+            match code as char {
                 // For Parse and Query messages peek to see if they specify a shard_id as a comment early in the statement
                 'P' | 'Q' => {
                     // Check only the first block of bytes configured by the pool settings
@@ -344,13 +344,16 @@ impl QueryRouter {
         let code = message_cursor.get_u8() as char;
         let len = message_cursor.get_i32() as usize;
 
-        if let Some(max_length) = self.pool_settings.query_parser_max_length {
-            if len > max_length {
-                return Err(Error::QueryRouterParserError(format!(
-                    "Query too long for parser: {} > {}",
-                    len, max_length
-                )));
+        match self.pool_settings.query_parser_max_length {
+            Some(max_length) => {
+                if len > max_length {
+                    return Err(Error::QueryRouterParserError(format!(
+                        "Query too long for parser: {} > {}",
+                        len, max_length
+                    )));
+                }
             }
+            None => (),
         };
 
         let query = match code {
@@ -464,18 +467,22 @@ impl QueryRouter {
         inferred_shard: Option<usize>,
         prev_inferred_shard: &mut Option<usize>,
     ) -> Result<(), Error> {
-        if let Some(shard) = inferred_shard {
-            if let Some(prev_shard) = *prev_inferred_shard {
-                if prev_shard != shard {
-                    debug!("Found more than one shard in the query, not supported yet");
-                    return Err(Error::QueryRouterParserError(
-                        "multiple shards in query".into(),
-                    ));
+        match inferred_shard {
+            Some(shard) => {
+                if let Some(prev_shard) = *prev_inferred_shard {
+                    if prev_shard != shard {
+                        debug!("Found more than one shard in the query, not supported yet");
+                        return Err(Error::QueryRouterParserError(
+                            "multiple shards in query".into(),
+                        ));
+                    }
                 }
+                *prev_inferred_shard = Some(shard);
+                self.active_shard = Some(shard);
+                debug!("Automatically using shard: {:?}", self.active_shard);
             }
-            *prev_inferred_shard = Some(shard);
-            self.active_shard = Some(shard);
-            debug!("Automatically using shard: {:?}", self.active_shard);
+
+            None => (),
         };
         Ok(())
     }
@@ -506,7 +513,7 @@ impl QueryRouter {
                 assert!(after_columns.is_empty());
 
                 Self::process_table(table_name, &mut table_names);
-                Self::process_query(source, &mut exprs, &mut table_names, &Some(columns));
+                Self::process_query(&*source, &mut exprs, &mut table_names, &Some(columns));
             }
             Delete {
                 tables,
@@ -522,7 +529,7 @@ impl QueryRouter {
                 // Multi tables delete are not supported in postgres.
                 assert!(tables.is_empty());
 
-                Self::process_tables_with_join(from, &mut exprs, &mut table_names);
+                Self::process_tables_with_join(&from, &mut exprs, &mut table_names);
                 if let Some(using_tbl_with_join) = using {
                     Self::process_tables_with_join(
                         using_tbl_with_join,
@@ -562,7 +569,7 @@ impl QueryRouter {
     ) {
         match &*query.body {
             SetExpr::Query(query) => {
-                Self::process_query(query, exprs, table_names, columns);
+                Self::process_query(&*query, exprs, table_names, columns);
             }
 
             // SELECT * FROM ...
@@ -604,7 +611,7 @@ impl QueryRouter {
     }
 
     fn process_tables_with_join(
-        tables: &[TableWithJoins],
+        tables: &Vec<TableWithJoins>,
         exprs: &mut Vec<Expr>,
         table_names: &mut Vec<Vec<Ident>>,
     ) {
@@ -618,21 +625,37 @@ impl QueryRouter {
         exprs: &mut Vec<Expr>,
         table_names: &mut Vec<Vec<Ident>>,
     ) {
-        if let TableFactor::Table { name, .. } = &table.relation {
-            Self::process_table(name, table_names);
+        match &table.relation {
+            TableFactor::Table { name, .. } => {
+                Self::process_table(name, table_names);
+            }
+
+            _ => (),
         };
 
         // Get table names from all the joins.
         for join in table.joins.iter() {
-            if let TableFactor::Table { name, .. } = &join.relation {
-                Self::process_table(name, table_names);
+            match &join.relation {
+                TableFactor::Table { name, .. } => {
+                    Self::process_table(name, table_names);
+                }
+
+                _ => (),
             };
 
             // We can filter results based on join conditions, e.g.
             // SELECT * FROM t INNER JOIN B ON B.sharding_key = 5;
-            if let JoinOperator::Inner(JoinConstraint::On(expr)) = &join.join_operator {
-                // Parse the selection criteria later.
-                exprs.push(expr.clone());
+            match &join.join_operator {
+                JoinOperator::Inner(inner_join) => match &inner_join {
+                    JoinConstraint::On(expr) => {
+                        // Parse the selection criteria later.
+                        exprs.push(expr.clone());
+                    }
+
+                    _ => (),
+                },
+
+                _ => (),
             };
         }
     }
@@ -791,7 +814,7 @@ impl QueryRouter {
             .automatic_sharding_key
             .as_ref()
             .unwrap()
-            .split('.')
+            .split(".")
             .map(|ident| Ident::new(ident.to_lowercase()))
             .collect::<Vec<Ident>>();
 
@@ -799,12 +822,12 @@ impl QueryRouter {
         assert_eq!(sharding_key.len(), 2);
 
         for a in assignments {
-            if sharding_key[0].value == "*"
-                && sharding_key[1].value == a.id.last().unwrap().value.to_lowercase()
-            {
-                return Err(Error::QueryRouterParserError(
-                    "Sharding key cannot be updated.".into(),
-                ));
+            if sharding_key[0].value == "*" {
+                if sharding_key[1].value == a.id.last().unwrap().value.to_lowercase() {
+                    return Err(Error::QueryRouterParserError(
+                        "Sharding key cannot be updated.".into(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -821,7 +844,7 @@ impl QueryRouter {
             .automatic_sharding_key
             .as_ref()
             .unwrap()
-            .split('.')
+            .split(".")
             .map(|ident| Ident::new(ident.to_lowercase()))
             .collect::<Vec<Ident>>();
 
@@ -838,7 +861,7 @@ impl QueryRouter {
                 Expr::Identifier(ident) => {
                     // Only if we're dealing with only one table
                     // and there is no ambiguity
-                    if ident.value.to_lowercase() == sharding_key[1].value {
+                    if &ident.value.to_lowercase() == &sharding_key[1].value {
                         // Sharding key is unique enough, don't worry about
                         // table names.
                         if &sharding_key[0].value == "*" {
@@ -851,13 +874,13 @@ impl QueryRouter {
                                 //      SELECT * FROM t WHERE sharding_key = 5
                                 // Make sure the table name from the sharding key matches
                                 // the table name from the query.
-                                found = sharding_key[0].value == table[0].value.to_lowercase();
+                                found = &sharding_key[0].value == &table[0].value.to_lowercase();
                             } else if table.len() == 2 {
                                 // Table name is fully qualified with the schema: e.g.
                                 //      SELECT * FROM public.t WHERE sharding_key = 5
                                 // Ignore the schema (TODO: at some point, we want schema support)
                                 // and use the table name only.
-                                found = sharding_key[0].value == table[1].value.to_lowercase();
+                                found = &sharding_key[0].value == &table[1].value.to_lowercase();
                             } else {
                                 debug!("Got table name with more than two idents, which is not possible");
                             }
@@ -870,8 +893,8 @@ impl QueryRouter {
                     // it will exist or Postgres will throw an error.
                     if idents.len() == 2 {
                         found = (&sharding_key[0].value == "*"
-                            || sharding_key[0].value == idents[0].value.to_lowercase())
-                            && sharding_key[1].value == idents[1].value.to_lowercase();
+                            || &sharding_key[0].value == &idents[0].value.to_lowercase())
+                            && &sharding_key[1].value == &idents[1].value.to_lowercase();
                     }
                     // TODO: key can have schema as well, e.g. public.data.id (len == 3)
                 }
@@ -903,7 +926,7 @@ impl QueryRouter {
                 }
 
                 Expr::Value(Value::Placeholder(placeholder)) => {
-                    match placeholder.replace('$', "").parse::<i16>() {
+                    match placeholder.replace("$", "").parse::<i16>() {
                         Ok(placeholder) => result.push(ShardingKey::Placeholder(placeholder)),
                         Err(_) => {
                             debug!(
@@ -997,16 +1020,16 @@ impl QueryRouter {
                 db: &self.pool_settings.db,
             };
 
-            let _ = query_logger.run(self, ast).await;
+            let _ = query_logger.run(&self, ast).await;
         }
 
         if let Some(ref intercept) = plugins.intercept {
             let mut intercept = Intercept {
                 enabled: intercept.enabled,
-                config: intercept,
+                config: &intercept,
             };
 
-            let result = intercept.run(self, ast).await;
+            let result = intercept.run(&self, ast).await;
 
             if let Ok(PluginOutput::Intercept(output)) = result {
                 return Ok(PluginOutput::Intercept(output));
@@ -1019,7 +1042,7 @@ impl QueryRouter {
                 tables: &table_access.tables,
             };
 
-            let result = table_access.run(self, ast).await;
+            let result = table_access.run(&self, ast).await;
 
             if let Ok(PluginOutput::Deny(error)) = result {
                 return Ok(PluginOutput::Deny(error));
@@ -1055,7 +1078,7 @@ impl QueryRouter {
 
     /// Should we attempt to parse queries?
     pub fn query_parser_enabled(&self) -> bool {
-        match self.query_parser_enabled {
+        let enabled = match self.query_parser_enabled {
             None => {
                 debug!(
                     "Using pool settings, query_parser_enabled: {}",
@@ -1071,7 +1094,9 @@ impl QueryRouter {
                 );
                 value
             }
-        }
+        };
+
+        enabled
     }
 
     pub fn primary_reads_enabled(&self) -> bool {
@@ -1079,12 +1104,6 @@ impl QueryRouter {
             None => self.pool_settings.primary_reads_enabled,
             Some(value) => value,
         }
-    }
-}
-
-impl Default for QueryRouter {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -1109,14 +1128,10 @@ mod test {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         qr.pool_settings.query_parser_read_write_splitting = true;
-        assert!(qr
-            .try_execute_command(&simple_query("SET SERVER ROLE TO 'auto'"))
-            .is_some());
+        assert!(qr.try_execute_command(&simple_query("SET SERVER ROLE TO 'auto'")) != None);
         assert!(qr.query_parser_enabled());
 
-        assert!(qr
-            .try_execute_command(&simple_query("SET PRIMARY READS TO off"))
-            .is_some());
+        assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO off")) != None);
 
         let queries = vec![
             simple_query("SELECT * FROM items WHERE id = 5"),
@@ -1158,9 +1173,7 @@ mod test {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
         let query = simple_query("SELECT * FROM items WHERE id = 5");
-        assert!(qr
-            .try_execute_command(&simple_query("SET PRIMARY READS TO on"))
-            .is_some());
+        assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO on")) != None);
 
         assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
         assert_eq!(qr.role(), None);
@@ -1173,9 +1186,7 @@ mod test {
         qr.pool_settings.query_parser_read_write_splitting = true;
 
         qr.try_execute_command(&simple_query("SET SERVER ROLE TO 'auto'"));
-        assert!(qr
-            .try_execute_command(&simple_query("SET PRIMARY READS TO off"))
-            .is_some());
+        assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO off")) != None);
 
         let prepared_stmt = BytesMut::from(
             &b"WITH t AS (SELECT * FROM items WHERE name = $1) SELECT * FROM t WHERE id = $2\0"[..],
@@ -1345,11 +1356,9 @@ mod test {
         qr.pool_settings.query_parser_read_write_splitting = true;
 
         let query = simple_query("SET SERVER ROLE TO 'auto'");
-        assert!(qr
-            .try_execute_command(&simple_query("SET PRIMARY READS TO off"))
-            .is_some());
+        assert!(qr.try_execute_command(&simple_query("SET PRIMARY READS TO off")) != None);
 
-        assert!(qr.try_execute_command(&query).is_some());
+        assert!(qr.try_execute_command(&query) != None);
         assert!(qr.query_parser_enabled());
         assert_eq!(qr.role(), None);
 
@@ -1363,7 +1372,7 @@ mod test {
 
         assert!(qr.query_parser_enabled());
         let query = simple_query("SET SERVER ROLE TO 'default'");
-        assert!(qr.try_execute_command(&query).is_some());
+        assert!(qr.try_execute_command(&query) != None);
         assert!(!qr.query_parser_enabled());
     }
 
@@ -1411,11 +1420,11 @@ mod test {
         assert!(!qr.primary_reads_enabled());
 
         let q1 = simple_query("SET SERVER ROLE TO 'primary'");
-        assert!(qr.try_execute_command(&q1).is_some());
+        assert!(qr.try_execute_command(&q1) != None);
         assert_eq!(qr.active_role.unwrap(), Role::Primary);
 
         let q2 = simple_query("SET SERVER ROLE TO 'default'");
-        assert!(qr.try_execute_command(&q2).is_some());
+        assert!(qr.try_execute_command(&q2) != None);
         assert_eq!(qr.active_role.unwrap(), pool_settings.default_role);
     }
 
@@ -1483,22 +1492,22 @@ mod test {
 
         // Don't panic when short query eg. ; is sent
         let q0 = simple_query(";");
-        assert!(qr.try_execute_command(&q0).is_none());
+        assert!(qr.try_execute_command(&q0) == None);
         assert_eq!(qr.active_shard, None);
 
         // Make sure setting it works
         let q1 = simple_query("/* shard_id: 1 */ select 1 from foo;");
-        assert!(qr.try_execute_command(&q1).is_none());
+        assert!(qr.try_execute_command(&q1) == None);
         assert_eq!(qr.active_shard, Some(1));
 
         // And make sure changing it works
         let q2 = simple_query("/* shard_id: 0 */ select 1 from foo;");
-        assert!(qr.try_execute_command(&q2).is_none());
+        assert!(qr.try_execute_command(&q2) == None);
         assert_eq!(qr.active_shard, Some(0));
 
         // Validate setting by shard with expected shard copied from sharding.rs tests
         let q2 = simple_query("/* sharding_key: 6 */ select 1 from foo;");
-        assert!(qr.try_execute_command(&q2).is_none());
+        assert!(qr.try_execute_command(&q2) == None);
         assert_eq!(qr.active_shard, Some(2));
     }
 
@@ -1854,11 +1863,10 @@ mod test {
         };
 
         QueryRouter::setup();
-        let pool_settings = PoolSettings {
-            query_parser_enabled: true,
-            plugins: Some(plugins),
-            ..Default::default()
-        };
+        let mut pool_settings = PoolSettings::default();
+        pool_settings.query_parser_enabled = true;
+        pool_settings.plugins = Some(plugins);
+
         let mut qr = QueryRouter::new();
         qr.update_pool_settings(pool_settings);
 

@@ -131,7 +131,7 @@ pub async fn client_entrypoint(
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
             // TLS settings are configured, will setup TLS now.
-            if tls_certificate.is_some() {
+            if tls_certificate != None {
                 debug!("Accepting TLS request");
 
                 let mut yes = BytesMut::new();
@@ -448,7 +448,7 @@ where
             None => "pgcat",
         };
 
-        let client_identifier = ClientIdentifier::new(application_name, username, pool_name);
+        let client_identifier = ClientIdentifier::new(&application_name, &username, &pool_name);
 
         let admin = ["pgcat", "pgbouncer"]
             .iter()
@@ -795,7 +795,7 @@ where
         let mut will_prepare = false;
 
         let client_identifier = ClientIdentifier::new(
-            self.server_parameters.get_application_name(),
+            &self.server_parameters.get_application_name(),
             &self.username,
             &self.pool_name,
         );
@@ -982,11 +982,15 @@ where
             }
 
             // Check on plugin results.
-            if let Some(PluginOutput::Deny(error)) = plugin_output {
-                self.buffer.clear();
-                error_response(&mut self.write, &error).await?;
-                plugin_output = None;
-                continue;
+            match plugin_output {
+                Some(PluginOutput::Deny(error)) => {
+                    self.buffer.clear();
+                    error_response(&mut self.write, &error).await?;
+                    plugin_output = None;
+                    continue;
+                }
+
+                _ => (),
             };
 
             // Check if the pool is paused and wait until it's resumed.
@@ -1263,7 +1267,7 @@ where
 
                 // Safe to unwrap because we know this message has a certain length and has the code
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
-                let code = *message.first().unwrap() as char;
+                let code = *message.get(0).unwrap() as char;
 
                 trace!("Message: {}", code);
 
@@ -1321,7 +1325,7 @@ where
                             self.stats.transaction();
                             server
                                 .stats()
-                                .transaction(self.server_parameters.get_application_name());
+                                .transaction(&self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1396,10 +1400,13 @@ where
                             let close: Close = (&message).try_into()?;
 
                             if close.is_prepared_statement() && !close.anonymous() {
-                                if let Some(parse) = self.prepared_statements.get(&close.name) {
-                                    server.will_close(&parse.generated_name);
-                                } else {
+                                match self.prepared_statements.get(&close.name) {
+                                    Some(parse) => {
+                                        server.will_close(&parse.generated_name);
+                                    }
+
                                     // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
+                                    None => (),
                                 };
                             }
                         }
@@ -1438,7 +1445,7 @@ where
 
                         self.buffer.put(&message[..]);
 
-                        let first_message_code = (*self.buffer.first().unwrap_or(&0)) as char;
+                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' && !prepared_statements_enabled {
@@ -1470,7 +1477,7 @@ where
                             self.stats.transaction();
                             server
                                 .stats()
-                                .transaction(self.server_parameters.get_application_name());
+                                .transaction(&self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1732,7 +1739,7 @@ where
         client_stats.query();
         server.stats().query(
             Instant::now().duration_since(query_start).as_millis() as u64,
-            self.server_parameters.get_application_name(),
+            &self.server_parameters.get_application_name(),
         );
 
         Ok(())

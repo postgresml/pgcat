@@ -92,7 +92,7 @@ impl<'a> Plugin for Intercept<'a> {
                             .map(|s| {
                                 let s = s.as_str().to_string();
 
-                                if s.is_empty() {
+                                if s == "" {
                                     None
                                 } else {
                                     Some(s)

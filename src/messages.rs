@@ -164,7 +164,7 @@ where
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            Err(Error::SocketError(format!(
+            return Err(Error::SocketError(format!(
                 "Error writing startup to server socket - Error: {:?}",
                 err
             )))
@@ -244,8 +244,8 @@ pub fn md5_hash_password(user: &str, password: &str, salt: &[u8]) -> Vec<u8> {
     let mut md5 = Md5::new();
 
     // First pass
-    md5.update(password.as_bytes());
-    md5.update(user.as_bytes());
+    md5.update(&password.as_bytes());
+    md5.update(&user.as_bytes());
 
     let output = md5.finalize_reset();
 
@@ -516,7 +516,7 @@ pub fn data_row_nullable(row: &Vec<Option<String>>) -> BytesMut {
             data_row.put_i32(column.len() as i32);
             data_row.put_slice(column);
         } else {
-            data_row.put_i32(-1_i32);
+            data_row.put_i32(-1 as i32);
         }
     }
 
@@ -572,7 +572,7 @@ where
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            Err(Error::SocketError(format!(
+            return Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",
                 err
             )))
@@ -588,7 +588,7 @@ where
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            Err(Error::SocketError(format!(
+            return Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",
                 err
             )))
@@ -604,14 +604,14 @@ where
         Ok(_) => match stream.flush().await {
             Ok(_) => Ok(()),
             Err(err) => {
-                Err(Error::SocketError(format!(
+                return Err(Error::SocketError(format!(
                     "Error flushing socket - Error: {:?}",
                     err
                 )))
             }
         },
         Err(err) => {
-            Err(Error::SocketError(format!(
+            return Err(Error::SocketError(format!(
                 "Error writing to socket - Error: {:?}",
                 err
             )))
@@ -730,7 +730,7 @@ impl BytesMutReader for Cursor<&BytesMut> {
         let mut buf = vec![];
         match self.read_until(b'\0', &mut buf) {
             Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string()),
-            Err(err) => Err(Error::ParseBytesError(err.to_string())),
+            Err(err) => return Err(Error::ParseBytesError(err.to_string())),
         }
     }
 }
@@ -746,7 +746,7 @@ impl BytesMutReader for BytesMut {
                 let string_bytes = self.split_to(index + 1);
                 Ok(String::from_utf8_lossy(&string_bytes[..string_bytes.len() - 1]).to_string())
             }
-            None => Err(Error::ParseBytesError("Could not read string".to_string())),
+            None => return Err(Error::ParseBytesError("Could not read string".to_string())),
         }
     }
 }
@@ -1311,38 +1311,38 @@ mod tests {
     fn parse_fields() {
         let mut complete_msg = vec![];
         let severity = "FATAL";
-        complete_msg.extend(field('S', severity));
-        complete_msg.extend(field('V', severity));
+        complete_msg.extend(field('S', &severity));
+        complete_msg.extend(field('V', &severity));
 
         let error_code = "29P02";
-        complete_msg.extend(field('C', error_code));
+        complete_msg.extend(field('C', &error_code));
         let message = "password authentication failed for user \"wrong_user\"";
-        complete_msg.extend(field('M', message));
+        complete_msg.extend(field('M', &message));
         let detail_msg = "super detailed message";
-        complete_msg.extend(field('D', detail_msg));
+        complete_msg.extend(field('D', &detail_msg));
         let hint_msg = "hint detail here";
-        complete_msg.extend(field('H', hint_msg));
+        complete_msg.extend(field('H', &hint_msg));
         complete_msg.extend(field('P', "123"));
         complete_msg.extend(field('p', "234"));
         let internal_query = "SELECT * from foo;";
-        complete_msg.extend(field('q', internal_query));
+        complete_msg.extend(field('q', &internal_query));
         let where_msg = "where goes here";
-        complete_msg.extend(field('W', where_msg));
+        complete_msg.extend(field('W', &where_msg));
         let schema_msg = "schema_name";
-        complete_msg.extend(field('s', schema_msg));
+        complete_msg.extend(field('s', &schema_msg));
         let table_msg = "table_name";
-        complete_msg.extend(field('t', table_msg));
+        complete_msg.extend(field('t', &table_msg));
         let column_msg = "column_name";
-        complete_msg.extend(field('c', column_msg));
+        complete_msg.extend(field('c', &column_msg));
         let data_type_msg = "type_name";
-        complete_msg.extend(field('d', data_type_msg));
+        complete_msg.extend(field('d', &data_type_msg));
         let constraint_msg = "constraint_name";
-        complete_msg.extend(field('n', constraint_msg));
+        complete_msg.extend(field('n', &constraint_msg));
         let file_msg = "pgcat.c";
-        complete_msg.extend(field('F', file_msg));
+        complete_msg.extend(field('F', &file_msg));
         complete_msg.extend(field('L', "335"));
         let routine_msg = "my_failing_routine";
-        complete_msg.extend(field('R', routine_msg));
+        complete_msg.extend(field('R', &routine_msg));
 
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
@@ -1378,11 +1378,11 @@ mod tests {
         );
 
         let mut only_mandatory_msg = vec![];
-        only_mandatory_msg.extend(field('S', severity));
-        only_mandatory_msg.extend(field('V', severity));
-        only_mandatory_msg.extend(field('C', error_code));
-        only_mandatory_msg.extend(field('M', message));
-        only_mandatory_msg.extend(field('D', detail_msg));
+        only_mandatory_msg.extend(field('S', &severity));
+        only_mandatory_msg.extend(field('V', &severity));
+        only_mandatory_msg.extend(field('C', &error_code));
+        only_mandatory_msg.extend(field('M', &message));
+        only_mandatory_msg.extend(field('D', &detail_msg));
 
         let err_fields = PgErrorMsg::parse(only_mandatory_msg.clone()).unwrap();
         info!("only mandatory fields: {}", &err_fields);

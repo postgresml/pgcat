@@ -33,7 +33,6 @@ pub enum PluginOutput {
 #[async_trait]
 pub trait Plugin {
     // Run before the query is sent to the server.
-    #[allow(clippy::ptr_arg)]
     async fn run(
         &mut self,
         query_router: &QueryRouter,
