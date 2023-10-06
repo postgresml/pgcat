@@ -1041,7 +1041,7 @@ impl ServerPool {
     ) -> ServerPool {
         ServerPool {
             address,
-            user: user.clone(),
+            user,
             database: database.to_string(),
             client_server_map,
             auth_hash,

@@ -1476,7 +1476,7 @@ mod test {
         };
 
         let mut qr = QueryRouter::new();
-        qr.update_pool_settings(pool_settings.clone());
+        qr.update_pool_settings(pool_settings);
 
         // Shard should start out unset
         assert_eq!(qr.active_shard, None);

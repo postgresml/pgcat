@@ -137,8 +137,8 @@ impl MirroringManager {
                 bytes_rx,
                 disconnect_rx: exit_rx,
             };
-            exit_senders.push(exit_tx.clone());
-            byte_senders.push(bytes_tx.clone());
+            exit_senders.push(exit_tx);
+            byte_senders.push(bytes_tx);
             client.start();
         });
 
