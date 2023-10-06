@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::mem;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
@@ -1281,8 +1281,6 @@ impl Server {
 
         self.send(&query).await?;
 
-        let query_start = Instant::now();
-
         loop {
             let mut response = self.recv(None).await?;
 
@@ -1295,8 +1293,6 @@ impl Server {
                 break;
             }
         }
-
-        query_time_stats(self, query_start);
 
         Ok(None)
     }

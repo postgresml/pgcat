@@ -6,7 +6,6 @@ use log::{debug, warn};
 use once_cell::sync::Lazy;
 use sqlparser::ast::{Statement, TransactionIsolationLevel};
 use std::collections::HashMap;
-use std::time::Instant;
 
 use crate::errors::Error;
 use crate::messages::*;
@@ -344,15 +343,6 @@ impl RWConflict {
     }
 }
 
-/// Given the query start time, this function registers the query execution time to the server
-/// stats.
-pub fn query_time_stats(server: &mut Server, query_start: Instant) {
-    server.stats().query(
-        Instant::now().duration_since(query_start).as_millis() as u64,
-        &server.server_parameters.get_application_name(),
-    );
-}
-
 /// Execute an arbitrary query against the server.
 /// It will use the simple query protocol.
 /// Result will be returned, so this is useful for things like `SELECT`.
@@ -369,7 +359,6 @@ async fn query_with_response(
 
     server.send(&query).await?;
 
-    let query_start = Instant::now();
     // Read all data the server has to offer, which can be multiple messages
     // buffered in 8196 bytes chunks.
     let mut response = server.recv(None).await?;
@@ -406,8 +395,6 @@ async fn query_with_response(
 
         _ => return Err(Error::ServerError),
     };
-
-    query_time_stats(server, query_start);
 
     Ok(Either::Left(query_response))
 }
