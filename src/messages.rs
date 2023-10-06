@@ -163,10 +163,12 @@ where
 
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
-        Err(err) => Err(Error::SocketError(format!(
-            "Error writing startup to server socket - Error: {:?}",
-            err
-        ))),
+        Err(err) => {
+            Err(Error::SocketError(format!(
+                "Error writing startup to server socket - Error: {:?}",
+                err
+            )))
+        }
     }
 }
 
@@ -569,10 +571,12 @@ where
 {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
-        Err(err) => Err(Error::SocketError(format!(
-            "Error writing to socket - Error: {:?}",
-            err
-        ))),
+        Err(err) => {
+            Err(Error::SocketError(format!(
+                "Error writing to socket - Error: {:?}",
+                err
+            )))
+        }
     }
 }
 
@@ -583,10 +587,12 @@ where
 {
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
-        Err(err) => Err(Error::SocketError(format!(
-            "Error writing to socket - Error: {:?}",
-            err
-        ))),
+        Err(err) => {
+            Err(Error::SocketError(format!(
+                "Error writing to socket - Error: {:?}",
+                err
+            )))
+        }
     }
 }
 
@@ -597,15 +603,19 @@ where
     match stream.write_all(buf).await {
         Ok(_) => match stream.flush().await {
             Ok(_) => Ok(()),
-            Err(err) => Err(Error::SocketError(format!(
-                "Error flushing socket - Error: {:?}",
-                err
-            ))),
+            Err(err) => {
+                Err(Error::SocketError(format!(
+                    "Error flushing socket - Error: {:?}",
+                    err
+                )))
+            }
         },
-        Err(err) => Err(Error::SocketError(format!(
-            "Error writing to socket - Error: {:?}",
-            err
-        ))),
+        Err(err) => {
+            Err(Error::SocketError(format!(
+                "Error writing to socket - Error: {:?}",
+                err
+            )))
+        }
     }
 }
 

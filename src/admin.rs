@@ -283,8 +283,7 @@ where
 {
     let mut res = BytesMut::new();
 
-    let detail_msg = [
-        "",
+    let detail_msg = ["",
         "SHOW HELP|CONFIG|DATABASES|POOLS|CLIENTS|SERVERS|USERS|VERSION",
         // "SHOW PEERS|PEER_POOLS", // missing PEERS|PEER_POOLS
         // "SHOW FDS|SOCKETS|ACTIVE_SOCKETS|LISTS|MEM|STATE", // missing FDS|SOCKETS|ACTIVE_SOCKETS|MEM|STATE
@@ -300,9 +299,7 @@ where
         // "RECONNECT [<db>]", missing
         // "KILL <db>",
         // "SUSPEND",
-        // "WAIT_CLOSE [<db>]", // missing
-        "SHUTDOWN",
-    ];
+        "SHUTDOWN"];
 
     res.put(notify("Console usage", detail_msg.join("\n\t")));
     res.put(command_complete("SHOW"));
