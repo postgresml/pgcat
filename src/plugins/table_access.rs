@@ -34,7 +34,7 @@ impl<'a> Plugin for TableAccess<'a> {
 
         visit_relations(ast, |relation| {
             let relation = relation.to_string();
-            let parts = relation.split(".").collect::<Vec<&str>>();
+            let parts = relation.split('.').collect::<Vec<&str>>();
             let table_name = parts.last().unwrap();
 
             if self.tables.contains(&table_name.to_string()) {

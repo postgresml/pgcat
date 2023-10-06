@@ -283,8 +283,7 @@ where
 {
     let mut res = BytesMut::new();
 
-    let detail_msg = vec![
-        "",
+    let detail_msg = ["",
         "SHOW HELP|CONFIG|DATABASES|POOLS|CLIENTS|SERVERS|USERS|VERSION",
         // "SHOW PEERS|PEER_POOLS", // missing PEERS|PEER_POOLS
         // "SHOW FDS|SOCKETS|ACTIVE_SOCKETS|LISTS|MEM|STATE", // missing FDS|SOCKETS|ACTIVE_SOCKETS|MEM|STATE
@@ -300,9 +299,7 @@ where
         // "RECONNECT [<db>]", missing
         // "KILL <db>",
         // "SUSPEND",
-        "SHUTDOWN",
-        // "WAIT_CLOSE [<db>]", // missing
-    ];
+        "SHUTDOWN"];
 
     res.put(notify("Console usage", detail_msg.join("\n\t")));
     res.put(command_complete("SHOW"));
@@ -802,7 +799,7 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let parts: Vec<&str> = match tokens.len() == 2 {
-        true => tokens[1].split(",").map(|part| part.trim()).collect(),
+        true => tokens[1].split(',').map(|part| part.trim()).collect(),
         false => Vec::new(),
     };
 
@@ -865,7 +862,7 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let parts: Vec<&str> = match tokens.len() == 2 {
-        true => tokens[1].split(",").map(|part| part.trim()).collect(),
+        true => tokens[1].split(',').map(|part| part.trim()).collect(),
         false => Vec::new(),
     };
 
