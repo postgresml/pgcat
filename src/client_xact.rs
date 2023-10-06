@@ -2,6 +2,7 @@ use crate::client::Client;
 use crate::errors::Error;
 use crate::query_messages::{ErrorInfo, ErrorResponse, Message};
 use bytes::BytesMut;
+use core::panic;
 use futures::future::join_all;
 use itertools::Either;
 use log::{debug, warn};
@@ -127,11 +128,7 @@ where
 
 /// Generates a random GID (i.e., Global transaction ID) for a transaction.
 fn generate_xact_gid<S, T>(clnt: &Client<S, T>) -> String {
-    format!(
-        "txn_{}_{}",
-        clnt.addr.to_string(),
-        Uuid::new_v4().to_string()
-    )
+    format!("txn_{}_{}", clnt.addr, Uuid::new_v4())
 }
 
 /// Generates a server-specific GID for a transaction. We need this, because it's possible that
@@ -148,14 +145,12 @@ pub fn assign_client_transaction_state<S, T>(
     clnt.xact_info.set_state(if all_conns.is_empty() {
         // if there's no server, we're in idle mode.
         TransactionState::Idle
+    } else if is_any_server_in_failed_xact(all_conns) {
+        // if any server is in failed transaction, we're in failed transaction.
+        TransactionState::InFailedTransaction
     } else {
-        if is_any_server_in_failed_xact(all_conns) {
-            // if any server is in failed transaction, we're in failed transaction.
-            TransactionState::InFailedTransaction
-        } else {
-            // if we have at least one server and it is in a transaction, we're in a transaction.
-            TransactionState::InTransaction
-        }
+        // if we have at least one server and it is in a transaction, we're in a transaction.
+        TransactionState::InTransaction
     });
 }
 
@@ -165,7 +160,7 @@ fn is_any_server_in_failed_xact(
 ) -> bool {
     all_conns
         .iter()
-        .any(|(_, conn)| in_failed_transaction(&*conn.0))
+        .any(|(_, conn)| in_failed_transaction(&conn.0))
 }
 
 /// This function initializes the transaction parameters based on the first BEGIN statement.
@@ -177,8 +172,8 @@ pub fn initialize_xact_info<S, T>(clnt: &mut Client<S, T>, begin_stmt: &Statemen
         clnt.xact_info.set_state(TransactionState::InTransaction);
     } else {
         // If we were not in a transaction and the first statement is
-        // not a BEGIN, then it's an irrecovable error.
-        assert!(false);
+        // not a BEGIN, then it's an irrecoverable error.
+        panic!("The first statement in a transaction is not a BEGIN statement.");
     }
 }
 
@@ -200,9 +195,7 @@ pub fn initialize_xact_params<S, T>(
                     });
                 }
                 TransactionMode::IsolationLevel(isolation_level) => {
-                    clnt.xact_info
-                        .params
-                        .set_isolation_level(isolation_level.clone());
+                    clnt.xact_info.params.set_isolation_level(*isolation_level);
                 }
             }
         }
@@ -214,8 +207,8 @@ pub fn initialize_xact_params<S, T>(
         // Set the transaction parameters on the first server.
         server.transaction_metadata_mut().params = clnt.xact_info.params.clone();
     } else {
-        // If it's not a BEGIN, then it's an irrecovable error.
-        assert!(false);
+        // If it's not a BEGIN, then it's an irrecoverable error.
+        panic!("The statement is not a BEGIN statement.");
     }
 }
 
@@ -238,9 +231,9 @@ where
 {
     let dist_commit = clnt.xact_info.get_commit_statement();
     let dist_abort = clnt.xact_info.get_abort_statement();
-    Ok(if dist_commit.is_some() || dist_abort.is_some() {
+    if dist_commit.is_some() || dist_abort.is_some() {
         // if either a commit or abort statement is set, we should be in a distributed transaction.
-        assert!(all_conns.len() > 0);
+        assert!(!all_conns.is_empty());
 
         let is_chained = should_be_chained(dist_commit, dist_abort);
         let dist_commit = dist_commit.map(|stmt| stmt.to_string());
@@ -316,7 +309,8 @@ where
                 last_server.address()
             );
         }
-    })
+    }
+    Ok(())
 }
 
 pub fn reset_client_xact<S, T>(clnt: &mut Client<S, T>) {
@@ -396,7 +390,7 @@ async fn distributed_abort<S, T>(
         ServerId,
         (bb8::PooledConnection<'_, crate::pool::ServerPool>, Address),
     >,
-    abort_stmt: &String,
+    abort_stmt: &str,
 ) -> Result<Option<ErrorResponse>, Error>
 where
     S: tokio::io::AsyncRead + std::marker::Unpin,
@@ -414,7 +408,7 @@ where
         set_post_query_state(clnt, server);
         server
             .stats()
-            .transaction(&clnt.server_parameters.get_application_name());
+            .transaction(clnt.server_parameters.get_application_name());
     });
 
     for abort_res in abort_results {
@@ -426,6 +420,7 @@ where
     Ok(None)
 }
 
+#[allow(clippy::type_complexity)]
 async fn distributed_prepare<S, T>(
     clnt: &mut Client<S, T>,
     all_conns: &mut HashMap<
@@ -479,10 +474,10 @@ where
 /// Returns true if the statement is a commit or abort statement. Also, it sets the commit or abort
 /// statement on the client.
 pub fn set_commit_or_abort_statement<S, T>(clnt: &mut Client<S, T>, ast: &Vec<Statement>) -> bool {
-    if is_commit_statement(&ast) {
+    if is_commit_statement(ast) {
         clnt.xact_info.set_commit_statement(Some(ast[0].clone()));
         true
-    } else if is_abort_statement(&ast) {
+    } else if is_abort_statement(ast) {
         clnt.xact_info.set_abort_statement(Some(ast[0].clone()));
         true
     } else {
@@ -493,12 +488,9 @@ pub fn set_commit_or_abort_statement<S, T>(clnt: &mut Client<S, T>, ast: &Vec<St
 /// Returns true if the statement is a commit statement.
 fn is_commit_statement(ast: &Vec<Statement>) -> bool {
     for statement in ast {
-        match *statement {
-            Statement::Commit { .. } => {
-                assert_eq!(ast.len(), 1);
-                return true;
-            }
-            _ => (),
+        if let Statement::Commit { .. } = *statement {
+            assert_eq!(ast.len(), 1);
+            return true;
         }
     }
     false
@@ -507,12 +499,9 @@ fn is_commit_statement(ast: &Vec<Statement>) -> bool {
 /// Returns true if the statement is an abort statement.
 fn is_abort_statement(ast: &Vec<Statement>) -> bool {
     for statement in ast {
-        match *statement {
-            Statement::Rollback { .. } => {
-                assert_eq!(ast.len(), 1);
-                return true;
-            }
-            _ => (),
+        if let Statement::Rollback { .. } = *statement {
+            assert_eq!(ast.len(), 1);
+            return true;
         }
     }
     false

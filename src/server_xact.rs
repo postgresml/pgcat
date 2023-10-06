@@ -14,11 +14,11 @@ use crate::server::{Server, ServerParameters};
 
 /// The default transaction parameters that might be configured on the server.
 pub static TRANSACTION_PARAMETERS: Lazy<Vec<String>> = Lazy::new(|| {
-    let mut list = Vec::new();
-    list.push("default_transaction_isolation".to_string());
-    list.push("default_transaction_read_only".to_string());
-    list.push("default_transaction_deferrable".to_string());
-    list
+    vec![
+        "default_transaction_isolation".to_string(),
+        "default_transaction_read_only".to_string(),
+        "default_transaction_deferrable".to_string(),
+    ]
 });
 
 /// The default transaction parameters that are either configured on the server or set by the
@@ -415,7 +415,7 @@ pub async fn acquire_xact_snapshot(
     assert!(qres.row_desc().fields().len() == 1);
     assert!(qres_rows.len() == 1);
     if let Some(snapshot) = qres_rows[0].fields().get(0).unwrap() {
-        let snapshot = std::str::from_utf8(&snapshot).unwrap().to_string();
+        let snapshot = std::str::from_utf8(snapshot).unwrap().to_string();
 
         debug!("Got snapshot: {}", snapshot);
 

@@ -138,7 +138,7 @@ pub async fn client_entrypoint(
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
             // TLS settings are configured, will setup TLS now.
-            if tls_certificate != None {
+            if tls_certificate.is_some() {
                 debug!("Accepting TLS request");
 
                 let mut yes = BytesMut::new();
@@ -455,7 +455,7 @@ where
             None => "pgcat",
         };
 
-        let client_identifier = ClientIdentifier::new(&application_name, &username, &pool_name);
+        let client_identifier = ClientIdentifier::new(application_name, username, pool_name);
 
         let admin = ["pgcat", "pgbouncer"]
             .iter()
@@ -806,7 +806,7 @@ where
         let mut will_prepare = false;
 
         let client_identifier = ClientIdentifier::new(
-            &self.server_parameters.get_application_name(),
+            self.server_parameters.get_application_name(),
             &self.username,
             &self.pool_name,
         );
@@ -993,15 +993,11 @@ where
             }
 
             // Check on plugin results.
-            match plugin_output {
-                Some(PluginOutput::Deny(error)) => {
-                    self.buffer.clear();
-                    error_response(&mut self.write, &error).await?;
-                    plugin_output = None;
-                    continue;
-                }
-
-                _ => (),
+            if let Some(PluginOutput::Deny(error)) = plugin_output {
+                self.buffer.clear();
+                error_response(&mut self.write, &error).await?;
+                plugin_output = None;
+                continue;
             };
 
             // Check if the pool is paused and wait until it's resumed.
@@ -1100,50 +1096,47 @@ where
 
                 // Safe to unwrap because we know this message has a certain length and has the code
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
-                let code = *message.get(0).unwrap() as char;
+                let code = *message.first().unwrap() as char;
                 let mut ast = None;
 
-                match code {
-                    // Query
-                    'Q' => {
-                        // If the first message is a `BEGIN` statement, then we are starting a
-                        // transaction. However, we might not still be on the right shard (as the
-                        // shard might be inferred from the first query). So we parse the query and
-                        // store the `BEGIN` statement. Upon receiving the next query (and possibly
-                        // determining the shard), we will execute the `BEGIN` statement.
-                        if let Some(ast_vec) = initial_parsed_ast.as_ref() {
-                            if Self::is_begin_statement(ast_vec) {
-                                assert_eq!(ast_vec.len(), 1);
+                // Query
+                if code == 'Q' {
+                    // If the first message is a `BEGIN` statement, then we are starting a
+                    // transaction. However, we might not still be on the right shard (as the
+                    // shard might be inferred from the first query). So we parse the query and
+                    // store the `BEGIN` statement. Upon receiving the next query (and possibly
+                    // determining the shard), we will execute the `BEGIN` statement.
+                    if let Some(ast_vec) = initial_parsed_ast.as_ref() {
+                        if Self::is_begin_statement(ast_vec) {
+                            assert_eq!(ast_vec.len(), 1);
 
-                                initialize_xact_info(self, &ast_vec[0]);
+                            initialize_xact_info(self, &ast_vec[0]);
 
-                                custom_protocol_response_ok_with_state(
-                                    &mut self.write,
-                                    "BEGIN",
-                                    self.xact_info.state(),
-                                )
-                                .await?;
+                            custom_protocol_response_ok_with_state(
+                                &mut self.write,
+                                "BEGIN",
+                                self.xact_info.state(),
+                            )
+                            .await?;
 
-                                continue;
-                            }
-                        }
-
-                        if query_router.query_parser_enabled() {
-                            let should_continue;
-                            (should_continue, ast) = self
-                                .parse_ast_helper(
-                                    &mut query_router,
-                                    &mut initial_parsed_ast,
-                                    &message,
-                                    &client_identifier,
-                                )
-                                .await?;
-                            if !should_continue {
-                                continue;
-                            }
+                            continue;
                         }
                     }
-                    _ => (),
+
+                    if query_router.query_parser_enabled() {
+                        let should_continue;
+                        (should_continue, ast) = self
+                            .parse_ast_helper(
+                                &mut query_router,
+                                &mut initial_parsed_ast,
+                                &message,
+                                &client_identifier,
+                            )
+                            .await?;
+                        if !should_continue {
+                            continue;
+                        }
+                    }
                 };
 
                 assign_client_transaction_state(self, &all_conns);
@@ -1487,10 +1480,8 @@ where
                             }
 
                             if let Some(ast) = &ast {
-                                if is_distributed_xact {
-                                    if set_commit_or_abort_statement(self, &ast) {
-                                        break;
-                                    }
+                                if is_distributed_xact && set_commit_or_abort_statement(self, ast) {
+                                    break;
                                 }
                             }
                         }
@@ -1536,7 +1527,7 @@ where
                             self.stats.transaction();
                             server
                                 .stats()
-                                .transaction(&self.server_parameters.get_application_name());
+                                .transaction(self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction or transparent modes.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1613,13 +1604,10 @@ where
                             let close: Close = (&message).try_into()?;
 
                             if close.is_prepared_statement() && !close.anonymous() {
-                                match self.prepared_statements.get(&close.name) {
-                                    Some(parse) => {
-                                        server.will_close(&parse.generated_name);
-                                    }
-
+                                if let Some(parse) = self.prepared_statements.get(&close.name) {
+                                    server.will_close(&parse.generated_name);
+                                } else {
                                     // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
-                                    None => (),
                                 };
                             }
                         }
@@ -1663,7 +1651,7 @@ where
 
                         self.buffer.put(&message[..]);
 
-                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
+                        let first_message_code = (*self.buffer.first().unwrap_or(&0)) as char;
 
                         // Almost certainly true
                         if first_message_code == 'P' && !prepared_statements_enabled {
@@ -1695,7 +1683,7 @@ where
                             self.stats.transaction();
                             server
                                 .stats()
-                                .transaction(&self.server_parameters.get_application_name());
+                                .transaction(self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction or transparent modes.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -2011,7 +1999,7 @@ where
         client_stats.query();
         server.stats().query(
             Instant::now().duration_since(query_start).as_millis() as u64,
-            &self.server_parameters.get_application_name(),
+            self.server_parameters.get_application_name(),
         );
 
         Ok(())
