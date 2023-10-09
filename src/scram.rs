@@ -79,12 +79,12 @@ impl ScramSha256 {
         let server_message = Message::parse(message)?;
 
         if !server_message.nonce.starts_with(&self.nonce) {
-            return Err(Error::ProtocolSyncError(format!("SCRAM")));
+            return Err(Error::ProtocolSyncError("SCRAM".to_string()));
         }
 
         let salt = match general_purpose::STANDARD.decode(&server_message.salt) {
             Ok(salt) => salt,
-            Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
+            Err(_) => return Err(Error::ProtocolSyncError("SCRAM".to_string())),
         };
 
         let salted_password = Self::hi(
@@ -166,9 +166,9 @@ impl ScramSha256 {
     pub fn finish(&mut self, message: &BytesMut) -> Result<(), Error> {
         let final_message = FinalMessage::parse(message)?;
 
-        let verifier = match general_purpose::STANDARD.decode(&final_message.value) {
+        let verifier = match general_purpose::STANDARD.decode(final_message.value) {
             Ok(verifier) => verifier,
-            Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
+            Err(_) => return Err(Error::ProtocolSyncError("SCRAM".to_string())),
         };
 
         let mut hmac = match Hmac::<Sha256>::new_from_slice(&self.salted_password) {
@@ -230,14 +230,14 @@ impl Message {
             .collect::<Vec<String>>();
 
         if parts.len() != 3 {
-            return Err(Error::ProtocolSyncError(format!("SCRAM")));
+            return Err(Error::ProtocolSyncError("SCRAM".to_string()));
         }
 
         let nonce = str::replace(&parts[0], "r=", "");
         let salt = str::replace(&parts[1], "s=", "");
         let iterations = match str::replace(&parts[2], "i=", "").parse::<u32>() {
             Ok(iterations) => iterations,
-            Err(_) => return Err(Error::ProtocolSyncError(format!("SCRAM"))),
+            Err(_) => return Err(Error::ProtocolSyncError("SCRAM".to_string())),
         };
 
         Ok(Message {
@@ -257,7 +257,7 @@ impl FinalMessage {
     /// Parse the server final validation message.
     pub fn parse(message: &BytesMut) -> Result<FinalMessage, Error> {
         if !message.starts_with(b"v=") || message.len() < 4 {
-            return Err(Error::ProtocolSyncError(format!("SCRAM")));
+            return Err(Error::ProtocolSyncError("SCRAM".to_string()));
         }
 
         Ok(FinalMessage {

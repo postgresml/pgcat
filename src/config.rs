@@ -236,18 +236,14 @@ impl Default for User {
 
 impl User {
     fn validate(&self) -> Result<(), Error> {
-        match self.min_pool_size {
-            Some(min_pool_size) => {
-                if min_pool_size > self.pool_size {
-                    error!(
-                        "min_pool_size of {} cannot be larger than pool_size of {}",
-                        min_pool_size, self.pool_size
-                    );
-                    return Err(Error::BadConfig);
-                }
+        if let Some(min_pool_size) = self.min_pool_size {
+            if min_pool_size > self.pool_size {
+                error!(
+                    "min_pool_size of {} cannot be larger than pool_size of {}",
+                    min_pool_size, self.pool_size
+                );
+                return Err(Error::BadConfig);
             }
-
-            None => (),
         };
 
         Ok(())
@@ -677,9 +673,9 @@ impl Pool {
             Some(key) => {
                 // No quotes in the key so we don't have to compare quoted
                 // to unquoted idents.
-                let key = key.replace("\"", "");
+                let key = key.replace('\"', "");
 
-                if key.split(".").count() != 2 {
+                if key.split('.').count() != 2 {
                     error!(
                         "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
                         key, key
@@ -692,17 +688,14 @@ impl Pool {
             None => None,
         };
 
-        match self.default_shard {
-            DefaultShard::Shard(shard_number) => {
-                if shard_number >= self.shards.len() {
-                    error!("Invalid shard {:?}", shard_number);
-                    return Err(Error::BadConfig);
-                }
+        if let DefaultShard::Shard(shard_number) = self.default_shard {
+            if shard_number >= self.shards.len() {
+                error!("Invalid shard {:?}", shard_number);
+                return Err(Error::BadConfig);
             }
-            _ => (),
         }
 
-        for (_, user) in &self.users {
+        for user in self.users.values() {
             user.validate()?;
         }
 
@@ -777,8 +770,8 @@ impl<'de> serde::Deserialize<'de> for DefaultShard {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        if s.starts_with("shard_") {
-            let shard = s[6..].parse::<usize>().map_err(serde::de::Error::custom)?;
+        if let Some(s) = s.strip_prefix("shard_") {
+            let shard = s.parse::<usize>().map_err(serde::de::Error::custom)?;
             return Ok(DefaultShard::Shard(shard));
         }
 
@@ -874,7 +867,7 @@ pub trait Plugin {
 impl std::fmt::Display for Plugins {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         fn is_enabled<T: Plugin>(arg: Option<&T>) -> bool {
-            if let Some(ref arg) = arg {
+            if let Some(arg) = arg {
                 arg.is_enabled()
             } else {
                 false
@@ -955,6 +948,7 @@ pub struct Query {
 }
 
 impl Query {
+    #[allow(clippy::needless_range_loop)]
     pub fn substitute(&mut self, db: &str, user: &str) {
         for col in self.result.iter_mut() {
             for i in 0..col.len() {
@@ -1079,8 +1073,8 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                     (
                         format!("pools.{:?}.users", pool_name),
                         pool.users
-                            .iter()
-                            .map(|(_username, user)| &user.username)
+                            .values()
+                            .map(|user| &user.username)
                             .cloned()
                             .collect::<Vec<String>>()
                             .join(", "),
@@ -1165,13 +1159,9 @@ impl Config {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);
 
-                match self.general.tls_private_key.clone() {
-                    Some(tls_private_key) => {
-                        info!("TLS private key: {}", tls_private_key);
-                        info!("TLS support is enabled");
-                    }
-
-                    None => (),
+                if let Some(tls_private_key) = self.general.tls_private_key.clone() {
+                    info!("TLS private key: {}", tls_private_key);
+                    info!("TLS support is enabled");
                 }
             }
 
@@ -1206,8 +1196,8 @@ impl Config {
                 pool_name,
                 pool_config
                     .users
-                    .iter()
-                    .map(|(_, user_cfg)| user_cfg.pool_size)
+                    .values()
+                    .map(|user_cfg| user_cfg.pool_size)
                     .sum::<u32>()
                     .to_string()
             );
@@ -1377,34 +1367,31 @@ impl Config {
         }
 
         // Validate TLS!
-        match self.general.tls_certificate.clone() {
-            Some(tls_certificate) => {
-                match load_certs(Path::new(&tls_certificate)) {
-                    Ok(_) => {
-                        // Cert is okay, but what about the private key?
-                        match self.general.tls_private_key.clone() {
-                            Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    error!("tls_private_key is incorrectly configured: {:?}", err);
-                                    return Err(Error::BadConfig);
-                                }
-                            },
-
-                            None => {
-                                error!("tls_certificate is set, but the tls_private_key is not");
+        if let Some(tls_certificate) = self.general.tls_certificate.clone() {
+            match load_certs(Path::new(&tls_certificate)) {
+                Ok(_) => {
+                    // Cert is okay, but what about the private key?
+                    match self.general.tls_private_key.clone() {
+                        Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
+                            Ok(_) => (),
+                            Err(err) => {
+                                error!("tls_private_key is incorrectly configured: {:?}", err);
                                 return Err(Error::BadConfig);
                             }
-                        };
-                    }
+                        },
 
-                    Err(err) => {
-                        error!("tls_certificate is incorrectly configured: {:?}", err);
-                        return Err(Error::BadConfig);
-                    }
+                        None => {
+                            error!("tls_certificate is set, but the tls_private_key is not");
+                            return Err(Error::BadConfig);
+                        }
+                    };
+                }
+
+                Err(err) => {
+                    error!("tls_certificate is incorrectly configured: {:?}", err);
+                    return Err(Error::BadConfig);
                 }
             }
-            None => (),
         };
 
         for pool in self.pools.values_mut() {
