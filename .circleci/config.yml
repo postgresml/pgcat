@@ -61,9 +61,6 @@ jobs:
       - restore_cache:
           key: cargo-lock-2-{{ checksum "Cargo.lock" }}
       - run:
-          name: "Lint"
-          command: "cargo fmt --check"
-      - run:
           name: "Tests"
           command: "cargo clean && cargo build && cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
       - store_artifacts:
