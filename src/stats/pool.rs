@@ -86,11 +86,11 @@ impl PoolStats {
             }
         }
 
-        return map;
+        map
     }
 
     pub fn generate_header() -> Vec<(&'static str, DataType)> {
-        return vec![
+        vec![
             ("database", DataType::Text),
             ("user", DataType::Text),
             ("pool_mode", DataType::Text),
@@ -105,11 +105,11 @@ impl PoolStats {
             ("sv_login", DataType::Numeric),
             ("maxwait", DataType::Numeric),
             ("maxwait_us", DataType::Numeric),
-        ];
+        ]
     }
 
     pub fn generate_row(&self) -> Vec<String> {
-        return vec![
+        vec![
             self.identifier.db.clone(),
             self.identifier.user.clone(),
             self.mode.to_string(),
@@ -124,7 +124,7 @@ impl PoolStats {
             self.sv_login.to_string(),
             (self.maxwait / 1_000_000).to_string(),
             (self.maxwait % 1_000_000).to_string(),
-        ];
+        ]
     }
 }
 
