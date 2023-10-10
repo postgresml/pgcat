@@ -279,7 +279,7 @@ where
 {
     let password = md5_hash_password(user, password, salt);
 
-    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+    let mut message = BytesMut::with_capacity(password.len() + 5);
 
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
@@ -293,7 +293,7 @@ where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let password = md5_hash_second_pass(hash, salt);
-    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+    let mut message = BytesMut::with_capacity(password.len() + 5);
 
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
