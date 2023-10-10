@@ -1453,7 +1453,7 @@ where
                 // The message will be forwarded to the server intact. We still would like to
                 // parse it below to figure out what to do with it.
 
-                trace!("client Message: {}", code);
+                trace!("Message: {}", code);
 
                 match code {
                     // Query
