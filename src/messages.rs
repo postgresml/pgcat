@@ -59,7 +59,7 @@ where
     auth_ok.put_i32(8);
     auth_ok.put_i32(0);
 
-    write_all(stream, auth_ok).await
+    write_all(stream, &auth_ok).await
 }
 
 /// Generate md5 password challenge.
@@ -81,7 +81,7 @@ where
     res.put_i32(5); // MD5
     res.put_slice(&salt[..]);
 
-    write_all(stream, res).await?;
+    write_all(stream, &res).await?;
     Ok(salt)
 }
 
@@ -100,7 +100,7 @@ where
     key_data.put_i32(backend_id);
     key_data.put_i32(secret_key);
 
-    write_all(stream, key_data).await
+    write_all(stream, &key_data).await
 }
 
 /// Construct a `Q`: Query message.
@@ -142,7 +142,7 @@ where
         TransactionState::InFailedTransaction => bytes.put_u8(b'E'),
     }
 
-    write_all(stream, bytes).await
+    write_all(stream, &bytes).await
 }
 
 /// Send the startup packet the server. We're pretending we're a Pg client.
@@ -301,7 +301,7 @@ where
     message.put_i32(password.len() as i32 + 4);
     message.put_slice(&password[..]);
 
-    write_all(stream, message).await
+    write_all(stream, &message).await
 }
 
 pub async fn md5_password_with_hash<S>(stream: &mut S, hash: &str, salt: &[u8]) -> Result<(), Error>
@@ -315,7 +315,7 @@ where
     message.put_i32(password.len() as i32 + 4);
     message.put_slice(&password[..]);
 
-    write_all(stream, message).await
+    write_all(stream, &message).await
 }
 
 /// Implements a response to our custom `SET SHARDING KEY`
@@ -455,7 +455,7 @@ where
 
     res.put(error);
 
-    write_all(stream, res).await
+    write_all(stream, &res).await
 }
 
 /// Respond to a SHOW SHARD command.
@@ -613,11 +613,11 @@ pub fn flush() -> BytesMut {
 }
 
 /// Write all data in the buffer to the TcpStream.
-pub async fn write_all<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
+pub async fn write_all<S>(stream: &mut S, buf: &BytesMut) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    match stream.write_all(&buf).await {
+    match stream.write_all(buf).await {
         Ok(_) => Ok(()),
         Err(err) => Err(Error::SocketError(format!(
             "Error writing to socket - Error: {:?}",

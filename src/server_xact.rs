@@ -1,15 +1,11 @@
 /// Implementation of the PostgreSQL server (database) protocol.
 /// Here we are pretending to the a Postgres client.
-use bytes::Buf;
-use itertools::Either;
 use log::{debug, warn};
 use once_cell::sync::Lazy;
-use sqlparser::ast::{Statement, TransactionIsolationLevel};
+use sqlparser::ast::TransactionIsolationLevel;
 use std::collections::HashMap;
 
 use crate::errors::Error;
-use crate::messages::*;
-use crate::query_messages::{DataRow, ErrorResponse, Message, QueryResponse, RowDescription};
 use crate::server::{Server, ServerParameters};
 
 /// The default transaction parameters that might be configured on the server.
@@ -24,19 +20,25 @@ pub static TRANSACTION_PARAMETERS: Lazy<Vec<String>> = Lazy::new(|| {
 /// The default transaction parameters that are either configured on the server or set by the
 /// BEGIN statement.
 #[derive(Debug, Clone)]
-pub struct TransactionParameters {
+pub struct CommonTxnParams {
+    pub(crate) state: TransactionState,
+
+    pub(crate) xact_gid: Option<String>,
+
     isolation_level: TransactionIsolationLevel,
     read_only: bool,
     deferrable: bool,
 }
 
-impl TransactionParameters {
+impl CommonTxnParams {
     pub fn new(
         isolation_level: TransactionIsolationLevel,
         read_only: bool,
         deferrable: bool,
     ) -> Self {
         Self {
+            state: TransactionState::Idle,
+            xact_gid: None,
             isolation_level,
             read_only,
             deferrable,
@@ -106,94 +108,10 @@ impl TransactionParameters {
     }
 }
 
-impl Default for TransactionParameters {
+impl Default for CommonTxnParams {
     fn default() -> Self {
         Self::new(TransactionIsolationLevel::ReadCommitted, false, false)
     }
-}
-
-fn get_default_transaction_isolation(sparams: &ServerParameters) -> TransactionIsolationLevel {
-    // Can unwrap because we set it in the constructor
-    if let Some(isolation_level) = sparams.parameters.get("default_transaction_isolation") {
-        return match isolation_level.to_lowercase().as_str() {
-            "read committed" => TransactionIsolationLevel::ReadCommitted,
-            "repeatable read" => TransactionIsolationLevel::RepeatableRead,
-            "serializable" => TransactionIsolationLevel::Serializable,
-            "read uncommitted" => TransactionIsolationLevel::ReadUncommitted,
-            _ => TransactionIsolationLevel::ReadCommitted,
-        };
-    }
-    TransactionIsolationLevel::ReadCommitted
-}
-
-fn get_default_transaction_read_only(sparams: &ServerParameters) -> bool {
-    if let Some(is_readonly) = sparams.parameters.get("default_transaction_read_only") {
-        return !is_readonly.to_lowercase().eq("off");
-    }
-    false
-}
-
-fn get_default_transaction_deferrable(sparams: &ServerParameters) -> bool {
-    if let Some(deferrable) = sparams.parameters.get("default_transaction_deferrable") {
-        return !deferrable.to_lowercase().eq("off");
-    }
-    false
-}
-
-fn get_default_transaction_parameters(sparams: &ServerParameters) -> TransactionParameters {
-    TransactionParameters::new(
-        get_default_transaction_isolation(sparams),
-        get_default_transaction_read_only(sparams),
-        get_default_transaction_deferrable(sparams),
-    )
-}
-
-pub fn server_default_transaction_parameters(server: &Server) -> TransactionParameters {
-    get_default_transaction_parameters(&server.server_parameters)
-}
-
-/// Sends some queries to the server to sync the given pramaters specified by 'keys'.
-pub async fn sync_given_parameter_keys(server: &mut Server, keys: &[String]) -> Result<(), Error> {
-    let mut key_values = HashMap::new();
-    for key in keys {
-        if let Some(value) = server.server_parameters.parameters.get(key) {
-            key_values.insert(key.clone(), value.clone());
-        }
-    }
-    sync_given_parameter_key_values(server, &key_values).await
-}
-
-/// Sends some queries to the server to sync the given pramaters specified by 'key_values'.
-pub async fn sync_given_parameter_key_values(
-    server: &mut Server,
-    key_values: &HashMap<String, String>,
-) -> Result<(), Error> {
-    let mut query = String::from("");
-
-    for (key, value) in key_values {
-        query.push_str(&format!("SET {} TO '{}';", key, value));
-    }
-
-    let res = server.query(&query).await;
-
-    server.cleanup_state.reset();
-
-    match res {
-        Ok(None) => Ok(()),
-        Ok(Some(err_res)) => {
-            warn!(
-                "Error while syncing parameters (was dropped): {:?}",
-                err_res
-            );
-            Ok(())
-        }
-        Err(err) => Err(err),
-    }
-}
-
-/// Returnes true if the given server is in a failed transaction state.
-pub fn in_failed_transaction(server: &Server) -> bool {
-    server.transaction_metadata.is_in_failed_transaction()
 }
 
 /// The various states that a server transaction can be in.
@@ -208,300 +126,209 @@ pub enum TransactionState {
 }
 
 /// The metadata of a server transaction.
-#[derive(Debug, Clone)]
-pub struct TransactionMetaData {
-    pub(crate) state: TransactionState,
+#[derive(Default, Debug, Clone)]
+pub struct ServerTxnMetaData {
+    is_prepared: bool,
 
-    xact_gid: Option<String>,
-    snapshot: Option<String>,
-
-    begin_statement: Option<Statement>,
-    commit_statement: Option<Statement>,
-    abort_statement: Option<Statement>,
-
-    pub params: TransactionParameters,
+    pub params: CommonTxnParams,
 }
 
-impl TransactionMetaData {
-    pub fn set_state(&mut self, state: TransactionState) {
-        match self.state {
-            TransactionState::Idle => {
-                self.state = state;
-            }
-            TransactionState::InTransaction => match state {
-                TransactionState::Idle => {
-                    warn!("Cannot go back to idle from a transaction.");
-                }
-                _ => {
-                    self.state = state;
-                }
-            },
-            TransactionState::InFailedTransaction => match state {
-                TransactionState::Idle => {
-                    warn!("Cannot go back to idle from a failed transaction.");
-                }
-                TransactionState::InTransaction => {
-                    warn!("Cannot go back to a transaction from a failed transaction.")
-                }
-                _ => {
-                    self.state = state;
-                }
-            },
+pub fn set_state_helper(from_state: &mut TransactionState, to_state: TransactionState) {
+    match *from_state {
+        TransactionState::Idle => {
+            *from_state = to_state;
         }
+        TransactionState::InTransaction => match to_state {
+            TransactionState::Idle => {
+                warn!("Cannot go back to idle from a transaction.");
+            }
+            _ => {
+                *from_state = to_state;
+            }
+        },
+        TransactionState::InFailedTransaction => match to_state {
+            TransactionState::Idle => {
+                warn!("Cannot go back to idle from a failed transaction.");
+            }
+            TransactionState::InTransaction => {
+                warn!("Cannot go back to a transaction from a failed transaction.")
+            }
+            _ => {
+                *from_state = to_state;
+            }
+        },
+    }
+}
+
+impl ServerTxnMetaData {
+    pub fn set_state(&mut self, state: TransactionState) {
+        set_state_helper(&mut self.params.state, state);
     }
 
     pub fn state(&self) -> TransactionState {
-        self.state
+        self.params.state
     }
 
     pub fn is_idle(&self) -> bool {
-        self.state == TransactionState::Idle
+        self.params.state == TransactionState::Idle
     }
 
     pub fn is_in_transaction(&self) -> bool {
-        self.state == TransactionState::InTransaction
+        self.params.state == TransactionState::InTransaction
     }
 
     pub fn is_in_failed_transaction(&self) -> bool {
-        self.state == TransactionState::InFailedTransaction
+        self.params.state == TransactionState::InFailedTransaction
     }
 
     pub fn set_xact_gid(&mut self, xact_gid: Option<String>) {
-        self.xact_gid = xact_gid;
+        self.params.xact_gid = xact_gid;
     }
 
     pub fn get_xact_gid(&self) -> Option<String> {
-        self.xact_gid.clone()
+        self.params.xact_gid.clone()
     }
 
-    pub fn set_snapshot(&mut self, snapshot: Option<String>) {
-        self.snapshot = snapshot;
+    pub fn set_prepared(&mut self, is_prepared: bool) {
+        self.is_prepared = is_prepared;
     }
 
-    pub fn get_snapshot(&self) -> Option<String> {
-        self.snapshot.clone()
-    }
-
-    pub fn set_begin_statement(&mut self, begin_statement: Option<Statement>) {
-        self.begin_statement = begin_statement;
-    }
-
-    pub fn get_begin_statement(&self) -> Option<&Statement> {
-        self.begin_statement.as_ref()
-    }
-
-    pub fn set_commit_statement(&mut self, commit_statement: Option<Statement>) {
-        self.commit_statement = commit_statement;
-    }
-
-    pub fn get_commit_statement(&self) -> Option<&Statement> {
-        self.commit_statement.as_ref()
-    }
-
-    pub fn set_abort_statement(&mut self, abort_statement: Option<Statement>) {
-        self.abort_statement = abort_statement;
-    }
-
-    pub fn get_abort_statement(&self) -> Option<&Statement> {
-        self.abort_statement.as_ref()
-    }
-
-    pub fn is_transaction_started(&self) -> bool {
-        self.begin_statement.is_some()
+    pub fn has_done_prepare_transaction(&self) -> bool {
+        self.is_prepared
     }
 }
 
-impl Default for TransactionMetaData {
-    fn default() -> Self {
-        Self {
-            state: TransactionState::Idle,
-            xact_gid: None,
-            snapshot: None,
-            begin_statement: None,
-            commit_statement: None,
-            abort_statement: None,
-            params: TransactionParameters::default(),
+impl ServerParameters {
+    fn get_default_transaction_isolation(&self) -> TransactionIsolationLevel {
+        // Can unwrap because we set it in the constructor
+        if let Some(isolation_level) = self.parameters.get("default_transaction_isolation") {
+            return match isolation_level.to_lowercase().as_str() {
+                "read committed" => TransactionIsolationLevel::ReadCommitted,
+                "repeatable read" => TransactionIsolationLevel::RepeatableRead,
+                "serializable" => TransactionIsolationLevel::Serializable,
+                "read uncommitted" => TransactionIsolationLevel::ReadUncommitted,
+                _ => TransactionIsolationLevel::ReadCommitted,
+            };
         }
+        TransactionIsolationLevel::ReadCommitted
     }
-}
 
-/// Represents a read-write conflict.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct RWConflict {
-    pub source_gid: String,
-    pub gid_in: String,
-    pub gid_out: String,
-}
-
-impl RWConflict {
-    pub fn new(source_gid: String, gid_in: String, gid_out: String) -> Self {
-        Self {
-            source_gid,
-            gid_in,
-            gid_out,
+    fn get_default_transaction_read_only(&self) -> bool {
+        if let Some(is_readonly) = self.parameters.get("default_transaction_read_only") {
+            return !is_readonly.to_lowercase().eq("off");
         }
+        false
+    }
+
+    fn get_default_transaction_deferrable(&self) -> bool {
+        if let Some(deferrable) = self.parameters.get("default_transaction_deferrable") {
+            return !deferrable.to_lowercase().eq("off");
+        }
+        false
+    }
+
+    fn get_default_transaction_parameters(&self) -> CommonTxnParams {
+        CommonTxnParams::new(
+            self.get_default_transaction_isolation(),
+            self.get_default_transaction_read_only(),
+            self.get_default_transaction_deferrable(),
+        )
     }
 }
 
-/// Execute an arbitrary query against the server.
-/// It will use the simple query protocol.
-/// Result will be returned, so this is useful for things like `SELECT`.
-async fn query_with_response(
-    server: &mut Server,
-    query: &str,
-) -> Result<Either<QueryResponse, ErrorResponse>, Error> {
-    debug!(
-        "Running `{}` on server {} and capture response.",
-        query, server.address
-    );
+impl Server {
+    pub fn server_default_transaction_parameters(&self) -> CommonTxnParams {
+        self.server_parameters.get_default_transaction_parameters()
+    }
 
-    let query = simple_query(query);
-
-    server.send(&query).await?;
-
-    // Read all data the server has to offer, which can be multiple messages
-    // buffered in 8196 bytes chunks.
-    let mut response = server.recv(None).await?;
-
-    let query_response = match response[0] {
-        b'T' => {
-            let row_desc = RowDescription::decode(&mut response)?.unwrap();
-
-            let mut data_rows = Vec::new();
-
-            loop {
-                if response.remaining() == 0 {
-                    if server.is_data_available() {
-                        response = server.recv(None).await?;
-                    } else {
-                        break;
-                    }
-                }
-                if response[0] == b'C' {
-                    break;
-                }
-
-                let data_row = DataRow::decode(&mut response)?.unwrap();
-                data_rows.push(data_row);
+    /// Sends some queries to the server to sync the given pramaters specified by 'keys'.
+    pub async fn sync_given_parameter_keys(&mut self, keys: &[String]) -> Result<(), Error> {
+        let mut key_values = HashMap::new();
+        for key in keys {
+            if let Some(value) = self.server_parameters.parameters.get(key) {
+                key_values.insert(key.clone(), value.clone());
             }
+        }
+        self.sync_given_parameter_key_values(&key_values).await
+    }
 
-            QueryResponse::new(row_desc, data_rows)
+    /// Sends some queries to the server to sync the given pramaters specified by 'key_values'.
+    pub async fn sync_given_parameter_key_values(
+        &mut self,
+        key_values: &HashMap<String, String>,
+    ) -> Result<(), Error> {
+        let mut query = String::from("");
+
+        for (key, value) in key_values {
+            query.push_str(&format!("SET {} TO '{}';", key, value));
         }
 
-        b'E' => {
-            let err = ErrorResponse::decode(&mut response)?.unwrap();
-            return Ok(Either::Right(err));
+        let res = self.query(&query).await;
+
+        self.cleanup_state.reset();
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(Error::ErrorResponse(err_res)) => {
+                warn!(
+                    "Error while syncing parameters (was dropped): {:?}",
+                    err_res
+                );
+                Ok(())
+            }
+            Err(err) => Err(err),
         }
-
-        _ => return Err(Error::ServerError),
-    };
-
-    Ok(Either::Left(query_response))
-}
-
-/// Captures the snapshot from the server.
-pub async fn acquire_xact_snapshot(
-    server: &mut Server,
-) -> Result<Either<String, ErrorResponse>, Error> {
-    let qres = query_with_response(server, "select pg_export_snapshot()").await?;
-
-    if qres.is_right() {
-        return Ok(Either::Right(qres.right().unwrap()));
     }
 
-    let qres = qres.left().unwrap();
-
-    let qres_rows: &[DataRow] = qres.data_rows();
-    assert!(qres.row_desc().fields().len() == 1);
-    assert!(qres_rows.len() == 1);
-    if let Some(snapshot) = qres_rows[0].fields().get(0).unwrap() {
-        let snapshot = std::str::from_utf8(snapshot).unwrap().to_string();
-
-        debug!("Got snapshot: {}", snapshot);
-
-        server
-            .transaction_metadata
-            .set_snapshot(Some(snapshot.clone()));
-
-        Ok(Either::Left(snapshot))
-    } else {
-        Err(Error::BadQuery(
-            "Could not get snapshot from server".to_string(),
-        ))
-    }
-}
-
-/// Sets the snapshot to the server (based on a previous snapshot acquired by the first server).
-pub async fn assign_xact_snapshot(
-    server: &mut Server,
-    snapshot: &str,
-) -> Result<Option<ErrorResponse>, Error> {
-    server
-        .query(&format!("set transaction snapshot '{snapshot}'"))
-        .await
-}
-
-/// Sets the GID on the server. If we are in serializable mode, we need to register the GID to
-/// the remote postgres instance, too.
-pub async fn assign_xact_gid(
-    server: &mut Server,
-    gid: &str,
-) -> Result<Option<ErrorResponse>, Error> {
-    server
-        .transaction_metadata
-        .set_xact_gid(Some(gid.to_string()));
-    Ok(None)
-}
-
-pub async fn local_server_prepare_transaction(
-    server: &mut Server,
-) -> Result<Option<ErrorResponse>, Error> {
-    debug!(
-        "Called local_server_prepare_transaction on {}",
-        server.address,
-    );
-
-    let xact_gid = server.transaction_metadata.get_xact_gid();
-    if xact_gid.is_none() {
-        return Err(Error::BadQuery(format!(
-            "There is no GID assigned to the current transaction while it's requested to be \
-            prepared to commit on the server ({}).",
-            server.address()
-        )));
-    }
-    let xact_gid = xact_gid.unwrap();
-
-    let qres = server
-        .query(&format!("PREPARE TRANSACTION '{}'", xact_gid))
-        .await?;
-    if qres.is_some() {
-        return Ok(qres);
+    /// Returnes true if the given server is in a failed transaction state.
+    pub fn in_failed_transaction(&self) -> bool {
+        self.transaction_metadata.is_in_failed_transaction()
     }
 
-    Ok(None)
-}
-
-pub async fn local_server_commit_prepared(
-    server: &mut Server,
-) -> Result<Option<ErrorResponse>, Error> {
-    debug!("Called local_server_commit_prepared on {}.", server.address);
-
-    let xact_gid = server.transaction_metadata.get_xact_gid();
-    if xact_gid.is_none() {
-        return Err(Error::BadQuery(
-            "The current connection is not attached to a \
-                transaction while it's requested to be prepared to commit."
-                .to_string(),
-        ));
-    }
-    let xact_gid = xact_gid.unwrap();
-
-    let qres = server
-        .query(&format!("COMMIT PREPARED '{}'", xact_gid))
-        .await?;
-    if qres.is_some() {
-        return Ok(qres);
+    /// Sets the GID on the server. If we are in serializable mode, we need to register the GID to
+    /// the remote postgres instance, too.
+    pub async fn assign_xact_gid(&mut self, gid: &str) -> Result<(), Error> {
+        self.transaction_metadata
+            .set_xact_gid(Some(gid.to_string()));
+        Ok(())
     }
 
-    Ok(None)
+    pub async fn local_server_prepare_transaction(&mut self) -> Result<(), Error> {
+        debug!(
+            "Called local_server_prepare_transaction on {}",
+            self.address
+        );
+
+        let xact_gid = self.transaction_metadata.get_xact_gid();
+        if xact_gid.is_none() {
+            return Err(Error::BadQuery(format!(
+                "There is no GID assigned to the current transaction while it's requested to be \
+    prepared to commit on the server ({}).",
+                self.address()
+            )));
+        }
+        let xact_gid = xact_gid.unwrap();
+
+        self.query(&format!("PREPARE TRANSACTION '{}'", xact_gid))
+            .await?;
+
+        self.transaction_metadata.set_prepared(true);
+        Ok(())
+    }
+
+    pub async fn local_server_commit_prepared(&mut self) -> Result<(), Error> {
+        debug!("Called local_server_commit_prepared on {}.", self.address);
+
+        let xact_gid = self.transaction_metadata.get_xact_gid();
+        if xact_gid.is_none() {
+            return Err(Error::BadQuery(
+                "The current connection is not attached to a \
+        transaction while it's requested to be prepared to commit."
+                    .to_string(),
+            ));
+        }
+        let xact_gid = xact_gid.unwrap();
+
+        self.query(&format!("COMMIT PREPARED '{}'", xact_gid)).await
+    }
 }

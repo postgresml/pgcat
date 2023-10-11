@@ -1,3 +1,5 @@
+use std::fmt;
+
 /// Helper functions to send one-off protocol messages
 /// and handle TcpStream (TCP socket).
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -57,11 +59,11 @@ pub(crate) fn put_cstring(buf: &mut BytesMut, input: &str) {
 }
 
 /// Try to read message length from buf, without actually move the cursor
-pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
+pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Result<usize, Error> {
     if buf.remaining() >= 4 + offset {
-        Some((&buf[offset..4 + offset]).get_i32() as usize)
+        Ok((&buf[offset..4 + offset]).get_i32() as usize)
     } else {
-        None
+        Err(Error::IncompletePacket)
     }
 }
 
@@ -71,18 +73,18 @@ pub(crate) fn decode_packet<T, F>(
     buf: &mut BytesMut,
     offset: usize,
     decode_fn: F,
-) -> Result<Option<T>, Error>
+) -> Result<T, Error>
 where
     F: Fn(&mut BytesMut, usize) -> Result<T, Error>,
 {
-    if let Some(msg_len) = get_length(buf, offset) {
-        if buf.remaining() >= msg_len + offset {
-            buf.advance(offset + 4);
-            return decode_fn(buf, msg_len).map(|r| Some(r));
-        }
+    let msg_len = get_length(buf, offset)?;
+
+    if buf.remaining() >= msg_len + offset {
+        buf.advance(offset + 4);
+        return decode_fn(buf, msg_len);
     }
 
-    Ok(None)
+    Err(Error::IncompletePacket)
 }
 
 /// Define how message encode and decoded.
@@ -121,7 +123,7 @@ pub trait Message: Sized {
     /// Message type and length are decoded in this implementation and it calls
     /// `decode_body` for remaining parts. Return `None` if the packet is not
     /// complete for parsing.
-    fn decode(buf: &mut BytesMut) -> Result<Option<Self>, Error> {
+    fn decode(buf: &mut BytesMut) -> Result<Self, Error> {
         let offset = Self::message_type().is_some().into();
 
         decode_packet(buf, offset, |buf, full_len| {
@@ -406,9 +408,15 @@ impl From<ErrorInfo> for ErrorResponse {
 }
 
 /// postgres error response, sent from backend to frontend
-#[derive(PartialEq, Eq, Debug, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Default)]
 pub struct ErrorResponse {
     fields: Vec<(u8, String)>,
+}
+
+impl fmt::Display for ErrorResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ErrorResponse({:?})", self.fields)
+    }
 }
 
 pub const MESSAGE_TYPE_BYTE_ERROR_RESPONSE: u8 = b'E';

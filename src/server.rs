@@ -188,7 +188,7 @@ impl ServerParameters {
             false,
         );
         server_parameters.set_param("application_name".to_string(), "pgcat".to_string(), false);
-        TransactionParameters::set_default_server_parameters(&mut server_parameters);
+        CommonTxnParams::set_default_server_parameters(&mut server_parameters);
 
         server_parameters
     }
@@ -287,7 +287,7 @@ pub struct Server {
     secret_key: i32,
 
     /// Is the server inside a transaction or idle.
-    pub(crate) transaction_metadata: TransactionMetaData,
+    pub(crate) transaction_metadata: ServerTxnMetaData,
 
     /// Is there more data for the client to read.
     data_available: bool,
@@ -833,7 +833,9 @@ impl Server {
                     };
 
                     // We want to make sure that all servers are operating on the same isolation level.
-                    sync_given_parameter_keys(&mut server, &TRANSACTION_PARAMETERS).await?;
+                    server
+                        .sync_given_parameter_keys(&TRANSACTION_PARAMETERS)
+                        .await?;
 
                     return Ok(server);
                 }
@@ -927,27 +929,28 @@ impl Server {
             let code = message.get_u8() as char;
             let _len = message.get_i32();
 
-            trace!("recv Message: {}", code);
+            trace!("Message: {}", code);
 
             match code {
                 // ReadyForQuery
                 'Z' => {
                     let transaction_state = message.get_u8() as char;
 
+                    let params = &mut self.transaction_metadata.params;
                     match transaction_state {
                         // In transaction.
                         'T' => {
-                            self.transaction_metadata.state = TransactionState::InTransaction;
+                            params.state = TransactionState::InTransaction;
                         }
 
                         // Idle, transaction over.
                         'I' => {
-                            self.transaction_metadata.state = TransactionState::Idle;
+                            params.state = TransactionState::Idle;
                         }
 
                         // Some error occurred, the transaction was rolled back.
                         'E' => {
-                            self.transaction_metadata.state = TransactionState::InFailedTransaction;
+                            params.state = TransactionState::InFailedTransaction;
                         }
 
                         // Something totally unexpected, this is not a Postgres server we know.
@@ -1241,7 +1244,7 @@ impl Server {
     pub async fn sync_parameters(&mut self, parameters: &ServerParameters) -> Result<(), Error> {
         let parameter_diff = self.server_parameters.compare_params(parameters);
 
-        sync_given_parameter_key_values(self, &parameter_diff).await
+        self.sync_given_parameter_key_values(&parameter_diff).await
     }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
@@ -1267,19 +1270,19 @@ impl Server {
     /// Execute an arbitrary query against the server.
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
-    pub async fn query(&mut self, query: &str) -> Result<Option<ErrorResponse>, Error> {
+    pub async fn query(&mut self, query: &str) -> Result<(), Error> {
         debug!("Running `{}` on server {}", query, self.address);
 
         let query = simple_query(query);
 
         self.send(&query).await?;
 
+        let mut err = None;
         loop {
             let mut response = self.recv(None).await?;
 
-            if response[0] == b'E' {
-                let err = ErrorResponse::decode(&mut response)?.unwrap();
-                return Ok(Some(err));
+            if response[0] == b'E' && err.is_none() {
+                err = Some(ErrorResponse::decode(&mut response));
             }
 
             if !self.data_available {
@@ -1287,7 +1290,11 @@ impl Server {
             }
         }
 
-        Ok(None)
+        if let Some(err) = err {
+            return Err(Error::ErrorResponse(err?));
+        }
+
+        Ok(())
     }
 
     /// Perform any necessary cleanup before putting the server
@@ -1393,11 +1400,11 @@ impl Server {
         parse_query_message(&mut message).await
     }
 
-    pub fn transaction_metadata(&self) -> &TransactionMetaData {
+    pub fn transaction_metadata(&self) -> &ServerTxnMetaData {
         &self.transaction_metadata
     }
 
-    pub fn transaction_metadata_mut(&mut self) -> &mut TransactionMetaData {
+    pub fn transaction_metadata_mut(&mut self) -> &mut ServerTxnMetaData {
         &mut self.transaction_metadata
     }
 }
