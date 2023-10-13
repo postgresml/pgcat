@@ -12,9 +12,11 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 use crate::constants::MESSAGE_TERMINATOR;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, Cursor};
 use std::mem;
 use std::str::FromStr;
@@ -114,19 +116,11 @@ pub fn simple_query(query: &str) -> BytesMut {
 }
 
 /// Tell the client we're ready for another query.
-pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
+pub async fn send_ready_for_query<S>(stream: &mut S) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let mut bytes = BytesMut::with_capacity(
-        mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
-    );
-
-    bytes.put_u8(b'Z');
-    bytes.put_i32(5);
-    bytes.put_u8(b'I'); // Idle
-
-    write_all(stream, bytes).await
+    write_all(stream, ready_for_query(false)).await
 }
 
 /// Send the startup packet the server. We're pretending we're a Pg client.
@@ -322,7 +316,7 @@ where
     res.put_slice(&set_complete[..]);
 
     write_all_half(stream, &res).await?;
-    ready_for_query(stream).await
+    send_ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
@@ -333,7 +327,7 @@ where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     error_response_terminal(stream, message).await?;
-    ready_for_query(stream).await
+    send_ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
@@ -434,7 +428,7 @@ where
     res.put(command_complete("SELECT 1"));
 
     write_all_half(stream, &res).await?;
-    ready_for_query(stream).await
+    send_ready_for_query(stream).await
 }
 
 pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
@@ -557,10 +551,42 @@ pub fn notify(message: &str, details: String) -> BytesMut {
     res
 }
 
+// TODO_ZAIN: maintain cache
 pub fn flush() -> BytesMut {
     let mut bytes = BytesMut::new();
     bytes.put_u8(b'H');
     bytes.put_i32(4);
+    bytes
+}
+
+pub fn sync() -> BytesMut {
+    let mut bytes = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>());
+    bytes.put_u8(b'S');
+    bytes.put_i32(4);
+    bytes
+}
+
+pub fn parse_complete() -> BytesMut {
+    let mut bytes = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>());
+
+    bytes.put_u8(b'1');
+    bytes.put_i32(4);
+    bytes
+}
+
+pub fn ready_for_query(in_transaction: bool) -> BytesMut {
+    let mut bytes = BytesMut::with_capacity(
+        mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
+    );
+
+    bytes.put_u8(b'Z');
+    bytes.put_i32(5);
+    if in_transaction {
+        bytes.put_u8(b'T');
+    } else {
+        bytes.put_u8(b'I');
+    }
+
     bytes
 }
 
@@ -758,7 +784,6 @@ pub struct Parse {
     #[allow(dead_code)]
     len: i32,
     pub name: String,
-    pub generated_name: String,
     query: String,
     num_params: i16,
     param_types: Vec<i32>,
@@ -784,7 +809,6 @@ impl TryFrom<&BytesMut> for Parse {
             code,
             len,
             name,
-            generated_name: prepared_statement_name(),
             query,
             num_params,
             param_types,
@@ -833,9 +857,34 @@ impl TryFrom<&Parse> for BytesMut {
 }
 
 impl Parse {
-    pub fn rename(mut self) -> Self {
-        self.name = self.generated_name.to_string();
+    /// Renames the prepared statement to a new name based on the global counter
+    pub fn rewrite(mut self) -> Self {
+        self.name = format!(
+            "PGCAT_{}",
+            PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
+        );
         self
+    }
+
+    /// Hashes the parse statement to be used as a key in the global cache
+    pub fn get_hash(&self) -> u64 {
+        // TODO_ZAIN: Take a look at which hashing function is being used
+        let mut hasher = DefaultHasher::new();
+
+        let concatenated = format!(
+            "{}{}{}",
+            self.query,
+            self.num_params,
+            self.param_types
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        concatenated.hash(&mut hasher);
+
+        hasher.finish()
     }
 
     pub fn anonymous(&self) -> bool {
@@ -968,8 +1017,8 @@ impl TryFrom<Bind> for BytesMut {
 }
 
 impl Bind {
-    pub fn reassign(mut self, parse: &Parse) -> Self {
-        self.prepared_statement = parse.name.clone();
+    pub fn reassign(mut self, new_prepared_statement_name: &str) -> Self {
+        self.prepared_statement = new_prepared_statement_name.to_string();
         self
     }
 
@@ -1112,13 +1161,6 @@ pub fn close_complete() -> BytesMut {
     bytes.put_u8(b'3');
     bytes.put_i32(4);
     bytes
-}
-
-pub fn prepared_statement_name() -> String {
-    format!(
-        "P_{}",
-        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
-    )
 }
 
 // from https://www.postgresql.org/docs/12/protocol-error-fields.html

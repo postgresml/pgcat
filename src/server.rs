@@ -23,7 +23,7 @@ use crate::errors::{Error, ServerIdentifier};
 use crate::messages::BytesMutReader;
 use crate::messages::*;
 use crate::mirrors::MirroringManager;
-use crate::pool::ClientServerMap;
+use crate::pool::{ClientServerMap, PreparedStatementCacheType};
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
 use std::io::Write;
@@ -327,6 +327,8 @@ pub struct Server {
 
     /// Prepared statements
     prepared_statements: BTreeSet<String>,
+
+    prepared_statement_cache: BTreeSet<String>,
 }
 
 impl Server {
@@ -831,6 +833,7 @@ impl Server {
                         cleanup_connections,
                         log_client_parameter_status_changes,
                         prepared_statements: BTreeSet::new(),
+                        prepared_statement_cache: BTreeSet::new(),
                     };
 
                     return Ok(server);
@@ -1128,6 +1131,58 @@ impl Server {
         Ok(())
     }
 
+    pub fn has_prepared_statement(&self, name: &str) -> bool {
+        self.prepared_statement_cache.contains(name)
+    }
+
+    pub fn add_prepared_statement_to_cache(&mut self, name: &str) {
+        self.prepared_statement_cache.insert(name.to_string());
+    }
+
+    pub async fn register_prepared_statement(
+        &mut self,
+        parse: &Parse,
+        prepared_statement_cache: PreparedStatementCacheType,
+    ) -> Result<(), Error> {
+        // TODO_ZAIN: Figure out stats
+
+        match self.prepared_statement_cache.get(&parse.name) {
+            Some(_) => self.stats.prepared_cache_hit(),
+            None => {
+                // Construct parse + sync message
+                let mut bytes: BytesMut = parse.clone().try_into()?;
+                bytes.extend_from_slice(&sync());
+
+                self.send(&bytes).await?;
+
+                loop {
+                    self.recv(None).await?;
+
+                    if !self.is_data_available() {
+                        break;
+                    }
+                }
+
+                self.add_prepared_statement_to_cache(&parse.name);
+
+                self.stats.prepared_cache_miss();
+            }
+        };
+
+        // Do work before acquiring the lock
+        let hash = parse.get_hash();
+        let parse = parse.clone();
+
+        let cache_arc = prepared_statement_cache;
+        let mut cache = cache_arc.write();
+
+        // We want to update this in the LRU to know this was recently used and add it if it isn't there already
+        // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it go removed)
+        cache.get_or_insert(parse, hash);
+
+        Ok(())
+    }
+
     /// Maintain adequate cache size on the server.
     pub async fn maintain_cache(&mut self) -> Result<(), Error> {
         debug!("Cache maintenance run");
@@ -1324,6 +1379,8 @@ impl Server {
 
             if self.cleanup_state.needs_cleanup_prepare {
                 reset_string.push_str("DEALLOCATE ALL;");
+                // Since we deallocated all prepared statements, we need to clear the cache
+                self.prepared_statement_cache.clear();
             };
 
             self.query(&reset_string).await?;

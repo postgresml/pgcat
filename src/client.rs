@@ -15,7 +15,8 @@ use tokio::sync::mpsc::Sender;
 use crate::admin::{generate_server_parameters_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
 use crate::config::{
-    get_config, get_idle_client_in_transaction_timeout, get_prepared_statements, Address, PoolMode,
+    get_config, get_idle_client_in_transaction_timeout, get_prepared_statements_cache_size,
+    Address, PoolMode,
 };
 use crate::constants::*;
 use crate::messages::*;
@@ -102,8 +103,14 @@ pub struct Client<S, T> {
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
 
-    /// Prepared statements
+    /// Mapping of client named prepared statement to rewritten parse messages
     prepared_statements: HashMap<String, Parse>,
+
+    /// Used to store name of rewritten prepared statement for the server cache
+    statement_to_prepare: Option<String>,
+
+    /// The name of the statement the client is
+    current_client_prepared_statement_name: Option<String>,
 }
 
 /// Client entrypoint.
@@ -682,7 +689,7 @@ where
         auth_ok(&mut write).await?;
         write_all(&mut write, (&server_parameters).into()).await?;
         backend_key_data(&mut write, process_id, secret_key).await?;
-        ready_for_query(&mut write).await?;
+        send_ready_for_query(&mut write).await?;
 
         trace!("Startup OK");
         let stats = Arc::new(ClientStats::new(
@@ -714,6 +721,8 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
+            statement_to_prepare: None,
+            current_client_prepared_statement_name: None,
         })
     }
 
@@ -749,6 +758,8 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
+            statement_to_prepare: None,
+            current_client_prepared_statement_name: None,
         })
     }
 
@@ -790,10 +801,6 @@ where
         // Result returned by one of the plugins.
         let mut plugin_output = None;
 
-        // Prepared statement being executed
-        let mut prepared_statement = None;
-        let mut will_prepare = false;
-
         let client_identifier = ClientIdentifier::new(
             &self.server_parameters.get_application_name(),
             &self.username,
@@ -810,7 +817,8 @@ where
             );
 
             // Should we rewrite prepared statements and bind messages?
-            let mut prepared_statements_enabled = get_prepared_statements();
+            let prepared_statements_enabled =
+                self.transaction_mode && get_prepared_statements_cache_size() != 0;
 
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
@@ -869,25 +877,8 @@ where
                 // allocate a connection, we wouldn't be able to send back an error message
                 // to the client so we buffer them and defer the decision to error out or not
                 // to when we get the S message
-                'D' => {
-                    if prepared_statements_enabled {
-                        let name;
-                        (name, message) = self.rewrite_describe(message).await?;
 
-                        if let Some(name) = name {
-                            prepared_statement = Some(name);
-                        }
-                    }
-
-                    self.buffer.put(&message[..]);
-                    continue;
-                }
-
-                'E' => {
-                    self.buffer.put(&message[..]);
-                    continue;
-                }
-
+                // Query
                 'Q' => {
                     if query_router.query_parser_enabled() {
                         match query_router.parse(&message) {
@@ -922,10 +913,10 @@ where
                     }
                 }
 
+                // Parse
                 'P' => {
                     if prepared_statements_enabled {
-                        (prepared_statement, message) = self.rewrite_parse(message)?;
-                        will_prepare = true;
+                        message = self.rewrite_parse(message, &pool)?;
                     }
 
                     self.buffer.put(&message[..]);
@@ -951,9 +942,10 @@ where
                     continue;
                 }
 
+                // Bind
                 'B' => {
                     if prepared_statements_enabled {
-                        (prepared_statement, message) = self.rewrite_bind(message).await?;
+                        message = self.rewrite_bind(message).await?;
                     }
 
                     self.buffer.put(&message[..]);
@@ -962,6 +954,21 @@ where
                         query_router.infer_shard_from_bind(&message);
                     }
 
+                    continue;
+                }
+
+                // Describe
+                'D' => {
+                    if prepared_statements_enabled {
+                        message = self.rewrite_describe(message).await?;
+                    }
+
+                    self.buffer.put(&message[..]);
+                    continue;
+                }
+
+                'E' => {
+                    self.buffer.put(&message[..]);
                     continue;
                 }
 
@@ -1096,6 +1103,8 @@ where
                     if message[0] as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
                         self.buffer.clear();
+                        self.statement_to_prepare.take();
+                        self.current_client_prepared_statement_name.take();
                     }
 
                     error_response(
@@ -1161,57 +1170,6 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                // Only check if we should rewrite prepared statements
-                // in session mode. In transaction mode, we check at the beginning of
-                // each transaction.
-                if !self.transaction_mode {
-                    prepared_statements_enabled = get_prepared_statements();
-                }
-
-                debug!("Prepared statement active: {:?}", prepared_statement);
-
-                // We are processing a prepared statement.
-                if let Some(ref name) = prepared_statement {
-                    debug!("Checking prepared statement is on server");
-                    // Get the prepared statement the server expects to see.
-                    let statement = match self.prepared_statements.get(name) {
-                        Some(statement) => {
-                            debug!("Prepared statement `{}` found in cache", name);
-                            statement
-                        }
-                        None => {
-                            return Err(Error::ClientError(format!(
-                                "prepared statement `{}` not found",
-                                name
-                            )))
-                        }
-                    };
-
-                    // Since it's already in the buffer, we don't need to prepare it on this server.
-                    if will_prepare {
-                        server.will_prepare(&statement.name);
-                        will_prepare = false;
-                    } else {
-                        // The statement is not prepared on the server, so we need to prepare it.
-                        if server.should_prepare(&statement.name) {
-                            match server.prepare(statement).await {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    pool.ban(
-                                        &address,
-                                        BanReason::MessageSendFailed,
-                                        Some(&self.stats),
-                                    );
-                                    return Err(err);
-                                }
-                            }
-                        }
-                    }
-
-                    // Done processing the prepared statement.
-                    prepared_statement = None;
-                }
-
                 let mut message = match initial_message {
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
@@ -1354,8 +1312,7 @@ where
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
                         if prepared_statements_enabled {
-                            (prepared_statement, message) = self.rewrite_parse(message)?;
-                            will_prepare = true;
+                            message = self.rewrite_parse(message, &pool)?;
                         }
 
                         if query_router.query_parser_enabled() {
@@ -1373,7 +1330,7 @@ where
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
                         if prepared_statements_enabled {
-                            (prepared_statement, message) = self.rewrite_bind(message).await?;
+                            message = self.rewrite_bind(message).await?;
                         }
 
                         self.buffer.put(&message[..]);
@@ -1383,32 +1340,7 @@ where
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
                         if prepared_statements_enabled {
-                            let name;
-                            (name, message) = self.rewrite_describe(message).await?;
-
-                            if let Some(name) = name {
-                                prepared_statement = Some(name);
-                            }
-                        }
-
-                        self.buffer.put(&message[..]);
-                    }
-
-                    // Close the prepared statement.
-                    'C' => {
-                        if prepared_statements_enabled {
-                            let close: Close = (&message).try_into()?;
-
-                            if close.is_prepared_statement() && !close.anonymous() {
-                                match self.prepared_statements.get(&close.name) {
-                                    Some(parse) => {
-                                        server.will_close(&parse.generated_name);
-                                    }
-
-                                    // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
-                                    None => (),
-                                };
-                            }
+                            message = self.rewrite_describe(message).await?;
                         }
 
                         self.buffer.put(&message[..]);
@@ -1461,15 +1393,100 @@ where
                             }
                         }
 
-                        self.send_and_receive_loop(
-                            code,
-                            None,
-                            server,
-                            &address,
-                            &pool,
-                            &self.stats.clone(),
-                        )
-                        .await?;
+                        // We need to make sure the the current prepared statement that the client is executing exists
+                        // on the checked out server connection before sending it the rest of the data
+                        if let Some(name) = self.current_client_prepared_statement_name.take() {
+                            match self.prepared_statements.get(&name) {
+                                Some(parse) => {
+                                    debug!("Prepared statement `{}` found in cache", parse.name);
+
+                                    if let Err(err) = server
+                                        .register_prepared_statement(
+                                            parse,
+                                            pool.prepared_statement_cache.clone(),
+                                        )
+                                        .await
+                                    {
+                                        pool.ban(
+                                            &address,
+                                            BanReason::MessageSendFailed,
+                                            Some(&self.stats),
+                                        );
+                                        return Err(err);
+                                    }
+                                }
+
+                                None => {
+                                    return Err(Error::ClientError(format!(
+                                        "prepared statement `{}` not found",
+                                        name
+                                    )))
+                                }
+                            };
+                        }
+
+                        // Check if server already has the prepared statement we're trying to send it
+
+                        // Prepared statements can arrive like this
+                        // 1. Without named describe
+                        //      Client: Parse, with name, query and params
+                        //              Sync
+                        //      Server: ParseComplete
+                        //              ReadyForQuery
+                        // 2. With named describe
+                        //      Client: Parse, with name, query and params
+                        //              Describe, with name
+                        //              Sync
+                        //      Server: ParseComplete
+                        //              ParameterDescription
+                        //              RowDescription
+                        //              ReadyForQuery
+                        //
+                        // If the prepared statement already exists on the checked out server, we will only send the ParseComplete and ReadyForQuery packets
+                        // regardless if it came with a named describe or not
+
+                        let mut should_send_to_server = true;
+
+                        if let Some(statement_name) = self.statement_to_prepare.take() {
+                            if server.has_prepared_statement(&statement_name) {
+                                debug!(
+                                    "Prepared statement `{}` found in server cache",
+                                    statement_name
+                                );
+                                should_send_to_server = false;
+
+                                // Send parse complete and ready for query to client
+                                // TODO: Check if this is valid in the case where a named describe is sent after the parse and before the sync
+                                let mut response = parse_complete();
+                                response.put(ready_for_query(server.in_transaction()));
+
+                                if let Err(err) = write_all_flush(&mut self.write, &response).await
+                                {
+                                    // We might be in some kind of error/in between protocol state
+                                    server.mark_bad();
+                                    return Err(err);
+                                }
+                            } else {
+                                debug!(
+                                    "Prepared statement `{}` not found in server cache",
+                                    statement_name
+                                );
+
+                                server.add_prepared_statement_to_cache(&statement_name);
+                            }
+                        }
+
+                        if should_send_to_server {
+                            self.send_and_receive_loop(
+                                code,
+                                None,
+                                server,
+                                &address,
+                                &pool,
+                                &self.stats.clone(),
+                            )
+                            .await?;
+                        }
 
                         self.buffer.clear();
 
@@ -1485,6 +1502,28 @@ where
                                 break;
                             }
                         }
+                    }
+
+                    // Close the prepared statement.
+                    'C' => {
+                        if prepared_statements_enabled {
+                            let close: Close = (&message).try_into()?;
+
+                            if close.is_prepared_statement() && !close.anonymous() {
+                                match self.prepared_statements.get(&close.name) {
+                                    Some(parse) => {
+                                        server.will_close(&parse.name);
+                                    }
+
+                                    // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
+                                    None => (),
+                                };
+
+                                self.prepared_statements.remove(&close.name);
+                            }
+                        }
+
+                        self.buffer.put(&message[..]);
                     }
 
                     // CopyData
@@ -1588,52 +1627,62 @@ where
         }
     }
 
-    /// Rewrite Parse (F) message to set the prepared statement name to one we control.
-    /// Save it into the client cache.
-    fn rewrite_parse(&mut self, message: BytesMut) -> Result<(Option<String>, BytesMut), Error> {
+    /// Register and rewrite the parse statement to the clients statement cache
+    /// and also the pool's statement cache
+    fn rewrite_parse(
+        &mut self,
+        message: BytesMut,
+        pool: &ConnectionPool,
+    ) -> Result<BytesMut, Error> {
         let parse: Parse = (&message).try_into()?;
 
-        let name = parse.name.clone();
-
-        // Don't rewrite anonymous prepared statements
         if parse.anonymous() {
-            debug!("Anonymous prepared statement");
-            return Ok((None, message));
+            return Ok(message);
         }
 
-        let parse = parse.rename();
+        let client_given_name = parse.name.to_string();
+
+        // Add the statement to the cache or check if we already have it
+        let new_parse = pool.register_parse_to_cache(parse);
 
         debug!(
             "Renamed prepared statement `{}` to `{}` and saved to cache",
-            name, parse.name
+            client_given_name, new_parse.name
         );
 
-        self.prepared_statements.insert(name.clone(), parse.clone());
+        let new_statement_name = new_parse.name.to_string();
+        self.statement_to_prepare = Some(new_statement_name);
 
-        Ok((Some(name), parse.try_into()?))
+        self.prepared_statements
+            .insert(client_given_name, new_parse.clone());
+
+        return Ok(new_parse.try_into()?);
     }
 
     /// Rewrite the Bind (F) message to use the prepared statement name
     /// saved in the client cache.
-    async fn rewrite_bind(
-        &mut self,
-        message: BytesMut,
-    ) -> Result<(Option<String>, BytesMut), Error> {
-        let bind: Bind = (&message).try_into()?;
-        let name = bind.prepared_statement.clone();
+    async fn rewrite_bind(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
+        let mut bind: Bind = (&message).try_into()?;
 
         if bind.anonymous() {
             debug!("Anonymous bind message");
-            return Ok((None, message));
+            return Ok(message);
         }
 
-        match self.prepared_statements.get(&name) {
-            Some(prepared_stmt) => {
-                let bind = bind.reassign(prepared_stmt);
+        let client_given_name = bind.prepared_statement.clone();
 
-                debug!("Rewrote bind `{}` to `{}`", name, bind.prepared_statement);
+        match self.prepared_statements.get(&client_given_name) {
+            Some(rewritten_parse) => {
+                bind = bind.reassign(&rewritten_parse.name);
 
-                Ok((Some(name), bind.try_into()?))
+                self.current_client_prepared_statement_name = Some(client_given_name.clone());
+
+                debug!(
+                    "Rewrote bind `{}` to `{}`",
+                    client_given_name, bind.prepared_statement
+                );
+
+                Ok(bind.try_into()?)
             }
             None => {
                 debug!("Got bind for unknown prepared statement {:?}", bind);
@@ -1649,7 +1698,7 @@ where
 
                 Err(Error::ClientError(format!(
                     "Prepared statement `{}` doesn't exist",
-                    name
+                    bind.prepared_statement
                 )))
             }
         }
@@ -1657,34 +1706,32 @@ where
 
     /// Rewrite the Describe (F) message to use the prepared statement name
     /// saved in the client cache.
-    async fn rewrite_describe(
-        &mut self,
-        message: BytesMut,
-    ) -> Result<(Option<String>, BytesMut), Error> {
+    async fn rewrite_describe(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
         let describe: Describe = (&message).try_into()?;
-        let name = describe.statement_name.clone();
 
         if describe.anonymous() {
             debug!("Anonymous describe");
-            return Ok((None, message));
+            return Ok(message);
         }
 
-        match self.prepared_statements.get(&name) {
-            Some(prepared_stmt) => {
-                let describe = describe.rename(&prepared_stmt.name);
+        let client_given_name = describe.statement_name.clone();
+
+        match self.prepared_statements.get(&client_given_name) {
+            Some(rewritten_parse) => {
+                let describe = describe.rename(&rewritten_parse.name);
 
                 debug!(
                     "Rewrote describe `{}` to `{}`",
-                    name, describe.statement_name
+                    client_given_name, describe.statement_name
                 );
 
-                Ok((Some(name), describe.try_into()?))
+                Ok(describe.try_into()?)
             }
 
             None => {
                 debug!("Got describe for unknown prepared statement {:?}", describe);
 
-                Ok((None, message))
+                Ok(message)
             }
         }
     }
@@ -1725,6 +1772,7 @@ where
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
+                    // We might be in some kind of error/in between protocol state, better to just kill this server
                     server.mark_bad();
                     return Err(err);
                 }

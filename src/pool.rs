@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection, QueueStrategy};
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
+use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
@@ -10,6 +11,7 @@ use rand::thread_rng;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicU64;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -24,6 +26,7 @@ use crate::config::{
 use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
+use crate::messages::Parse;
 use crate::plugins::prewarmer;
 use crate::server::{Server, ServerParameters};
 use crate::sharding::ShardingFunction;
@@ -52,6 +55,52 @@ pub enum BanReason {
     FailedCheckout,
     StatementTimeout,
     AdminBan(i64),
+}
+
+pub type PreparedStatementCacheType = Arc<RwLock<PreparedStatementCache>>;
+
+#[derive(Debug)]
+pub struct PreparedStatementCache {
+    cache: LruCache<u64, Parse>,
+}
+
+impl Default for PreparedStatementCache {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl PreparedStatementCache {
+    pub fn new(size: usize) -> Self {
+        PreparedStatementCache {
+            cache: LruCache::new(NonZeroUsize::new(size).unwrap()),
+        }
+    }
+
+    /// Adds the prepared statement to the cache if it doesn't exist with a new name
+    /// if it already exists will give you the existing parse
+    ///
+    /// Pass the hash to this so that we can do the compute before acquiring the lock
+    pub fn get_or_insert(&mut self, parse: Parse, hash: u64) -> Parse {
+        match self.cache.get(&hash) {
+            Some(rewritten_parse) => {
+                return rewritten_parse.clone();
+            }
+            None => {
+                let new_parse = parse.rewrite();
+                let evicted = self.cache.push(hash, new_parse.clone());
+
+                if let Some((_, evicted_parse)) = evicted {
+                    debug!(
+                        "Evicted prepared statement {} from cache",
+                        evicted_parse.name
+                    );
+                }
+
+                return new_parse;
+            }
+        }
+    }
 }
 
 /// An identifier for a PgCat pool,
@@ -223,6 +272,9 @@ pub struct ConnectionPool {
 
     /// AuthInfo
     pub auth_hash: Arc<RwLock<Option<String>>>,
+
+    /// Cache
+    pub prepared_statement_cache: PreparedStatementCacheType,
 }
 
 impl ConnectionPool {
@@ -501,6 +553,9 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
+                    prepared_statement_cache: Arc::new(RwLock::new(PreparedStatementCache::new(
+                        config.general.prepared_statements_cache_size,
+                    ))),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -1000,6 +1055,18 @@ impl ConnectionPool {
             None => true,
             Some(shard) => shard < self.shards(),
         }
+    }
+
+    /// Register a parse statement to the pool's cache and return the rewritten parse
+    ///
+    /// Do not pass an anonymous parse statement to this function
+    pub fn register_parse_to_cache(&self, parse: Parse) -> Parse {
+        let hash = parse.get_hash();
+
+        let cache_arc = self.prepared_statement_cache.clone();
+        let mut cache = cache_arc.write();
+
+        cache.get_or_insert(parse, hash)
     }
 }
 
