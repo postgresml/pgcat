@@ -1301,10 +1301,6 @@ where
                         self.stats.disconnect();
                         self.release();
 
-                        if prepared_statements_enabled {
-                            server.maintain_cache().await?;
-                        }
-
                         return Ok(());
                     }
 
@@ -1510,15 +1506,7 @@ where
                             let close: Close = (&message).try_into()?;
 
                             if close.is_prepared_statement() && !close.anonymous() {
-                                match self.prepared_statements.get(&close.name) {
-                                    Some(parse) => {
-                                        server.will_close(&parse.name);
-                                    }
-
-                                    // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
-                                    None => (),
-                                };
-
+                                server.remove_prepared_statement_from_cache(&close.name);
                                 self.prepared_statements.remove(&close.name);
                             }
                         }
@@ -1589,10 +1577,6 @@ where
             debug!("Releasing server back into the pool");
 
             server.checkin_cleanup().await?;
-
-            if prepared_statements_enabled {
-                server.maintain_cache().await?;
-            }
 
             server.stats().idle();
             self.connected_to_server = false;

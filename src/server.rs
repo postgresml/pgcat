@@ -16,7 +16,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, get_prepared_statements_cache_size, Address, User};
+use crate::config::{get_config, Address, User};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -326,8 +326,6 @@ pub struct Server {
     log_client_parameter_status_changes: bool,
 
     /// Prepared statements
-    prepared_statements: BTreeSet<String>,
-
     prepared_statement_cache: BTreeSet<String>,
 }
 
@@ -832,7 +830,6 @@ impl Server {
                         },
                         cleanup_connections,
                         log_client_parameter_status_changes,
-                        prepared_statements: BTreeSet::new(),
                         prepared_statement_cache: BTreeSet::new(),
                     };
 
@@ -1081,62 +1078,21 @@ impl Server {
         // Pass the data back to the client.
         Ok(bytes)
     }
-
-    /// Add the prepared statement to being tracked by this server.
-    /// The client is processing data that will create a prepared statement on this server.
-    pub fn will_prepare(&mut self, name: &str) {
-        debug!("Will prepare `{}`", name);
-
-        self.prepared_statements.insert(name.to_string());
-        self.stats.prepared_cache_add();
-    }
-
-    /// Check if we should prepare a statement on the server.
-    pub fn should_prepare(&self, name: &str) -> bool {
-        let should_prepare = !self.prepared_statements.contains(name);
-
-        debug!("Should prepare `{}`: {}", name, should_prepare);
-
-        if should_prepare {
-            self.stats.prepared_cache_miss();
-        } else {
-            self.stats.prepared_cache_hit();
-        }
-
-        should_prepare
-    }
-
-    /// Create a prepared statement on the server.
-    pub async fn prepare(&mut self, parse: &Parse) -> Result<(), Error> {
-        debug!("Preparing `{}`", parse.name);
-
-        let bytes: BytesMut = parse.try_into()?;
-        self.send(&bytes).await?;
-        self.send(&flush()).await?;
-
-        // Read and discard ParseComplete (B)
-        match read_message(&mut self.stream).await {
-            Ok(_) => (),
-            Err(err) => {
-                self.bad = true;
-                return Err(err);
-            }
-        }
-
-        self.prepared_statements.insert(parse.name.to_string());
-        self.stats.prepared_cache_add();
-
-        debug!("Prepared `{}`", parse.name);
-
-        Ok(())
-    }
-
+    
     pub fn has_prepared_statement(&self, name: &str) -> bool {
+        self.stats.prepared_cache_hit();
         self.prepared_statement_cache.contains(name)
     }
-
+    
     pub fn add_prepared_statement_to_cache(&mut self, name: &str) {
+        self.stats.prepared_cache_add();
+        self.stats.prepared_cache_miss();
         self.prepared_statement_cache.insert(name.to_string());
+    }
+    
+    pub fn remove_prepared_statement_from_cache(&mut self, name: &str) {
+        self.stats.prepared_cache_remove();
+        self.prepared_statement_cache.remove(name);
     }
 
     pub async fn register_prepared_statement(
@@ -1144,8 +1100,6 @@ impl Server {
         parse: &Parse,
         prepared_statement_cache: PreparedStatementCacheType,
     ) -> Result<(), Error> {
-        // TODO_ZAIN: Figure out stats
-
         match self.prepared_statement_cache.get(&parse.name) {
             Some(_) => self.stats.prepared_cache_hit(),
             None => {
@@ -1164,8 +1118,6 @@ impl Server {
                 }
 
                 self.add_prepared_statement_to_cache(&parse.name);
-
-                self.stats.prepared_cache_miss();
             }
         };
 
@@ -1183,69 +1135,6 @@ impl Server {
         Ok(())
     }
 
-    /// Maintain adequate cache size on the server.
-    pub async fn maintain_cache(&mut self) -> Result<(), Error> {
-        debug!("Cache maintenance run");
-
-        let max_cache_size = get_prepared_statements_cache_size();
-        let mut names = Vec::new();
-
-        while self.prepared_statements.len() >= max_cache_size {
-            // The prepared statmeents are alphanumerically sorted by the BTree.
-            // FIFO.
-            if let Some(name) = self.prepared_statements.pop_last() {
-                names.push(name);
-            }
-        }
-
-        if !names.is_empty() {
-            self.deallocate(names).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Remove the prepared statement from being tracked by this server.
-    /// The client is processing data that will cause the server to close the prepared statement.
-    pub fn will_close(&mut self, name: &str) {
-        debug!("Will close `{}`", name);
-
-        self.prepared_statements.remove(name);
-    }
-
-    /// Close a prepared statement on the server.
-    pub async fn deallocate(&mut self, names: Vec<String>) -> Result<(), Error> {
-        for name in &names {
-            debug!("Deallocating prepared statement `{}`", name);
-
-            let close = Close::new(name);
-            let bytes: BytesMut = close.try_into()?;
-
-            self.send(&bytes).await?;
-        }
-
-        if !names.is_empty() {
-            self.send(&flush()).await?;
-        }
-
-        // Read and discard CloseComplete (3)
-        for name in &names {
-            match read_message(&mut self.stream).await {
-                Ok(_) => {
-                    self.prepared_statements.remove(name);
-                    self.stats.prepared_cache_remove();
-                    debug!("Closed `{}`", name);
-                }
-
-                Err(err) => {
-                    self.bad = true;
-                    return Err(err);
-                }
-            };
-        }
-
-        Ok(())
-    }
 
     /// If the server is still inside a transaction.
     /// If the client disconnects while the server is in a transaction, we will clean it up.

@@ -551,7 +551,6 @@ pub fn notify(message: &str, details: String) -> BytesMut {
     res
 }
 
-// TODO_ZAIN: maintain cache
 pub fn flush() -> BytesMut {
     let mut bytes = BytesMut::new();
     bytes.put_u8(b'H');

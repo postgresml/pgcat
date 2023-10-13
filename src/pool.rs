@@ -59,6 +59,7 @@ pub enum BanReason {
 
 pub type PreparedStatementCacheType = Arc<RwLock<PreparedStatementCache>>;
 
+// TODO: Add stats the this cache
 #[derive(Debug)]
 pub struct PreparedStatementCache {
     cache: LruCache<u64, Parse>,
