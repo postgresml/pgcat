@@ -294,20 +294,17 @@ impl ConnectionPool {
                 let old_pool_ref = get_pool(pool_name, &user.username);
                 let identifier = PoolIdentifier::new(pool_name, &user.username);
 
-                match old_pool_ref {
-                    Some(pool) => {
-                        // If the pool hasn't changed, get existing reference and insert it into the new_pools.
-                        // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
-                        if pool.config_hash == new_pool_hash_value {
-                            info!(
-                                "[pool: {}][user: {}] has not changed",
-                                pool_name, user.username
-                            );
-                            new_pools.insert(identifier.clone(), pool.clone());
-                            continue;
-                        }
+                if let Some(pool) = old_pool_ref {
+                    // If the pool hasn't changed, get existing reference and insert it into the new_pools.
+                    // We replace all pools at the end, but if the reference is kept, the pool won't get re-created (bb8).
+                    if pool.config_hash == new_pool_hash_value {
+                        info!(
+                            "[pool: {}][user: {}] has not changed",
+                            pool_name, user.username
+                        );
+                        new_pools.insert(identifier.clone(), pool.clone());
+                        continue;
                     }
-                    None => (),
                 }
 
                 info!(
@@ -452,7 +449,7 @@ impl ConnectionPool {
                             },
                         };
 
-                        let reaper_rate = *vec![idle_timeout, server_lifetime, POOL_REAPER_RATE]
+                        let reaper_rate = *[idle_timeout, server_lifetime, POOL_REAPER_RATE]
                             .iter()
                             .min()
                             .unwrap();
@@ -542,7 +539,7 @@ impl ConnectionPool {
                             .clone()
                             .map(|regex| Regex::new(regex.as_str()).unwrap()),
                         regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
-                        default_shard: pool_config.default_shard.clone(),
+                        default_shard: pool_config.default_shard,
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
@@ -734,7 +731,7 @@ impl ConnectionPool {
             let mut force_healthcheck = false;
 
             if self.is_banned(address) {
-                if self.try_unban(&address).await {
+                if self.try_unban(address).await {
                     force_healthcheck = true;
                 } else {
                     debug!("Address {:?} is banned", address);
@@ -862,8 +859,8 @@ impl ConnectionPool {
         // Don't leave a bad connection in the pool.
         server.mark_bad();
 
-        self.ban(&address, BanReason::FailedHealthCheck, Some(client_info));
-        return false;
+        self.ban(address, BanReason::FailedHealthCheck, Some(client_info));
+        false
     }
 
     /// Ban an address (i.e. replica). It no longer will serve
@@ -987,10 +984,10 @@ impl ConnectionPool {
         let guard = self.banlist.read();
         for banlist in guard.iter() {
             for (address, (reason, timestamp)) in banlist.iter() {
-                bans.push((address.clone(), (reason.clone(), timestamp.clone())));
+                bans.push((address.clone(), (reason.clone(), *timestamp)));
             }
         }
-        return bans;
+        bans
     }
 
     /// Get the address from the host url
@@ -1048,7 +1045,7 @@ impl ConnectionPool {
         }
         let busy = provisioned - idle;
         debug!("{:?} has {:?} busy connections", address, busy);
-        return busy;
+        busy
     }
 
     fn valid_shard_id(&self, shard: Option<usize>) -> bool {
@@ -1099,6 +1096,7 @@ pub struct ServerPool {
 }
 
 impl ServerPool {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         address: Address,
         user: User,
@@ -1111,7 +1109,7 @@ impl ServerPool {
     ) -> ServerPool {
         ServerPool {
             address,
-            user: user.clone(),
+            user,
             database: database.to_string(),
             client_server_map,
             auth_hash,

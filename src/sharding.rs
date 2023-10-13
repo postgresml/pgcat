@@ -64,7 +64,7 @@ impl Sharder {
     fn sha1(&self, key: i64) -> usize {
         let mut hasher = Sha1::new();
 
-        hasher.update(&key.to_string().as_bytes());
+        hasher.update(key.to_string().as_bytes());
 
         let result = hasher.finalize();
 
@@ -202,10 +202,10 @@ mod test {
     #[test]
     fn test_sha1_hash() {
         let sharder = Sharder::new(12, ShardingFunction::Sha1);
-        let ids = vec![
+        let ids = [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
         ];
-        let shards = vec![
+        let shards = [
             4, 7, 8, 3, 6, 0, 0, 10, 3, 11, 1, 7, 4, 4, 11, 2, 5, 0, 8, 3,
         ];
 
