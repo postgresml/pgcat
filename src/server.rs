@@ -1066,18 +1066,18 @@ impl Server {
         // Pass the data back to the client.
         Ok(bytes)
     }
-    
+
     pub fn has_prepared_statement(&self, name: &str) -> bool {
         self.stats.prepared_cache_hit();
         self.prepared_statement_cache.contains(name)
     }
-    
+
     pub fn add_prepared_statement_to_cache(&mut self, name: &str) {
         self.stats.prepared_cache_add();
         self.stats.prepared_cache_miss();
         self.prepared_statement_cache.insert(name.to_string());
     }
-    
+
     pub fn remove_prepared_statement_from_cache(&mut self, name: &str) {
         self.stats.prepared_cache_remove();
         self.prepared_statement_cache.remove(name);
@@ -1121,7 +1121,6 @@ impl Server {
 
         Ok(())
     }
-
 
     /// If the server is still inside a transaction.
     /// If the client disconnects while the server is in a transaction, we will clean it up.
