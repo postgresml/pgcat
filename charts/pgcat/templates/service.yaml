@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgcat.fullname" . }}
+  labels:
+    {{- include "pgcat.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: pgcat
+      protocol: TCP
+      name: pgcat
+  selector:
+    {{- include "pgcat.selectorLabels" . | nindent 4 }}

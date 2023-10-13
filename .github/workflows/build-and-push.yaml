@@ -2,7 +2,9 @@ name: Build and Push
 
 on:
   push:
-    branches:    
+    paths:
+      - '!charts/**.md'
+    branches:
       - main
     tags:
       - v*

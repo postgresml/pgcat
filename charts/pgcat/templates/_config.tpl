@@ -1,0 +1,3 @@
+{{/*
+  Configuration template definition
+*/}}

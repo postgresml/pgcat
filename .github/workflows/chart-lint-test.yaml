@@ -1,7 +1,10 @@
 name: Lint and Test Charts
 
-on: pull_request
-
+on:
+  pull_request:
+    paths:
+      - charts/**
+      - '!charts/**.md'
 jobs:
   lint-test:
     runs-on: ubuntu-latest
