@@ -67,7 +67,7 @@ pub struct PreparedStatementCache {
 
 impl Default for PreparedStatementCache {
     fn default() -> Self {
-        Self::new(0)
+        Self::new(1)
     }
 }
 
