@@ -1063,8 +1063,7 @@ impl ConnectionPool {
     pub fn register_parse_to_cache(&self, parse: Parse) -> Arc<Parse> {
         let hash = parse.get_hash();
 
-        let cache_arc = self.prepared_statement_cache.clone();
-        let mut cache = cache_arc.lock();
+        let mut cache = self.prepared_statement_cache.lock();
 
         cache.get_or_insert(parse, hash)
     }
