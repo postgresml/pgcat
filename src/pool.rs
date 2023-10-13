@@ -85,7 +85,7 @@ impl PreparedStatementCache {
     pub fn get_or_insert(&mut self, parse: Parse, hash: u64) -> Arc<Parse> {
         match self.cache.get(&hash) {
             Some(rewritten_parse) => {
-                return rewritten_parse.clone();
+                rewritten_parse.clone()
             }
             None => {
                 let new_parse = Arc::new(parse.rewrite());
@@ -98,7 +98,7 @@ impl PreparedStatementCache {
                     );
                 }
 
-                return new_parse;
+                new_parse
             }
         }
     }

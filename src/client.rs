@@ -1636,7 +1636,7 @@ where
         self.prepared_statements
             .insert(client_given_name, new_parse.clone());
 
-        return Ok(new_parse.as_ref().try_into()?);
+        return new_parse.as_ref().try_into();
     }
 
     /// Rewrite the Bind (F) message to use the prepared statement name
