@@ -73,7 +73,6 @@ impl Default for PreparedStatementCache {
 
 impl PreparedStatementCache {
     pub fn new(size: usize) -> Self {
-
         if size == 0 {
             return Self::default();
         }
