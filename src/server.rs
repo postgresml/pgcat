@@ -1125,8 +1125,7 @@ impl Server {
         let hash = parse.get_hash();
         let parse = parse.clone();
 
-        let cache_arc = prepared_statement_cache;
-        let mut cache = cache_arc.write();
+        let mut cache = prepared_statement_cache.lock();
 
         // We want to update this in the LRU to know this was recently used and add it if it isn't there already
         // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it go removed)

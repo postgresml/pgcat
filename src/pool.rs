@@ -57,7 +57,7 @@ pub enum BanReason {
     AdminBan(i64),
 }
 
-pub type PreparedStatementCacheType = Arc<RwLock<PreparedStatementCache>>;
+pub type PreparedStatementCacheType = Arc<Mutex<PreparedStatementCache>>;
 
 // TODO: Add stats the this cache
 #[derive(Debug)]
@@ -554,7 +554,7 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
-                    prepared_statement_cache: Arc::new(RwLock::new(PreparedStatementCache::new(
+                    prepared_statement_cache: Arc::new(Mutex::new(PreparedStatementCache::new(
                         config.general.prepared_statements_cache_size,
                     ))),
                 };
@@ -1065,7 +1065,7 @@ impl ConnectionPool {
         let hash = parse.get_hash();
 
         let cache_arc = self.prepared_statement_cache.clone();
-        let mut cache = cache_arc.write();
+        let mut cache = cache_arc.lock();
 
         cache.get_or_insert(parse, hash)
     }
