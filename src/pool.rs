@@ -84,9 +84,7 @@ impl PreparedStatementCache {
     /// Pass the hash to this so that we can do the compute before acquiring the lock
     pub fn get_or_insert(&mut self, parse: Parse, hash: u64) -> Arc<Parse> {
         match self.cache.get(&hash) {
-            Some(rewritten_parse) => {
-                rewritten_parse.clone()
-            }
+            Some(rewritten_parse) => rewritten_parse.clone(),
             None => {
                 let new_parse = Arc::new(parse.rewrite());
                 let evicted = self.cache.push(hash, new_parse.clone());
