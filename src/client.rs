@@ -104,7 +104,7 @@ pub struct Client<S, T> {
     shutdown: Receiver<()>,
 
     /// Mapping of client named prepared statement to rewritten parse messages
-    prepared_statements: HashMap<String, Parse>,
+    prepared_statements: HashMap<String, Arc<Parse>>,
 
     /// Used to store name of rewritten prepared statement for the server cache
     statement_to_prepare: Option<String>,
@@ -1640,7 +1640,7 @@ where
         self.prepared_statements
             .insert(client_given_name, new_parse.clone());
 
-        return Ok(new_parse.try_into()?);
+        return Ok(new_parse.as_ref().try_into()?);
     }
 
     /// Rewrite the Bind (F) message to use the prepared statement name

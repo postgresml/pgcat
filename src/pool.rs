@@ -62,7 +62,7 @@ pub type PreparedStatementCacheType = Arc<RwLock<PreparedStatementCache>>;
 // TODO: Add stats the this cache
 #[derive(Debug)]
 pub struct PreparedStatementCache {
-    cache: LruCache<u64, Parse>,
+    cache: LruCache<u64, Arc<Parse>>,
 }
 
 impl Default for PreparedStatementCache {
@@ -82,13 +82,13 @@ impl PreparedStatementCache {
     /// if it already exists will give you the existing parse
     ///
     /// Pass the hash to this so that we can do the compute before acquiring the lock
-    pub fn get_or_insert(&mut self, parse: Parse, hash: u64) -> Parse {
+    pub fn get_or_insert(&mut self, parse: Parse, hash: u64) -> Arc<Parse> {
         match self.cache.get(&hash) {
             Some(rewritten_parse) => {
                 return rewritten_parse.clone();
             }
             None => {
-                let new_parse = parse.rewrite();
+                let new_parse = Arc::new(parse.rewrite());
                 let evicted = self.cache.push(hash, new_parse.clone());
 
                 if let Some((_, evicted_parse)) = evicted {
@@ -1061,7 +1061,7 @@ impl ConnectionPool {
     /// Register a parse statement to the pool's cache and return the rewritten parse
     ///
     /// Do not pass an anonymous parse statement to this function
-    pub fn register_parse_to_cache(&self, parse: Parse) -> Parse {
+    pub fn register_parse_to_cache(&self, parse: Parse) -> Arc<Parse> {
         let hash = parse.get_hash();
 
         let cache_arc = self.prepared_statement_cache.clone();
