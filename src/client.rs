@@ -870,14 +870,6 @@ where
             let mut initial_parsed_ast = None;
 
             match message[0] as char {
-                // Buffer extended protocol messages even if we do not have
-                // a server connection yet. Hopefully, when we get the S message
-                // we'll be able to allocate a connection. Also, clients do not expect
-                // the server to respond to these messages so even if we were not able to
-                // allocate a connection, we wouldn't be able to send back an error message
-                // to the client so we buffer them and defer the decision to error out or not
-                // to when we get the S message
-
                 // Query
                 'Q' => {
                     if query_router.query_parser_enabled() {
@@ -913,6 +905,13 @@ where
                     }
                 }
 
+                // Buffer extended protocol messages even if we do not have
+                // a server connection yet. Hopefully, when we get the S message
+                // we'll be able to allocate a connection. Also, clients do not expect
+                // the server to respond to these messages so even if we were not able to
+                // allocate a connection, we wouldn't be able to send back an error message
+                // to the client so we buffer them and defer the decision to error out or not
+                // to when we get the S message
                 // Parse
                 'P' => {
                     if prepared_statements_enabled {

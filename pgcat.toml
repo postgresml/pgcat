@@ -60,9 +60,6 @@ tcp_keepalives_count = 5
 # Number of seconds between keepalive packets.
 tcp_keepalives_interval = 5
 
-# Handle prepared statements.
-prepared_statements = true
-
 # Prepared statements server cache size.
 prepared_statements_cache_size = 500
 

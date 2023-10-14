@@ -259,21 +259,13 @@ Password to be used for connecting to servers to obtain the hash used for md5 au
 specified in `auth_query_user`. The connection will be established using the database configured in the pool.
 This parameter is inherited by every pool and can be redefined in pool configuration.
 
-### prepared_statements
-```
-path: general.prepared_statements
-default: false
-```
-
-Whether to use prepared statements or not.
-
 ### prepared_statements_cache_size
 ```
 path: general.prepared_statements_cache_size
-default: 500
+default: 0
 ```
 
-Size of the prepared statements cache.
+Size of the prepared statements cache. 0 means disabled.
 
 ### dns_cache_enabled
 ```
