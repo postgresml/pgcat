@@ -18,6 +18,7 @@ use crate::config::{
     get_config, get_idle_client_in_transaction_timeout, get_prepared_statements_cache_size,
     Address, PoolMode,
 };
+use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
@@ -25,7 +26,6 @@ use crate::query_router::{Command, QueryRouter};
 use crate::server::{Server, ServerParameters};
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
-use crate::{constants::*, query_router};
 
 use tokio_rustls::server::TlsStream;
 
@@ -1006,7 +1006,10 @@ where
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            if self.handle_custom_protocol(&mut query_router, current_shard, &message, &pool).await? {
+            if self
+                .handle_custom_protocol(&mut query_router, current_shard, &message, &pool)
+                .await?
+            {
                 continue;
             }
 
