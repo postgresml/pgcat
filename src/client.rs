@@ -867,6 +867,14 @@ where
             let mut pool = self.get_pool().await?;
             query_router.update_pool_settings(pool.settings.clone());
 
+            // Handle all custom protocol commands, if any.
+            if self
+                .handle_custom_protocol(&mut query_router, &message, &pool)
+                .await?
+            {
+                continue;
+            }
+
             let mut initial_parsed_ast = None;
 
             match message[0] as char {
@@ -1002,16 +1010,6 @@ where
             }
 
             query_router.update_pool_settings(pool.settings.clone());
-
-            let current_shard = query_router.shard();
-
-            // Handle all custom protocol commands, if any.
-            if self
-                .handle_custom_protocol(&mut query_router, current_shard, &message, &pool)
-                .await?
-            {
-                continue;
-            }
 
             debug!("Waiting for connection from pool");
             if !self.admin {
@@ -1551,10 +1549,11 @@ where
     async fn handle_custom_protocol(
         &mut self,
         query_router: &mut QueryRouter,
-        current_shard: Option<usize>,
         message: &BytesMut,
         pool: &ConnectionPool,
     ) -> Result<bool, Error> {
+        let current_shard = query_router.shard();
+
         match query_router.try_execute_command(message) {
             None => Ok(false),
 
