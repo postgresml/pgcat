@@ -3,12 +3,14 @@
 use bytes::{Buf, BufMut, BytesMut};
 use fallible_iterator::FallibleIterator;
 use log::{debug, error, info, trace, warn};
+use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
@@ -322,7 +324,7 @@ pub struct Server {
     log_client_parameter_status_changes: bool,
 
     /// Prepared statements
-    prepared_statement_cache: BTreeSet<String>,
+    prepared_statement_cache: LruCache<String, ()>,
 }
 
 impl Server {
@@ -338,6 +340,7 @@ impl Server {
         auth_hash: Arc<RwLock<Option<String>>>,
         cleanup_connections: bool,
         log_client_parameter_status_changes: bool,
+        prepared_statement_cache_size: usize,
     ) -> Result<Server, Error> {
         let cached_resolver = CACHED_RESOLVER.load();
         let mut addr_set: Option<AddrSet> = None;
@@ -818,7 +821,12 @@ impl Server {
                         },
                         cleanup_connections,
                         log_client_parameter_status_changes,
-                        prepared_statement_cache: BTreeSet::new(),
+                        prepared_statement_cache: match prepared_statement_cache_size {
+                            0 => LruCache::new(NonZeroUsize::new(1).unwrap()),
+                            _ => LruCache::new(
+                                NonZeroUsize::new(prepared_statement_cache_size).unwrap(),
+                            ),
+                        },
                     };
 
                     return Ok(server);
@@ -957,6 +965,7 @@ impl Server {
                     if self.in_copy_mode {
                         self.in_copy_mode = false;
                     }
+                    // TODO: consider logging a warning here
                 }
 
                 // CommandComplete
@@ -1067,45 +1076,71 @@ impl Server {
         Ok(bytes)
     }
 
-    pub fn has_prepared_statement(&self, name: &str) -> bool {
+    pub fn has_prepared_statement(&mut self, name: &str) -> bool {
         self.stats.prepared_cache_hit();
-        self.prepared_statement_cache.contains(name)
+        self.prepared_statement_cache.get(name).is_some()
     }
 
-    pub fn add_prepared_statement_to_cache(&mut self, name: &str) {
+    pub fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
         self.stats.prepared_cache_add();
         self.stats.prepared_cache_miss();
-        self.prepared_statement_cache.insert(name.to_string());
+
+        // If we evict something, we need to close it on the server
+        if let Some((evicted_name, _)) = self.prepared_statement_cache.push(name.to_string(), ()) {
+            if evicted_name != name {
+                debug!(
+                    "Evicted prepared statement {} from cache, replaced with {}",
+                    evicted_name, name
+                );
+                return Some(evicted_name);
+            }
+        };
+
+        None
     }
 
     pub fn remove_prepared_statement_from_cache(&mut self, name: &str) {
         self.stats.prepared_cache_remove();
-        self.prepared_statement_cache.remove(name);
+        self.prepared_statement_cache.pop(name);
     }
 
     pub async fn register_prepared_statement(
         &mut self,
         parse: &Parse,
+        should_send_parse_to_server: bool,
         prepared_statement_cache: PreparedStatementCacheType,
     ) -> Result<(), Error> {
         match self.prepared_statement_cache.get(&parse.name) {
             Some(_) => self.stats.prepared_cache_hit(),
             None => {
-                // Construct parse + sync message
-                let mut bytes: BytesMut = parse.clone().try_into()?;
-                bytes.extend_from_slice(&sync());
+                let mut bytes = BytesMut::new();
 
-                self.send(&bytes).await?;
-
-                loop {
-                    self.recv(None).await?;
-
-                    if !self.is_data_available() {
-                        break;
-                    }
+                if should_send_parse_to_server {
+                    let parse_bytes: BytesMut = parse.try_into()?;
+                    bytes.extend_from_slice(&parse_bytes);
                 }
 
-                self.add_prepared_statement_to_cache(&parse.name);
+                // If we evict something, we need to close it on the server
+                // We do this by adding it to the messages we're sending to the server before the sync
+                if let Some(evicted_name) = self.add_prepared_statement_to_cache(&parse.name) {
+                    self.remove_prepared_statement_from_cache(&evicted_name);
+                    let close_bytes: BytesMut = Close::new(&evicted_name).try_into()?;
+                    bytes.extend_from_slice(&close_bytes);
+                };
+
+                if !bytes.is_empty() {
+                    bytes.extend_from_slice(&sync());
+
+                    self.send(&bytes).await?;
+
+                    loop {
+                        self.recv(None).await?;
+
+                        if !self.is_data_available() {
+                            break;
+                        }
+                    }
+                }
             }
         };
 
@@ -1321,6 +1356,7 @@ impl Server {
             Arc::new(RwLock::new(None)),
             true,
             false,
+            0,
         )
         .await?;
         debug!("Connected!, sending query.");

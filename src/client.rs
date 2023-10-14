@@ -107,10 +107,10 @@ pub struct Client<S, T> {
     prepared_statements: HashMap<String, Arc<Parse>>,
 
     /// Used to store name of rewritten prepared statement for the server cache
-    statement_to_prepare: Option<String>,
+    parse_statement_to_prepare: Option<Arc<Parse>>,
 
     /// The name of the statement the client is
-    current_client_prepared_statement_name: Option<String>,
+    active_prepared_statement_name: Option<String>,
 }
 
 /// Client entrypoint.
@@ -721,8 +721,8 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
-            statement_to_prepare: None,
-            current_client_prepared_statement_name: None,
+            parse_statement_to_prepare: None,
+            active_prepared_statement_name: None,
         })
     }
 
@@ -758,8 +758,8 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
-            statement_to_prepare: None,
-            current_client_prepared_statement_name: None,
+            parse_statement_to_prepare: None,
+            active_prepared_statement_name: None,
         })
     }
 
@@ -1035,8 +1035,8 @@ where
                     if message[0] as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
                         self.buffer.clear();
-                        self.statement_to_prepare.take();
-                        self.current_client_prepared_statement_name.take();
+                        self.parse_statement_to_prepare.take();
+                        self.active_prepared_statement_name.take();
                     }
 
                     error_response(
@@ -1327,7 +1327,7 @@ where
                         // 1.
                         // We need to make sure the the current prepared statement that the client is executing exists
                         // on the checked out server connection before sending it the rest of the data
-                        if let Some(name) = self.current_client_prepared_statement_name.take() {
+                        if let Some(name) = self.active_prepared_statement_name.take() {
                             match self.prepared_statements.get(&name) {
                                 Some(parse) => {
                                     debug!("Prepared statement `{}` found in cache", parse.name);
@@ -1335,6 +1335,7 @@ where
                                     if let Err(err) = server
                                         .register_prepared_statement(
                                             parse,
+                                            true, // send parse to the server if it doesn't have it
                                             pool.prepared_statement_cache.clone(),
                                         )
                                         .await
@@ -1380,15 +1381,12 @@ where
 
                         let mut should_send_to_server = true;
 
-                        if let Some(statement_name) = self.statement_to_prepare.take() {
+                        if let Some(parse) = self.parse_statement_to_prepare.take() {
                             // We may have had a named describe before the sync
-                            self.current_client_prepared_statement_name.take();
+                            self.active_prepared_statement_name.take();
 
-                            if server.has_prepared_statement(&statement_name) {
-                                debug!(
-                                    "Prepared statement `{}` found in server cache",
-                                    statement_name
-                                );
+                            if server.has_prepared_statement(&parse.name) {
+                                debug!("Prepared statement `{}` found in server cache", parse.name);
                                 should_send_to_server = false;
 
                                 // Send parse complete and ready for query to client
@@ -1405,10 +1403,25 @@ where
                             } else {
                                 debug!(
                                     "Prepared statement `{}` not found in server cache",
-                                    statement_name
+                                    parse.name
                                 );
-
-                                server.add_prepared_statement_to_cache(&statement_name);
+                                // TODO: Consider adding the close logic that this function can send for eviction to the client buffer instead
+                                // Server needs to be told that we're adding a prepared statement
+                                if let Err(err) = server
+                                    .register_prepared_statement(
+                                        &parse,
+                                        false,
+                                        pool.prepared_statement_cache.clone(),
+                                    )
+                                    .await
+                                {
+                                    pool.ban(
+                                        &address,
+                                        BanReason::MessageSendFailed,
+                                        Some(&self.stats),
+                                    );
+                                    return Err(err);
+                                }
                             }
                         }
 
@@ -1653,8 +1666,7 @@ where
             client_given_name, new_parse.name
         );
 
-        let new_statement_name = new_parse.name.to_string();
-        self.statement_to_prepare = Some(new_statement_name);
+        self.parse_statement_to_prepare = Some(new_parse.clone());
 
         self.prepared_statements
             .insert(client_given_name, new_parse.clone());
@@ -1678,7 +1690,7 @@ where
             Some(rewritten_parse) => {
                 bind = bind.reassign(&rewritten_parse.name);
 
-                self.current_client_prepared_statement_name = Some(client_given_name.clone());
+                self.active_prepared_statement_name = Some(client_given_name.clone());
 
                 debug!(
                     "Rewrote bind `{}` to `{}`",
@@ -1723,7 +1735,7 @@ where
             Some(rewritten_parse) => {
                 let describe = describe.rename(&rewritten_parse.name);
 
-                self.current_client_prepared_statement_name = Some(client_given_name.clone());
+                self.active_prepared_statement_name = Some(client_given_name.clone());
 
                 debug!(
                     "Rewrote describe `{}` to `{}`",

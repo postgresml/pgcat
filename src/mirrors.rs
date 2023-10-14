@@ -42,6 +42,7 @@ impl MirroredClient {
             None,
             true,
             false,
+            config.general.prepared_statements_cache_size,
         );
 
         Pool::builder()

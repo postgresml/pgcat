@@ -431,6 +431,7 @@ impl ConnectionPool {
                             },
                             pool_config.cleanup_server_connections,
                             pool_config.log_client_parameter_status_changes,
+                            config.general.prepared_statements_cache_size,
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -1094,6 +1095,9 @@ pub struct ServerPool {
 
     /// Log client parameter status changes
     log_client_parameter_status_changes: bool,
+
+    /// Prepared statement cache size
+    prepared_statement_cache_size: usize,
 }
 
 impl ServerPool {
@@ -1107,6 +1111,7 @@ impl ServerPool {
         plugins: Option<Plugins>,
         cleanup_connections: bool,
         log_client_parameter_status_changes: bool,
+        prepared_statement_cache_size: usize,
     ) -> ServerPool {
         ServerPool {
             address,
@@ -1117,6 +1122,7 @@ impl ServerPool {
             plugins,
             cleanup_connections,
             log_client_parameter_status_changes,
+            prepared_statement_cache_size,
         }
     }
 }
@@ -1147,6 +1153,7 @@ impl ManageConnection for ServerPool {
             self.auth_hash.clone(),
             self.cleanup_connections,
             self.log_client_parameter_status_changes,
+            self.prepared_statement_cache_size,
         )
         .await
         {
