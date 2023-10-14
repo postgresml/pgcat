@@ -1321,6 +1321,10 @@ where
                             }
                         }
 
+                        // 1. if we get a bind, we want to make ensure that the server has the prepared statement
+                        // 2. check if the server has already prepared this statement
+
+                        // 1.
                         // We need to make sure the the current prepared statement that the client is executing exists
                         // on the checked out server connection before sending it the rest of the data
                         if let Some(name) = self.current_client_prepared_statement_name.take() {
@@ -1353,8 +1357,9 @@ where
                             };
                         }
 
+                        // 2.
                         // Check if server already has the prepared statement we're trying to send it
-
+                        //
                         // Prepared statements can arrive like this
                         // 1. Without named describe
                         //      Client: Parse, with name, query and params
@@ -1376,6 +1381,9 @@ where
                         let mut should_send_to_server = true;
 
                         if let Some(statement_name) = self.statement_to_prepare.take() {
+                            // We may have had a named describe before the sync
+                            self.current_client_prepared_statement_name.take();
+
                             if server.has_prepared_statement(&statement_name) {
                                 debug!(
                                     "Prepared statement `{}` found in server cache",
@@ -1714,6 +1722,8 @@ where
         match self.prepared_statements.get(&client_given_name) {
             Some(rewritten_parse) => {
                 let describe = describe.rename(&rewritten_parse.name);
+
+                self.current_client_prepared_statement_name = Some(client_given_name.clone());
 
                 debug!(
                     "Rewrote describe `{}` to `{}`",
