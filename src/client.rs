@@ -18,7 +18,6 @@ use crate::config::{
     get_config, get_idle_client_in_transaction_timeout, get_prepared_statements_cache_size,
     Address, PoolMode,
 };
-use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
 use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
@@ -26,6 +25,7 @@ use crate::query_router::{Command, QueryRouter};
 use crate::server::{Server, ServerParameters};
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
+use crate::{constants::*, query_router};
 
 use tokio_rustls::server::TlsStream;
 
@@ -1006,73 +1006,9 @@ where
             let current_shard = query_router.shard();
 
             // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(&message) {
-                // Normal query, not a custom command.
-                None => (),
-
-                // SET SHARD TO
-                Some((Command::SetShard, _)) => {
-                    match query_router.shard() {
-                        None => (),
-                        Some(selected_shard) => {
-                            if selected_shard >= pool.shards() {
-                                // Bad shard number, send error message to client.
-                                query_router.set_shard(current_shard);
-
-                                error_response(
-                                    &mut self.write,
-                                    &format!(
-                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
-                                        selected_shard,
-                                        pool.shards(),
-                                        current_shard,
-                                    ),
-                                )
-                                    .await?;
-                            } else {
-                                custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // SET PRIMARY READS TO
-                Some((Command::SetPrimaryReads, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
-                    continue;
-                }
-
-                // SET SHARDING KEY TO
-                Some((Command::SetShardingKey, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
-                    continue;
-                }
-
-                // SET SERVER ROLE TO
-                Some((Command::SetServerRole, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
-                    continue;
-                }
-
-                // SHOW SERVER ROLE
-                Some((Command::ShowServerRole, value)) => {
-                    show_response(&mut self.write, "server role", &value).await?;
-                    continue;
-                }
-
-                // SHOW SHARD
-                Some((Command::ShowShard, value)) => {
-                    show_response(&mut self.write, "shard", &value).await?;
-                    continue;
-                }
-
-                // SHOW PRIMARY READS
-                Some((Command::ShowPrimaryReads, value)) => {
-                    show_response(&mut self.write, "primary reads", &value).await?;
-                    continue;
-                }
-            };
+            if self.handle_custom_protocol(&mut query_router, current_shard, &message, &pool).await? {
+                continue;
+            }
 
             debug!("Waiting for connection from pool");
             if !self.admin {
@@ -1602,6 +1538,84 @@ where
                     self.username,
                     self.server_parameters.get_application_name()
                 )))
+            }
+        }
+    }
+
+    /// Handles custom protocol messages
+    /// Returns true if the message is custom protocol message, false otherwise
+    /// Does not work with prepared statements, only simple and extended protocol without parameters
+    async fn handle_custom_protocol(
+        &mut self,
+        query_router: &mut QueryRouter,
+        current_shard: Option<usize>,
+        message: &BytesMut,
+        pool: &ConnectionPool,
+    ) -> Result<bool, Error> {
+        match query_router.try_execute_command(message) {
+            None => Ok(false),
+
+            Some(custom) => {
+                match custom {
+                    // SET SHARD TO
+                    (Command::SetShard, _) => {
+                        match query_router.shard() {
+                            None => {}
+                            Some(selected_shard) => {
+                                if selected_shard >= pool.shards() {
+                                    // Bad shard number, send error message to client.
+                                    query_router.set_shard(current_shard);
+
+                                    error_response(
+                                                    &mut self.write,
+                                                    &format!(
+                                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
+                                                        selected_shard,
+                                                        pool.shards(),
+                                                        current_shard,
+                                                    ),
+                                                )
+                                                    .await?;
+                                } else {
+                                    custom_protocol_response_ok(&mut self.write, "SET SHARD")
+                                        .await?;
+                                }
+                            }
+                        }
+                    }
+
+                    // SET PRIMARY READS TO
+                    (Command::SetPrimaryReads, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
+                    }
+
+                    // SET SHARDING KEY TO
+                    (Command::SetShardingKey, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
+                    }
+
+                    // SET SERVER ROLE TO
+                    (Command::SetServerRole, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
+                    }
+
+                    // SHOW SERVER ROLE
+                    (Command::ShowServerRole, value) => {
+                        show_response(&mut self.write, "server role", &value).await?;
+                    }
+
+                    // SHOW SHARD
+                    (Command::ShowShard, value) => {
+                        show_response(&mut self.write, "shard", &value).await?;
+                    }
+
+                    // SHOW PRIMARY READS
+                    (Command::ShowPrimaryReads, value) => {
+                        show_response(&mut self.write, "primary reads", &value).await?;
+                    }
+                };
+
+                Ok(true)
             }
         }
     }
