@@ -277,7 +277,7 @@ pub struct ConnectionPool {
     pub auth_hash: Arc<RwLock<Option<String>>>,
 
     /// Cache
-    pub prepared_statement_cache: PreparedStatementCacheType,
+    pub prepared_statement_cache: Option<PreparedStatementCacheType>,
 }
 
 impl ConnectionPool {
@@ -431,7 +431,7 @@ impl ConnectionPool {
                             },
                             pool_config.cleanup_server_connections,
                             pool_config.log_client_parameter_status_changes,
-                            config.general.prepared_statements_cache_size,
+                            pool_config.prepared_statements_cache_size,
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -554,9 +554,12 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
-                    prepared_statement_cache: Arc::new(Mutex::new(PreparedStatementCache::new(
-                        config.general.prepared_statements_cache_size,
-                    ))),
+                    prepared_statement_cache: match pool_config.prepared_statements_cache_size {
+                        0 => None,
+                        _ => Some(Arc::new(Mutex::new(PreparedStatementCache::new(
+                            pool_config.prepared_statements_cache_size,
+                        )))),
+                    },
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -1061,12 +1064,17 @@ impl ConnectionPool {
     /// Register a parse statement to the pool's cache and return the rewritten parse
     ///
     /// Do not pass an anonymous parse statement to this function
-    pub fn register_parse_to_cache(&self, parse: Parse) -> Arc<Parse> {
+    pub fn register_parse_to_cache(&self, parse: Parse) -> Option<Arc<Parse>> {
         let hash = parse.get_hash();
 
-        let mut cache = self.prepared_statement_cache.lock();
-
-        cache.get_or_insert(parse, hash)
+        // We should only be calling this function if the cache is enabled
+        match self.prepared_statement_cache {
+            Some(ref prepared_statement_cache) => {
+                let mut cache = prepared_statement_cache.lock();
+                Some(cache.get_or_insert(parse, hash))
+            }
+            None => None,
+        }
     }
 }
 

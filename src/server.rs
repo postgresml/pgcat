@@ -25,7 +25,7 @@ use crate::errors::{Error, ServerIdentifier};
 use crate::messages::BytesMutReader;
 use crate::messages::*;
 use crate::mirrors::MirroringManager;
-use crate::pool::{ClientServerMap, PreparedStatementCacheType};
+use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
 use std::io::Write;
@@ -1108,7 +1108,6 @@ impl Server {
         &mut self,
         parse: &Parse,
         should_send_parse_to_server: bool,
-        prepared_statement_cache: PreparedStatementCacheType,
     ) -> Result<(), Error> {
         match self.prepared_statement_cache.get(&parse.name) {
             Some(_) => self.stats.prepared_cache_hit(),
@@ -1143,16 +1142,6 @@ impl Server {
                 }
             }
         };
-
-        // Do work before acquiring the lock
-        let hash = parse.get_hash();
-        let parse = parse.clone();
-
-        let mut cache = prepared_statement_cache.lock();
-
-        // We want to update this in the LRU to know this was recently used and add it if it isn't there already
-        // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it go removed)
-        cache.get_or_insert(parse, hash);
 
         Ok(())
     }

@@ -14,10 +14,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_parameters_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
-use crate::config::{
-    get_config, get_idle_client_in_transaction_timeout, get_prepared_statements_cache_size,
-    Address, PoolMode,
-};
+use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
@@ -102,6 +99,9 @@ pub struct Client<S, T> {
 
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
+
+    /// Whether prepared statements are enabled for this client
+    prepared_statements_enabled: bool,
 
     /// Mapping of client named prepared statement to rewritten parse messages
     prepared_statements: HashMap<String, Arc<Parse>>,
@@ -525,6 +525,8 @@ where
             }
         };
 
+        let mut prepared_statements_enabled = false;
+
         // Authenticate admin user.
         let (transaction_mode, mut server_parameters) = if admin {
             let config = get_config();
@@ -658,6 +660,8 @@ where
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
+            prepared_statements_enabled =
+                transaction_mode && pool.prepared_statement_cache.is_some();
 
             // If the pool hasn't been validated yet,
             // connect to the servers and figure out what's what.
@@ -721,6 +725,7 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
+            prepared_statements_enabled,
             parse_message_to_prepare: None,
             active_prepared_statement_name: None,
         })
@@ -758,6 +763,7 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
+            prepared_statements_enabled: false,
             parse_message_to_prepare: None,
             active_prepared_statement_name: None,
         })
@@ -815,10 +821,6 @@ where
                 "Client idle, waiting for message, transaction mode: {}",
                 self.transaction_mode
             );
-
-            // Should we rewrite prepared statements and bind messages?
-            let prepared_statements_enabled =
-                self.transaction_mode && get_prepared_statements_cache_size() != 0;
 
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
@@ -922,7 +924,7 @@ where
                 // to when we get the S message
                 // Parse
                 'P' => {
-                    if prepared_statements_enabled {
+                    if self.prepared_statements_enabled {
                         message = self.rewrite_parse(message, &pool)?;
                     }
 
@@ -951,7 +953,7 @@ where
 
                 // Bind
                 'B' => {
-                    if prepared_statements_enabled {
+                    if self.prepared_statements_enabled {
                         message = self.rewrite_bind(message).await?;
                     }
 
@@ -966,7 +968,7 @@ where
 
                 // Describe
                 'D' => {
-                    if prepared_statements_enabled {
+                    if self.prepared_statements_enabled {
                         message = self.rewrite_describe(message).await?;
                     }
 
@@ -981,7 +983,7 @@ where
 
                 // Close (F)
                 'C' => {
-                    if prepared_statements_enabled {
+                    if self.prepared_statements_enabled {
                         let close: Close = (&message).try_into()?;
 
                         if close.is_prepared_statement() && !close.anonymous() {
@@ -1239,7 +1241,7 @@ where
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        if prepared_statements_enabled {
+                        if self.prepared_statements_enabled {
                             message = self.rewrite_parse(message, &pool)?;
                         }
 
@@ -1257,7 +1259,7 @@ where
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        if prepared_statements_enabled {
+                        if self.prepared_statements_enabled {
                             message = self.rewrite_bind(message).await?;
                         }
 
@@ -1267,7 +1269,7 @@ where
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        if prepared_statements_enabled {
+                        if self.prepared_statements_enabled {
                             message = self.rewrite_describe(message).await?;
                         }
 
@@ -1308,7 +1310,7 @@ where
                         let first_message_code = (*self.buffer.first().unwrap_or(&0)) as char;
 
                         // Almost certainly true
-                        if first_message_code == 'P' && !prepared_statements_enabled {
+                        if first_message_code == 'P' && !self.prepared_statements_enabled {
                             // Message layout
                             // P followed by 32 int followed by null-terminated statement name
                             // So message code should be in offset 0 of the buffer, first character
@@ -1331,22 +1333,11 @@ where
                             match self.prepared_statements.get(&name) {
                                 Some(parse) => {
                                     debug!("Prepared statement `{}` found in cache", parse.name);
-
-                                    if let Err(err) = server
-                                        .register_prepared_statement(
-                                            parse,
-                                            true, // send parse to the server if it doesn't have it
-                                            pool.prepared_statement_cache.clone(),
-                                        )
-                                        .await
-                                    {
-                                        pool.ban(
-                                            &address,
-                                            BanReason::MessageSendFailed,
-                                            Some(&self.stats),
-                                        );
-                                        return Err(err);
-                                    }
+                                    // In this case we don't want to send the parse message to the server
+                                    self.register_parse_to_server_cache(
+                                        true, parse, &pool, server, &address,
+                                    )
+                                    .await?;
                                 }
 
                                 None => {
@@ -1406,22 +1397,11 @@ where
                                     parse.name
                                 );
                                 // TODO: Consider adding the close logic that this function can send for eviction to the client buffer instead
-                                // Server needs to be told that we're adding a prepared statement
-                                if let Err(err) = server
-                                    .register_prepared_statement(
-                                        &parse,
-                                        false,
-                                        pool.prepared_statement_cache.clone(),
-                                    )
-                                    .await
-                                {
-                                    pool.ban(
-                                        &address,
-                                        BanReason::MessageSendFailed,
-                                        Some(&self.stats),
-                                    );
-                                    return Err(err);
-                                }
+                                // In this case we don't want to send the parse message to the server because the client is sending it
+                                self.register_parse_to_server_cache(
+                                    false, &parse, &pool, server, &address,
+                                )
+                                .await?;
                             }
                         }
 
@@ -1455,7 +1435,7 @@ where
 
                     // Close the prepared statement.
                     'C' => {
-                        if prepared_statements_enabled {
+                        if self.prepared_statements_enabled {
                             let close: Close = (&message).try_into()?;
 
                             if close.is_prepared_statement() && !close.anonymous() {
@@ -1643,6 +1623,32 @@ where
         }
     }
 
+    /// Register the parse to the server cache and send it to the server if it's generated by pgcat
+    ///
+    /// Also updates the pool LRU that this parse was used recently
+    async fn register_parse_to_server_cache(
+        &self,
+        should_send_parse_to_server: bool,
+        parse: &Arc<Parse>,
+        pool: &ConnectionPool,
+        server: &mut Server,
+        address: &Address,
+    ) -> Result<(), Error> {
+        // We want to update this in the LRU to know this was recently used and add it if it isn't there already
+        // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it go removed)
+        pool.register_parse_to_cache((*Arc::clone(parse)).clone());
+
+        if let Err(err) = server
+            .register_prepared_statement(parse, should_send_parse_to_server)
+            .await
+        {
+            pool.ban(address, BanReason::MessageSendFailed, Some(&self.stats));
+            return Err(err);
+        }
+
+        Ok(())
+    }
+
     /// Register and rewrite the parse statement to the clients statement cache
     /// and also the pool's statement cache
     fn rewrite_parse(
@@ -1659,7 +1665,15 @@ where
         let client_given_name = parse.name.to_string();
 
         // Add the statement to the cache or check if we already have it
-        let new_parse = pool.register_parse_to_cache(parse);
+        let new_parse = match pool.register_parse_to_cache(parse) {
+            Some(parse) => parse,
+            None => {
+                return Err(Error::ClientError(format!(
+                    "Could not store Prepared statement `{}`",
+                    client_given_name
+                )))
+            }
+        };
 
         debug!(
             "Renamed prepared statement `{}` to `{}` and saved to cache",
