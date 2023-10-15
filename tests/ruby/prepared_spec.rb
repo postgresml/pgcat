@@ -1,7 +1,7 @@
 require_relative 'spec_helper'
 
 describe 'Prepared statements' do
-  let(:processes) { Helpers::Pgcat.single_shard_setup('sharded_db', 5, prepared_statements_cache_size=500) }
+  let(:processes) { Helpers::Pgcat.single_instance_setup('sharded_db', 5, "transaction", 500) }
 
   context 'enabled' do
     it 'will work over the same connection' do
