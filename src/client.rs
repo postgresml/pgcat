@@ -107,7 +107,7 @@ pub struct Client<S, T> {
     prepared_statements: HashMap<String, Arc<Parse>>,
 
     /// Used to store name of rewritten prepared statement for the server cache
-    parse_statement_to_prepare: Option<Arc<Parse>>,
+    parse_message_to_prepare: Option<Arc<Parse>>,
 
     /// The name of the statement the client is
     active_prepared_statement_name: Option<String>,
@@ -721,7 +721,7 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
-            parse_statement_to_prepare: None,
+            parse_message_to_prepare: None,
             active_prepared_statement_name: None,
         })
     }
@@ -758,7 +758,7 @@ where
             shutdown,
             connected_to_server: false,
             prepared_statements: HashMap::new(),
-            parse_statement_to_prepare: None,
+            parse_message_to_prepare: None,
             active_prepared_statement_name: None,
         })
     }
@@ -1035,7 +1035,7 @@ where
                     if message[0] as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
                         self.buffer.clear();
-                        self.parse_statement_to_prepare.take();
+                        self.parse_message_to_prepare.take();
                         self.active_prepared_statement_name.take();
                     }
 
@@ -1381,7 +1381,7 @@ where
 
                         let mut should_send_to_server = true;
 
-                        if let Some(parse) = self.parse_statement_to_prepare.take() {
+                        if let Some(parse) = self.parse_message_to_prepare.take() {
                             // We may have had a named describe before the sync
                             self.active_prepared_statement_name.take();
 
@@ -1666,7 +1666,7 @@ where
             client_given_name, new_parse.name
         );
 
-        self.parse_statement_to_prepare = Some(new_parse.clone());
+        self.parse_message_to_prepare = Some(new_parse.clone());
 
         self.prepared_statements
             .insert(client_given_name, new_parse.clone());
