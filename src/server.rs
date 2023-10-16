@@ -461,14 +461,9 @@ impl Server {
             None => &user.username,
         };
 
-        #[allow(clippy::match_as_ref)]
-        #[allow(clippy::manual_map)]
-        let password = match user.server_password {
-            Some(ref server_password) => Some(server_password),
-            None => match user.password {
-                Some(ref password) => Some(password),
-                None => None,
-            },
+        let password = match user.server_password.as_ref() {
+            Some(server_password) => Some(server_password),
+            None => user.password.as_ref(),
         };
 
         startup(&mut stream, username, database).await?;
