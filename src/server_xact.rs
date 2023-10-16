@@ -133,38 +133,9 @@ pub struct ServerTxnMetaData {
     pub params: CommonTxnParams,
 }
 
-impl CommonTxnParams {
-    pub fn set_state_helper(from_state: &mut TransactionState, to_state: TransactionState) {
-        match *from_state {
-            TransactionState::Idle => {
-                *from_state = to_state;
-            }
-            TransactionState::InTransaction => match to_state {
-                TransactionState::Idle => {
-                    warn!("Cannot go back to idle from a transaction.");
-                }
-                _ => {
-                    *from_state = to_state;
-                }
-            },
-            TransactionState::InFailedTransaction => match to_state {
-                TransactionState::Idle => {
-                    warn!("Cannot go back to idle from a failed transaction.");
-                }
-                TransactionState::InTransaction => {
-                    warn!("Cannot go back to a transaction from a failed transaction.")
-                }
-                _ => {
-                    *from_state = to_state;
-                }
-            },
-        }
-    }
-}
-
 impl ServerTxnMetaData {
     pub fn set_state(&mut self, state: TransactionState) {
-        CommonTxnParams::set_state_helper(&mut self.params.state, state);
+        self.params.state = state;
     }
 
     pub fn state(&self) -> TransactionState {

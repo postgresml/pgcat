@@ -931,21 +931,21 @@ impl Server {
                 'Z' => {
                     let transaction_state = message.get_u8() as char;
 
-                    let params = &mut self.transaction_metadata.params;
+                    let metadata = &mut self.transaction_metadata;
                     match transaction_state {
                         // In transaction.
                         'T' => {
-                            params.state = TransactionState::InTransaction;
+                            metadata.set_state(TransactionState::InTransaction);
                         }
 
                         // Idle, transaction over.
                         'I' => {
-                            params.state = TransactionState::Idle;
+                            metadata.set_state(TransactionState::Idle);
                         }
 
                         // Some error occurred, the transaction was rolled back.
                         'E' => {
-                            params.state = TransactionState::InFailedTransaction;
+                            metadata.set_state(TransactionState::InFailedTransaction);
                         }
 
                         // Something totally unexpected, this is not a Postgres server we know.

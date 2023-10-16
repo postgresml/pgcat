@@ -29,7 +29,30 @@ pub struct ClientTxnMetaData {
 
 impl ClientTxnMetaData {
     pub fn set_state(&mut self, state: TransactionState) {
-        CommonTxnParams::set_state_helper(&mut self.params.state, state);
+        match self.params.state {
+            TransactionState::Idle => {
+                self.params.state = state;
+            }
+            TransactionState::InTransaction => match state {
+                TransactionState::Idle => {
+                    warn!("Cannot go back to idle from a transaction.");
+                }
+                _ => {
+                    self.params.state = state;
+                }
+            },
+            TransactionState::InFailedTransaction => match state {
+                TransactionState::Idle => {
+                    warn!("Cannot go back to idle from a failed transaction.");
+                }
+                TransactionState::InTransaction => {
+                    warn!("Cannot go back to a transaction from a failed transaction.")
+                }
+                _ => {
+                    self.params.state = state;
+                }
+            },
+        }
     }
 
     pub fn state(&self) -> TransactionState {

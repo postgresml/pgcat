@@ -114,8 +114,13 @@ pub trait Message: Sized {
             buf.put_u8(mt);
         }
 
-        buf.put_i32(self.message_length() as i32);
-        self.encode_body(buf)
+        let message_length = self.message_length();
+        let original_buf_len = buf.len();
+        buf.put_i32(message_length as i32);
+        let result = self.encode_body(buf);
+        assert_eq!(buf.len() - original_buf_len, message_length);
+
+        result
     }
 
     /// Default implementation for decoding message.
