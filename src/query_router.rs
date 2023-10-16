@@ -338,7 +338,8 @@ impl QueryRouter {
         Some((command, value))
     }
 
-    const UNSUPPORTED_STATEMENTS_FOR_PARSING: [&'static str; 3] = ["COPY", "TRUNCATE", "VACUUM"];
+    const UNSUPPORTED_STATEMENTS_FOR_PARSING: [&'static str; 4] =
+        ["COPY", "SET", "TRUNCATE", "VACUUM"];
 
     pub fn parse(&self, message: &BytesMut) -> Result<Vec<Statement>, Error> {
         let mut message_cursor = Cursor::new(message);
