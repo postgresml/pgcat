@@ -29,7 +29,7 @@ pub struct ClientTxnMetaData {
 
 impl ClientTxnMetaData {
     pub fn set_state(&mut self, state: TransactionState) {
-        set_state_helper(&mut self.params.state, state);
+        CommonTxnParams::set_state_helper(&mut self.params.state, state);
     }
 
     pub fn state(&self) -> TransactionState {
@@ -198,11 +198,19 @@ where
             );
 
             // Set the transaction parameters on the first server.
-            server.transaction_metadata_mut().params = self.xact_info.params.clone();
+            self.set_transaction_params_to_server(server);
         } else {
             // If it's not a BEGIN, then it's an irrecoverable error.
             panic!("The statement is not a BEGIN statement.");
         }
+    }
+
+    fn set_transaction_params_to_server(&mut self, server: &mut Server) {
+        let server_params = &mut server.transaction_metadata_mut().params;
+
+        server_params.set_isolation_level(self.xact_info.params.get_isolation_level());
+        server_params.set_read_only(self.xact_info.params.is_read_only());
+        server_params.set_deferrable(self.xact_info.params.is_deferrable());
     }
 
     /// This function performs a distribted abort/commit if necessary, and also resets the transaction

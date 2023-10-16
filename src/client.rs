@@ -854,10 +854,12 @@ where
                             initial_parsed_ast = Some(ast);
                         }
                         Err(error) => {
-                            warn!(
-                                "Query parsing error: {} (client: {})",
-                                error, client_identifier
-                            );
+                            if error != Error::UnsupportedStatement {
+                                warn!(
+                                    "Query parsing error: {} (client: {})",
+                                    error, client_identifier
+                                );
+                            }
                         }
                     }
                 }
@@ -1309,8 +1311,6 @@ where
                 ControlFlow::Break(ast) => ast,
             };
 
-            self.assign_client_transaction_state(all_conns);
-
             if all_conns.is_empty() || self.is_transparent_mode() {
                 let current_shard = query_router.shard();
 
@@ -1553,6 +1553,8 @@ where
 
                 server.sync_parameters(&self.server_parameters).await?;
             }
+
+            self.assign_client_transaction_state(all_conns);
 
             let is_distributed_xact = all_conns.len() > 1;
             let server_key = query_router.shard().unwrap_or(0);
@@ -2211,17 +2213,28 @@ fn parse_ast(
 ) -> Option<Vec<sqlparser::ast::Statement>> {
     // We don't want to parse again if we already parsed it as the initial message
     match *initial_parsed_ast {
-        Some(_) => Some(initial_parsed_ast.take().unwrap()),
+        Some(_) => {
+            let parsed_ast = initial_parsed_ast.take().unwrap();
+            // if 'parsed_ast' is empty, it means that there was a failed
+            // attempt to parse the query as a custom command, earlier above.
+            if parsed_ast.is_empty() {
+                None
+            } else {
+                Some(parsed_ast)
+            }
+        }
         None => match query_router.parse(message) {
             Ok(ast) => {
                 let _ = query_router.infer(&ast);
                 Some(ast)
             }
             Err(error) => {
-                warn!(
-                    "Query parsing error: {} (client: {})",
-                    error, client_identifier
-                );
+                if error != Error::UnsupportedStatement {
+                    warn!(
+                        "Query parsing error: {} (client: {})",
+                        error, client_identifier
+                    );
+                }
                 None
             }
         },
