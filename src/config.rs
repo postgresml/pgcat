@@ -477,6 +477,9 @@ impl Default for General {
 /// - session: server is attached to the client.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum PoolMode {
+    #[serde(alias = "transparent", alias = "Transparent")]
+    Transparent,
+
     #[serde(alias = "transaction", alias = "Transaction")]
     Transaction,
 
@@ -487,6 +490,7 @@ pub enum PoolMode {
 impl ToString for PoolMode {
     fn to_string(&self) -> String {
         match *self {
+            PoolMode::Transparent => "transparent".to_string(),
             PoolMode::Transaction => "transaction".to_string(),
             PoolMode::Session => "session".to_string(),
         }

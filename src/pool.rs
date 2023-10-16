@@ -92,7 +92,7 @@ impl From<&Address> for PoolIdentifier {
 /// Pool settings.
 #[derive(Clone, Debug)]
 pub struct PoolSettings {
-    /// Transaction or Session.
+    /// Transparent, Transaction or Session.
     pub pool_mode: PoolMode,
 
     /// Random or LeastOutstandingConnections.

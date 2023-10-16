@@ -24,7 +24,9 @@ use crate::messages::BytesMutReader;
 use crate::messages::*;
 use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
+use crate::query_messages::{ErrorResponse, Message};
 use crate::scram::ScramSha256;
+use crate::server_xact::*;
 use crate::stats::ServerStats;
 use std::io::Write;
 
@@ -106,7 +108,7 @@ impl StreamInner {
 }
 
 #[derive(Copy, Clone)]
-struct CleanupState {
+pub(crate) struct CleanupState {
     /// If server connection requires RESET ALL before checkin because of set statement
     needs_cleanup_set: bool,
 
@@ -131,7 +133,7 @@ impl CleanupState {
         self.needs_cleanup_prepare = true;
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.needs_cleanup_set = false;
         self.needs_cleanup_prepare = false;
     }
@@ -154,12 +156,15 @@ static TRACKED_PARAMETERS: Lazy<HashSet<String>> = Lazy::new(|| {
     set.insert("TimeZone".to_string());
     set.insert("standard_conforming_strings".to_string());
     set.insert("application_name".to_string());
+    for param in TRANSACTION_PARAMETERS.iter() {
+        set.insert(param.clone());
+    }
     set
 });
 
 #[derive(Debug, Clone)]
 pub struct ServerParameters {
-    parameters: HashMap<String, String>,
+    pub(crate) parameters: HashMap<String, String>,
 }
 
 impl Default for ServerParameters {
@@ -183,6 +188,7 @@ impl ServerParameters {
             false,
         );
         server_parameters.set_param("application_name".to_string(), "pgcat".to_string(), false);
+        CommonTxnParams::set_default_server_parameters(&mut server_parameters);
 
         server_parameters
     }
@@ -265,7 +271,7 @@ impl From<&ServerParameters> for BytesMut {
 pub struct Server {
     /// Server host, e.g. localhost,
     /// port, e.g. 5432, and role, e.g. primary or replica.
-    address: Address,
+    pub(crate) address: Address,
 
     /// Server TCP connection.
     stream: BufStream<StreamInner>,
@@ -274,14 +280,14 @@ pub struct Server {
     buffer: BytesMut,
 
     /// Server information the server sent us over on startup.
-    server_parameters: ServerParameters,
+    pub(crate) server_parameters: ServerParameters,
 
     /// Backend id and secret key used for query cancellation.
     process_id: i32,
     secret_key: i32,
 
     /// Is the server inside a transaction or idle.
-    in_transaction: bool,
+    pub(crate) transaction_metadata: ServerTxnMetaData,
 
     /// Is there more data for the client to read.
     data_available: bool,
@@ -293,7 +299,7 @@ pub struct Server {
     bad: bool,
 
     /// If server connection requires reset statements before checkin
-    cleanup_state: CleanupState,
+    pub(crate) cleanup_state: CleanupState,
 
     /// Mapping of clients and servers used for query cancellation.
     client_server_map: ClientServerMap,
@@ -493,7 +499,7 @@ impl Server {
                 }
             };
 
-            trace!("Message: {}", code);
+            trace!("server Message: {}", code);
 
             match code {
                 // Authentication
@@ -790,14 +796,14 @@ impl Server {
                         }
                     };
 
-                    let server = Server {
+                    let mut server = Server {
                         address: address.clone(),
                         stream: BufStream::new(stream),
                         buffer: BytesMut::with_capacity(8196),
                         server_parameters,
                         process_id,
                         secret_key,
-                        in_transaction: false,
+                        transaction_metadata: Default::default(),
                         in_copy_mode: false,
                         data_available: false,
                         bad: false,
@@ -820,6 +826,11 @@ impl Server {
                         log_client_parameter_status_changes,
                         prepared_statements: BTreeSet::new(),
                     };
+
+                    // We want to make sure that all servers are operating on the same isolation level.
+                    server
+                        .sync_given_parameter_keys(&TRANSACTION_PARAMETERS)
+                        .await?;
 
                     return Ok(server);
                 }
@@ -920,20 +931,21 @@ impl Server {
                 'Z' => {
                     let transaction_state = message.get_u8() as char;
 
+                    let metadata = &mut self.transaction_metadata;
                     match transaction_state {
                         // In transaction.
                         'T' => {
-                            self.in_transaction = true;
+                            metadata.set_state(TransactionState::InTransaction);
                         }
 
                         // Idle, transaction over.
                         'I' => {
-                            self.in_transaction = false;
+                            metadata.set_state(TransactionState::Idle);
                         }
 
                         // Some error occurred, the transaction was rolled back.
                         'E' => {
-                            self.in_transaction = true;
+                            metadata.set_state(TransactionState::InFailedTransaction);
                         }
 
                         // Something totally unexpected, this is not a Postgres server we know.
@@ -976,7 +988,7 @@ impl Server {
                                     // No great way to differentiate between set and set local
                                     // As a result, we will miss cases when set statements are used in transactions
                                     // This will reduce amount of reset statements sent
-                                    if !self.in_transaction {
+                                    if !self.in_transaction() {
                                         debug!("Server connection marked for clean up");
                                         self.cleanup_state.needs_cleanup_set = true;
                                     }
@@ -1183,8 +1195,8 @@ impl Server {
     /// If the server is still inside a transaction.
     /// If the client disconnects while the server is in a transaction, we will clean it up.
     pub fn in_transaction(&self) -> bool {
-        debug!("Server in transaction: {}", self.in_transaction);
-        self.in_transaction
+        debug!("Server in transaction: {:?}", self.transaction_metadata);
+        !self.transaction_metadata.is_idle()
     }
 
     pub fn in_copy_mode(&self) -> bool {
@@ -1227,21 +1239,7 @@ impl Server {
     pub async fn sync_parameters(&mut self, parameters: &ServerParameters) -> Result<(), Error> {
         let parameter_diff = self.server_parameters.compare_params(parameters);
 
-        if parameter_diff.is_empty() {
-            return Ok(());
-        }
-
-        let mut query = String::from("");
-
-        for (key, value) in parameter_diff {
-            query.push_str(&format!("SET {} TO '{}';", key, value));
-        }
-
-        let res = self.query(&query).await;
-
-        self.cleanup_state.reset();
-
-        res
+        self.sync_given_parameter_key_values(&parameter_diff).await
     }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
@@ -1268,18 +1266,27 @@ impl Server {
     /// It will use the simple query protocol.
     /// Result will not be returned, so this is useful for things like `SET` or `ROLLBACK`.
     pub async fn query(&mut self, query: &str) -> Result<(), Error> {
-        debug!("Running `{}` on server {:?}", query, self.address);
+        debug!("Running `{}` on server {}", query, self.address);
 
         let query = simple_query(query);
 
         self.send(&query).await?;
 
+        let mut err = None;
         loop {
-            let _ = self.recv(None).await?;
+            let mut response = self.recv(None).await?;
+
+            if response[0] == b'E' && err.is_none() {
+                err = Some(ErrorResponse::decode(&mut response));
+            }
 
             if !self.data_available {
                 break;
             }
+        }
+
+        if let Some(err) = err {
+            return Err(Error::ErrorResponse(err?));
         }
 
         Ok(())
@@ -1321,6 +1328,8 @@ impl Server {
         if self.in_copy_mode() {
             warn!(target: "pgcat::server::cleanup", "Server returned while still in copy-mode");
         }
+
+        self.transaction_metadata = Default::default();
 
         Ok(())
     }
@@ -1384,6 +1393,14 @@ impl Server {
         let mut message = server.recv(None).await?;
 
         parse_query_message(&mut message).await
+    }
+
+    pub fn transaction_metadata(&self) -> &ServerTxnMetaData {
+        &self.transaction_metadata
+    }
+
+    pub fn transaction_metadata_mut(&mut self) -> &mut ServerTxnMetaData {
+        &mut self.transaction_metadata
     }
 }
 

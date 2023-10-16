@@ -1,5 +1,7 @@
 //! Errors.
 
+use crate::query_messages::ErrorResponse;
+
 /// Various errors.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -29,6 +31,8 @@ pub enum Error {
     QueryRouterParserError(String),
     QueryRouterError(String),
     InvalidShardId(usize),
+    ErrorResponse(ErrorResponse),
+    IncompletePacket,
 }
 
 #[derive(Clone, PartialEq, Debug)]

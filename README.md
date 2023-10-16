@@ -13,6 +13,7 @@ PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load bal
 |-------------|------------|--------------|
 | Transaction pooling | **Stable** | Identical to PgBouncer with notable improvements for handling bad clients and abandoned transactions. |
 | Session pooling | **Stable** | Identical to PgBouncer. |
+| Transparent pooling | **Stable** | A new pooling mechanism that enables transparent (distributed) transactions. |
 | Multi-threaded runtime | **Stable** | Using Tokio asynchronous runtime, the pooler takes advantage of multicore machines. |
 | Load balancing of read queries | **Stable** | Queries are automatically load balanced between replicas and the primary. |
 | Failover | **Stable** | Queries are automatically rerouted around broken replicas, validated by regular health checks. |
@@ -144,6 +145,9 @@ To use session mode, change `pool_mode = "session"`.
 In transaction mode, a client talks to one server for the duration of a single transaction; once it's over, the server is returned to the pool. Prepared statements, `SET`, and advisory locks are not supported; alternatives are to use `SET LOCAL` and `pg_advisory_xact_lock` which are scoped to the transaction.
 
 This mode is enabled by default.
+
+### Transparent mode
+In transparent mode, a client talks to one or more servers for the duration of a single transaction; once it's over, the servers are returned to the pool. `SET SHARD` and `SET SHARDING KEY` statements **are** supported, but prepared statements, other `SET` statements and advisory locks **are not** supported.
 
 ### Load balancing of read queries
 All queries are load balanced against the configured servers using either the random or least open connections algorithms. The most straightforward configuration example would be to put this pooler in front of several replicas and let it load balance all queries.
