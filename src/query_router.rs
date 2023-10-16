@@ -1880,7 +1880,6 @@ mod test {
 
         let query = simple_query("SELECT * FROM pg_database");
         let ast = qr.parse(&query).unwrap();
-        println!(">>> {:?}", ast);
 
         let res = qr.execute_plugins(&ast).await;
 
