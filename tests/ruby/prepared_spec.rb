@@ -165,7 +165,7 @@ describe 'Prepared statements' do
     end
 
     it "test_reuses_statement_cache_with_different_statement_name_same_connection" do
-      processes = setup_pgcat(1, 5)
+      processes = setup_pgcat(5, 5)
       conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
       10.times do |i|
@@ -180,7 +180,7 @@ describe 'Prepared statements' do
     end
 
     it "test_reuses_statement_cache_with_different_statement_name_different_connection" do
-      processes = setup_pgcat(1, 5)
+      processes = setup_pgcat(5, 5)
 
       10.times do |i|
         conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
@@ -195,7 +195,34 @@ describe 'Prepared statements' do
       expect(n_statements).to eq(1)
     end
 
-    # TODO: Test reject if client tries to send an already prepared statement name
-    # TODO: Test when prepared statements disabled
+    it "test_reject_name_reuse" do
+      processes = setup_pgcat(1)
+
+      conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
+      conn.prepare('statement1', 'SELECT 1')
+      conn.exec_prepared('statement1')
+
+      conn.prepare('statement1', 'SELECT 1')
+    end
+
+    it "test_reload_config" do
+      processes = setup_pgcat(1)
+
+      conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
+
+      # prepare query
+      conn.prepare('statement1', 'SELECT 1')
+      conn.exec_prepared('statement1')
+
+      # Reload config which triggers pool recreation
+      new_configs = processes.pgcat.current_config
+      new_configs["pools"]["sharded_db"]["prepared_statements_cache_size"] = 5
+      processes.pgcat.update_config(new_configs)
+      processes.pgcat.reload_config
+
+      # still able to run prepared query
+      conn.exec_prepared('statement1')
+
+    end
   end
 end
