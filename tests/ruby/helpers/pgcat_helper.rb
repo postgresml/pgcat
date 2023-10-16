@@ -74,7 +74,7 @@ module Helpers
       end
     end
 
-    def self.single_instance_setup(pool_name, pool_size, pool_mode="transaction", prepared_statements_cache_size=500, lb_mode="random", log_level="trace")
+    def self.single_instance_setup(pool_name, pool_size, pool_mode="transaction", lb_mode="random", log_level="trace")
       user = {
         "password" => "sharding_user",
         "pool_size" => pool_size,
@@ -92,7 +92,6 @@ module Helpers
         "#{pool_name}" => {
           "default_role" => "primary",
           "pool_mode" => pool_mode,
-          "prepared_statements_cache_size" => prepared_statements_cache_size,
           "load_balancing_mode" => lb_mode,
           "primary_reads_enabled" => false,
           "query_parser_enabled" => false,

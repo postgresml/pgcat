@@ -1124,6 +1124,7 @@ impl From<&Config> for std::collections::HashMap<String, String> {
 impl Config {
     /// Print current configuration.
     pub fn show(&self) {
+        info!("Config path: {}", self.path);
         info!("Ban time: {}s", self.general.ban_time);
         info!(
             "Idle client in transaction timeout: {}ms",
