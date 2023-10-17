@@ -1323,34 +1323,10 @@ where
                             }
                         }
 
-                        // 1. if we get a bind, we want to make ensure that the server has the prepared statement
-                        // 2. check if the server has already prepared this statement
+                        // 1. check if the server has already prepared this statement and don't resend it
+                        // 2. if we get a bind, we want to make ensure that the server has the prepared statement
 
                         // 1.
-                        // We need to make sure the the current prepared statement that the client is executing exists
-                        // on the checked out server connection before sending it the rest of the data
-                        if let Some(name) = self.active_prepared_statement_name.take() {
-                            match self.prepared_statements.get(&name) {
-                                Some(parse) => {
-                                    debug!("Prepared statement `{}` found in cache", parse.name);
-                                    // In this case we don't want to send the parse message to the server
-                                    self.register_parse_to_server_cache(
-                                        true, parse, &pool, server, &address,
-                                    )
-                                    .await?;
-                                }
-
-                                None => {
-                                    return Err(Error::ClientError(format!(
-                                        "prepared statement `{}` not found",
-                                        name
-                                    )))
-                                }
-                            };
-                        }
-
-                        // 2.
-                        // Check if server already has the prepared statement we're trying to send it
                         //
                         // Prepared statements can arrive like this
                         // 1. Without named describe
@@ -1403,6 +1379,29 @@ where
                                 )
                                 .await?;
                             }
+                        }
+
+                        // 2.
+                        // We need to make sure the the current prepared statement that the client is executing exists
+                        // on the checked out server connection before sending it the rest of the data
+                        if let Some(name) = self.active_prepared_statement_name.take() {
+                            match self.prepared_statements.get(&name) {
+                                Some(parse) => {
+                                    debug!("Prepared statement `{}` found in cache", parse.name);
+                                    // In this case we don't want to send the parse message to the server
+                                    self.register_parse_to_server_cache(
+                                        true, parse, &pool, server, &address,
+                                    )
+                                    .await?;
+                                }
+
+                                None => {
+                                    return Err(Error::ClientError(format!(
+                                        "prepared statement `{}` not found",
+                                        name
+                                    )))
+                                }
+                            };
                         }
 
                         if should_send_to_server {
