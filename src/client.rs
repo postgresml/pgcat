@@ -1365,9 +1365,7 @@ where
                                     response.put(ready_for_query(server.in_transaction()));
                                 }
 
-                                
-                                if let Err(err) =
-                                    write_all_flush(&mut self.write, &response).await
+                                if let Err(err) = write_all_flush(&mut self.write, &response).await
                                 {
                                     // We might be in some kind of error/in between protocol state
                                     server.mark_bad();
@@ -1421,7 +1419,6 @@ where
                             )
                             .await?;
                         }
-                        
 
                         self.buffer.clear();
 
