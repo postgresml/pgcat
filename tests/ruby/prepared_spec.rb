@@ -1,21 +1,22 @@
 require_relative 'spec_helper'
 
 describe 'Prepared statements' do
-  def setup_pgcat(pool_size=5, prepared_statements_cache_size=100, server_round_robin=false)
-    processes = Helpers::Pgcat.single_instance_setup('sharded_db', pool_size, "transaction")
+  let(:pool_size) { 5 }
+  let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", pool_size) }
+  let(:prepared_statements_cache_size) { 100 }
+  let(:server_round_robin) { false }
 
+  before do
     new_configs = processes.pgcat.current_config
     new_configs["general"]["server_round_robin"] = server_round_robin
     new_configs["pools"]["sharded_db"]["prepared_statements_cache_size"] = prepared_statements_cache_size
+    new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] =  pool_size
     processes.pgcat.update_config(new_configs)
     processes.pgcat.reload_config
-
-    processes
   end
 
-  context 'enabled' do
-    it 'test_prepared_statement' do
-      processes = setup_pgcat()
+  context 'when trying prepared statements' do
+    it 'it allows unparameterized statements to succeed' do
       conn1 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
       conn2 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
@@ -45,8 +46,7 @@ describe 'Prepared statements' do
         conn2.close if conn2
     end
 
-    it 'test_prepared_statement_params' do
-      processes = setup_pgcat()
+    it 'it allows parameterized statements to succeed' do
       conn1 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
       conn2 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
@@ -76,9 +76,10 @@ describe 'Prepared statements' do
        conn2.close if conn2
 
     end
+  end
 
-    it "test_parse_larger_than_pkt_buf" do
-      processes = setup_pgcat()
+  context 'when trying large packets' do
+    it "works with large parse" do
       conn1 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
       long_string = "1" * 4096 * 10
@@ -95,26 +96,7 @@ describe 'Prepared statements' do
       conn1.close if conn1
     end
 
-    it "test_parse_large" do
-      processes = setup_pgcat()
-      conn1 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
-
-      long_string = "1" * 4096 * 10
-      prepared_query = "SELECT '#{long_string}'"
-    
-  
-      # prepare query on server 1 and client 1
-      conn1.prepare('statement1', prepared_query)
-      result = conn1.exec_prepared('statement1')
-    
-      # assert result matches long_string
-      expect(result.getvalue(0, 0)).to eq(long_string)
-    ensure
-      conn1.close if conn1
-    end
-
-    it "test_bind_large" do
-      processes = setup_pgcat()
+    it "works with large bind" do
       conn1 = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
     
       long_string = "1" * 4096 * 10
@@ -129,10 +111,13 @@ describe 'Prepared statements' do
     ensure
       conn1.close if conn1
     end
+  end
 
-    it "test_evict_statement_cache" do
-      # cache size 1
-      processes = setup_pgcat(1, 1)
+  context 'when statement cache is smaller than set of unqiue statements' do
+    let(:prepared_statements_cache_size) { 1 }
+    let(:pool_size) { 1 }
+
+    it "evicts all but 1 statement from the server cache" do
       conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
       5.times do |i|
@@ -146,10 +131,13 @@ describe 'Prepared statements' do
       n_statements = conn.exec("SELECT count(*) FROM pg_prepared_statements").getvalue(0, 0).to_i
       expect(n_statements).to eq(1)
     end
+  end
 
-    it "test_does_not_evict_statement_cache" do
+  context 'when statement cache is larger than set of unqiue statements' do
+    let(:pool_size) { 1 }
+
+    it "does not evict any of the statements from the cache" do
       # cache size 5
-      processes = setup_pgcat(1, 5)
       conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
       5.times do |i|
@@ -163,9 +151,13 @@ describe 'Prepared statements' do
       n_statements = conn.exec("SELECT count(*) FROM pg_prepared_statements").getvalue(0, 0).to_i
       expect(n_statements).to eq(5)
     end
+  end
 
-    it "test_reuses_statement_cache_with_different_statement_name_same_connection" do
-      processes = setup_pgcat(5, 5)
+  context 'when preparing the same query' do
+    let(:prepared_statements_cache_size) { 5 }
+    let(:pool_size) { 5 }
+
+    it "reuses statement cache when there are different statement names on the same connection" do
       conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
       10.times do |i|
@@ -179,9 +171,7 @@ describe 'Prepared statements' do
       expect(n_statements).to eq(1)
     end
 
-    it "test_reuses_statement_cache_with_different_statement_name_different_connection" do
-      processes = setup_pgcat(5, 5)
-
+    it "reuses statement cache when there are different statement names on different connections" do
       10.times do |i|
         conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
         statement_name = "statement_#{i}"
@@ -194,20 +184,12 @@ describe 'Prepared statements' do
       n_statements = conn.exec("SELECT count(*) FROM pg_prepared_statements").getvalue(0, 0).to_i
       expect(n_statements).to eq(1)
     end
+  end
 
-    it "test_reject_name_reuse" do
-      processes = setup_pgcat(1)
-
-      conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
-      conn.prepare('statement1', 'SELECT 1')
-      conn.exec_prepared('statement1')
-
-      conn.prepare('statement1', 'SELECT 1')
-    end
+  context 'when reloading config' do
+    let(:pool_size) { 1 }
 
     it "test_reload_config" do
-      processes = setup_pgcat(1)
-
       conn = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
 
       # prepare query
@@ -216,13 +198,17 @@ describe 'Prepared statements' do
 
       # Reload config which triggers pool recreation
       new_configs = processes.pgcat.current_config
-      new_configs["pools"]["sharded_db"]["prepared_statements_cache_size"] = 5
+      new_configs["pools"]["sharded_db"]["prepared_statements_cache_size"] = prepared_statements_cache_size + 1
       processes.pgcat.update_config(new_configs)
       processes.pgcat.reload_config
 
+      # check that we're starting with no prepared statements on the server
+      conn_check = PG.connect(processes.pgcat.connection_string('sharded_db', 'sharding_user'))
+      n_statements = conn_check.exec("SELECT count(*) FROM pg_prepared_statements").getvalue(0, 0).to_i
+      expect(n_statements).to eq(0)
+
       # still able to run prepared query
       conn.exec_prepared('statement1')
-
     end
   end
 end
