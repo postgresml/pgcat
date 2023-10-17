@@ -1323,11 +1323,6 @@ where
                             }
                         }
 
-                        // 1. check if the server has already prepared this statement and don't resend it
-                        // 2. if we get a bind, we want to make ensure that the server has the prepared statement
-
-                        // 1.
-                        //
                         // Prepared statements can arrive like this
                         // 1. Without named describe
                         //      Client: Parse, with name, query and params
@@ -1342,26 +1337,25 @@ where
                         //              ParameterDescription
                         //              RowDescription
                         //              ReadyForQuery
-                        //
+
+                        // 1. check if the server has already prepared this statement and don't resend it
+                        // 2. if we get a bind, we want to make ensure that the server has the prepared statement
+
+                        // 1.
                         // If the prepared statement already exists on the checked out server, we will only send the ParseComplete and ReadyForQuery packets
                         // regardless if it came with a named describe or not
 
-                        let mut should_send_to_server = true;
-
                         if let Some(parse) = self.parse_message_to_prepare.take() {
-                            // We may have had a named describe before the sync
-                            self.active_prepared_statement_name.take();
-
                             if server.has_prepared_statement(&parse.name) {
                                 debug!("Prepared statement `{}` found in server cache", parse.name);
-                                should_send_to_server = false;
 
-                                // Send parse complete and ready for query to client
-                                // TODO: Check if this is valid in the case where a named describe is sent after the parse and before the sync
-                                let mut response = parse_complete();
-                                response.put(ready_for_query(server.in_transaction()));
+                                // We don't want to send the parse message to the server
+                                // The parse message is the first message in the buffer so we read it off the buffer
+                                Parse::remove_from_buffer_start(&mut self.buffer)?;
 
-                                if let Err(err) = write_all_flush(&mut self.write, &response).await
+                                // Send parse complete to client
+                                if let Err(err) =
+                                    write_all_flush(&mut self.write, &parse_complete()).await
                                 {
                                     // We might be in some kind of error/in between protocol state
                                     server.mark_bad();
@@ -1404,17 +1398,15 @@ where
                             };
                         }
 
-                        if should_send_to_server {
-                            self.send_and_receive_loop(
-                                code,
-                                None,
-                                server,
-                                &address,
-                                &pool,
-                                &self.stats.clone(),
-                            )
-                            .await?;
-                        }
+                        self.send_and_receive_loop(
+                            code,
+                            None,
+                            server,
+                            &address,
+                            &pool,
+                            &self.stats.clone(),
+                        )
+                        .await?;
 
                         self.buffer.clear();
 

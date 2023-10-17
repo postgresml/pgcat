@@ -879,6 +879,20 @@ impl Parse {
     pub fn anonymous(&self) -> bool {
         self.name.is_empty()
     }
+
+    /// Reads the parse message from the buffer and throws them away
+    pub fn remove_from_buffer_start(buf: &mut BytesMut) -> Result<(), Error> {
+        buf.get_u8();
+        buf.get_i32();
+        buf.read_string()?;
+        buf.read_string()?;
+
+        for _ in 0..buf.get_i16() {
+            buf.get_i32();
+        }
+
+        Ok(())
+    }
 }
 
 /// Bind (B) message.
