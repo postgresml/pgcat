@@ -1345,6 +1345,8 @@ where
                         // If the prepared statement already exists on the checked out server, we will only send the ParseComplete and ReadyForQuery packets
                         // regardless if it came with a named describe or not
 
+                        let mut should_send_to_server = true;
+
                         if let Some(parse) = self.parse_message_to_prepare.take() {
                             if server.has_prepared_statement(&parse.name) {
                                 debug!("Prepared statement `{}` found in server cache", parse.name);
@@ -1354,8 +1356,18 @@ where
                                 Parse::remove_from_buffer_start(&mut self.buffer)?;
 
                                 // Send parse complete to client
+                                let mut response = parse_complete();
+
+                                // This means we don't have anything important to send to the server
+                                // so we should just the roundtrip of sending the message to the server
+                                if (*self.buffer.first().unwrap_or(&0)) as char == 'S' {
+                                    should_send_to_server = false;
+                                    response.put(ready_for_query(server.in_transaction()));
+                                }
+
+                                
                                 if let Err(err) =
-                                    write_all_flush(&mut self.write, &parse_complete()).await
+                                    write_all_flush(&mut self.write, &response).await
                                 {
                                     // We might be in some kind of error/in between protocol state
                                     server.mark_bad();
@@ -1398,15 +1410,18 @@ where
                             };
                         }
 
-                        self.send_and_receive_loop(
-                            code,
-                            None,
-                            server,
-                            &address,
-                            &pool,
-                            &self.stats.clone(),
-                        )
-                        .await?;
+                        if should_send_to_server {
+                            self.send_and_receive_loop(
+                                code,
+                                None,
+                                server,
+                                &address,
+                                &pool,
+                                &self.stats.clone(),
+                            )
+                            .await?;
+                        }
+                        
 
                         self.buffer.clear();
 
