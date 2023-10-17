@@ -109,7 +109,7 @@ pub struct Client<S, T> {
     /// Used to store name of rewritten prepared statement for the server cache
     parse_message_to_prepare: Option<Arc<Parse>>,
 
-    /// The name of the statement the client is
+    /// The client given name of the active prepared statement
     active_prepared_statement_name: Option<String>,
 }
 
@@ -707,8 +707,8 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
-            addr,
             buffer: BytesMut::with_capacity(8196),
+            addr,
             cancel_mode: false,
             transaction_mode,
             process_id,
@@ -719,13 +719,13 @@ where
             admin,
             last_address_id: None,
             last_server_stats: None,
+            connected_to_server: false,
             pool_name: pool_name.clone(),
             username: username.clone(),
             server_parameters,
             shutdown,
-            connected_to_server: false,
-            prepared_statements: HashMap::new(),
             prepared_statements_enabled,
+            prepared_statements: HashMap::new(),
             parse_message_to_prepare: None,
             active_prepared_statement_name: None,
         })
@@ -745,8 +745,8 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
-            addr,
             buffer: BytesMut::with_capacity(8196),
+            addr,
             cancel_mode: true,
             transaction_mode: false,
             process_id,
@@ -757,13 +757,13 @@ where
             admin: false,
             last_address_id: None,
             last_server_stats: None,
+            connected_to_server: false,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
             server_parameters: ServerParameters::new(),
             shutdown,
-            connected_to_server: false,
-            prepared_statements: HashMap::new(),
             prepared_statements_enabled: false,
+            prepared_statements: HashMap::new(),
             parse_message_to_prepare: None,
             active_prepared_statement_name: None,
         })
