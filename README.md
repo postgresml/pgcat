@@ -141,7 +141,9 @@ In session mode, a client talks to one server for the duration of the connection
 To use session mode, change `pool_mode = "session"`.
 
 ### Transaction mode
-In transaction mode, a client talks to one server for the duration of a single transaction; once it's over, the server is returned to the pool. Prepared statements, `SET`, and advisory locks are not supported; alternatives are to use `SET LOCAL` and `pg_advisory_xact_lock` which are scoped to the transaction.
+In transaction mode, a client talks to one server for the duration of a single transaction; once it's over, the server is returned to the pool.
+In comparison to PGBouncer, prepared statements are supported.
+`SET`, and advisory locks are not supported; alternatives are to use `SET LOCAL` and `pg_advisory_xact_lock` which are scoped to the transaction.
 
 This mode is enabled by default.
 
