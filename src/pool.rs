@@ -1064,9 +1064,7 @@ impl ConnectionPool {
     /// Register a parse statement to the pool's cache and return the rewritten parse
     ///
     /// Do not pass an anonymous parse statement to this function
-    pub fn register_parse_to_cache(&self, parse: Parse) -> Option<Arc<Parse>> {
-        let hash = parse.get_hash();
-
+    pub fn register_parse_to_cache(&self, hash: u64, parse: Parse) -> Option<Arc<Parse>> {
         // We should only be calling this function if the cache is enabled
         match self.prepared_statement_cache {
             Some(ref prepared_statement_cache) => {

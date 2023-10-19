@@ -104,10 +104,10 @@ pub struct Client<S, T> {
     prepared_statements_enabled: bool,
 
     /// Mapping of client named prepared statement to rewritten parse messages
-    prepared_statements: HashMap<String, Arc<Parse>>,
+    prepared_statements: HashMap<String, (Arc<Parse>, u64)>,
 
     /// Used to store name of rewritten prepared statement for the server cache
-    parse_message_to_prepare: Option<Arc<Parse>>,
+    parse_message_to_prepare: Option<(Arc<Parse>, u64)>,
 
     /// The client given name of the active prepared statement
     active_prepared_statement_name: Option<String>,
@@ -1347,7 +1347,7 @@ where
 
                         let mut should_send_to_server = true;
 
-                        if let Some(parse) = self.parse_message_to_prepare.take() {
+                        if let Some((parse, hash)) = self.parse_message_to_prepare.take() {
                             if server.has_prepared_statement(&parse.name) {
                                 debug!("Prepared statement `{}` found in server cache", parse.name);
 
@@ -1379,7 +1379,7 @@ where
                                 // TODO: Consider adding the close logic that this function can send for eviction to the client buffer instead
                                 // In this case we don't want to send the parse message to the server because the client is sending it
                                 self.register_parse_to_server_cache(
-                                    false, &parse, &pool, server, &address,
+                                    false, hash, &parse, &pool, server, &address,
                                 )
                                 .await?;
                             }
@@ -1390,11 +1390,11 @@ where
                         // on the checked out server connection before sending it the rest of the data
                         if let Some(name) = self.active_prepared_statement_name.take() {
                             match self.prepared_statements.get(&name) {
-                                Some(parse) => {
+                                Some((parse, hash)) => {
                                     debug!("Prepared statement `{}` found in cache", parse.name);
                                     // In this case we don't want to send the parse message to the server
                                     self.register_parse_to_server_cache(
-                                        true, parse, &pool, server, &address,
+                                        true, *hash, parse, &pool, server, &address,
                                     )
                                     .await?;
                                 }
@@ -1632,6 +1632,7 @@ where
     async fn register_parse_to_server_cache(
         &self,
         should_send_parse_to_server: bool,
+        hash: u64,
         parse: &Arc<Parse>,
         pool: &ConnectionPool,
         server: &mut Server,
@@ -1639,7 +1640,7 @@ where
     ) -> Result<(), Error> {
         // We want to update this in the LRU to know this was recently used and add it if it isn't there already
         // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it go removed)
-        pool.register_parse_to_cache((*Arc::clone(parse)).clone());
+        pool.register_parse_to_cache(hash, (*Arc::clone(parse)).clone());
 
         if let Err(err) = server
             .register_prepared_statement(parse, should_send_parse_to_server)
@@ -1667,8 +1668,11 @@ where
 
         let client_given_name = parse.name.to_string();
 
+        // Compute the hash of the parse statement
+        let hash = parse.get_hash();
+
         // Add the statement to the cache or check if we already have it
-        let new_parse = match pool.register_parse_to_cache(parse) {
+        let new_parse = match pool.register_parse_to_cache(hash, parse) {
             Some(parse) => parse,
             None => {
                 return Err(Error::ClientError(format!(
@@ -1683,10 +1687,10 @@ where
             client_given_name, new_parse.name
         );
 
-        self.parse_message_to_prepare = Some(new_parse.clone());
+        self.parse_message_to_prepare = Some((new_parse.clone(), hash));
 
         self.prepared_statements
-            .insert(client_given_name, new_parse.clone());
+            .insert(client_given_name, (new_parse.clone(), hash));
 
         return new_parse.as_ref().try_into();
     }
@@ -1704,7 +1708,7 @@ where
         let client_given_name = bind.prepared_statement.clone();
 
         match self.prepared_statements.get(&client_given_name) {
-            Some(rewritten_parse) => {
+            Some((rewritten_parse, _)) => {
                 bind = bind.reassign(&rewritten_parse.name);
 
                 self.active_prepared_statement_name = Some(client_given_name.clone());
@@ -1749,7 +1753,7 @@ where
         let client_given_name = describe.statement_name.clone();
 
         match self.prepared_statements.get(&client_given_name) {
-            Some(rewritten_parse) => {
+            Some((rewritten_parse, _)) => {
                 let describe = describe.rename(&rewritten_parse.name);
 
                 self.active_prepared_statement_name = Some(client_given_name.clone());
