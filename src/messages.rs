@@ -855,6 +855,14 @@ impl Parse {
         self
     }
 
+    /// Gets the name of the prepared statement from the buffer
+    pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
+        let mut cursor = Cursor::new(buf);
+        cursor.get_u8();
+        cursor.get_i32();
+        cursor.read_string()
+    }
+
     /// Hashes the parse statement to be used as a key in the global cache
     pub fn get_hash(&self) -> u64 {
         // TODO_ZAIN: Take a look at which hashing function is being used
@@ -1020,6 +1028,36 @@ impl TryFrom<Bind> for BytesMut {
 }
 
 impl Bind {
+    /// Gets the name of the prepared statement from the buffer
+    pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
+        let mut cursor = Cursor::new(buf);
+        cursor.get_u8();
+        cursor.get_i32();
+        cursor.read_string()?;
+        cursor.read_string()
+    }
+
+    /// Renames the prepared statement to a new name
+    pub fn rename(buf: BytesMut, new_name: &str) -> Result<BytesMut, Error> {
+        let mut cursor = Cursor::new(&buf);
+        let code = cursor.get_u8();
+        let current_len = cursor.get_i32();
+        let portal = cursor.read_string()?;
+        let prepared_statement = cursor.read_string()?;
+
+        // Calculate new length
+        let new_len = current_len + new_name.len() as i32 - prepared_statement.len() as i32;
+
+        let mut response_buf = BytesMut::with_capacity(new_len as usize + 1);
+        response_buf.put_u8(code);
+        response_buf.put_i32(new_len);
+        response_buf.put_slice(CString::new(portal)?.as_bytes_with_nul());
+        response_buf.put_slice(CString::new(new_name)?.as_bytes_with_nul());
+        response_buf.put_slice(&buf[cursor.position() as usize..]);
+
+        Ok(response_buf)
+    }
+
     pub fn reassign(mut self, new_prepared_statement_name: &str) -> Self {
         self.prepared_statement = new_prepared_statement_name.to_string();
         self

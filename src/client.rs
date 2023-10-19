@@ -1660,13 +1660,13 @@ where
         message: BytesMut,
         pool: &ConnectionPool,
     ) -> Result<BytesMut, Error> {
-        let parse: Parse = (&message).try_into()?;
+        let client_given_name = Parse::get_name(&message)?;
 
-        if parse.anonymous() {
+        if client_given_name.is_empty() {
             return Ok(message);
         }
 
-        let client_given_name = parse.name.to_string();
+        let parse: Parse = (&message).try_into()?;
 
         // Compute the hash of the parse statement
         let hash = parse.get_hash();
@@ -1698,43 +1698,44 @@ where
     /// Rewrite the Bind (F) message to use the prepared statement name
     /// saved in the client cache.
     async fn rewrite_bind(&mut self, message: BytesMut) -> Result<BytesMut, Error> {
-        let mut bind: Bind = (&message).try_into()?;
+        let client_given_name = Bind::get_name(&message)?;
 
-        if bind.anonymous() {
+        if client_given_name.is_empty() {
             debug!("Anonymous bind message");
             return Ok(message);
         }
 
-        let client_given_name = bind.prepared_statement.clone();
-
         match self.prepared_statements.get(&client_given_name) {
             Some((rewritten_parse, _)) => {
-                bind = bind.reassign(&rewritten_parse.name);
+                let message = Bind::rename(message, &rewritten_parse.name)?;
 
                 self.active_prepared_statement_name = Some(client_given_name.clone());
 
                 debug!(
                     "Rewrote bind `{}` to `{}`",
-                    client_given_name, bind.prepared_statement
+                    client_given_name, rewritten_parse.name
                 );
 
-                Ok(bind.try_into()?)
+                Ok(message)
             }
             None => {
-                debug!("Got bind for unknown prepared statement {:?}", bind);
+                debug!(
+                    "Got bind for unknown prepared statement {:?}",
+                    client_given_name
+                );
 
                 error_response(
                     &mut self.write,
                     &format!(
                         "prepared statement \"{}\" does not exist",
-                        bind.prepared_statement
+                        client_given_name
                     ),
                 )
                 .await?;
 
                 Err(Error::ClientError(format!(
                     "Prepared statement `{}` doesn't exist",
-                    bind.prepared_statement
+                    client_given_name
                 )))
             }
         }
