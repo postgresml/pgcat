@@ -867,7 +867,7 @@ where
             // pointer. This ensures we always read the latest config
             // when starting a query.
             let mut pool = self.get_pool().await?;
-            query_router.update_pool_settings(pool.settings.clone());
+            query_router.update_pool_settings(&pool.settings);
 
             // Handle all custom protocol commands, if any.
             if self
@@ -1009,9 +1009,9 @@ where
             if pool.wait_paused().await {
                 // Refresh pool information, something might have changed.
                 pool = self.get_pool().await?;
+                query_router.update_pool_settings(&pool.settings);
             }
 
-            query_router.update_pool_settings(pool.settings.clone());
 
             debug!("Waiting for connection from pool");
             if !self.admin {
