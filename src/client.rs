@@ -4,6 +4,7 @@ use crate::pool::BanReason;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Instant;
@@ -26,6 +27,7 @@ use crate::server::{Server, ServerParameters};
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
+use crate::query::Query;
 use tokio_rustls::server::TlsStream;
 
 /// Incrementally count prepared statements
@@ -1708,6 +1710,22 @@ where
             Some(message) => message,
             None => &self.buffer,
         };
+        let query = if pool.settings.query_result_stats_enabled {
+            Query::new(&message, pool.settings.query_parser_max_length).and_then(|q| {
+                if q.is_select() {
+                    Some(q)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        let mut result_hasher = match query {
+            Some(_) => Some(Sha256::new()),
+            None => None,
+        };
 
         self.send_server_message(server, message, address, pool)
             .await?;
@@ -1720,6 +1738,10 @@ where
                 .receive_server_message(server, address, pool, client_stats)
                 .await?;
 
+            if let Some(ref mut hasher) = result_hasher {
+                hasher.update(&response);
+            }
+
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
@@ -1730,6 +1752,13 @@ where
 
             if !server.is_data_available() {
                 break;
+            }
+        }
+
+        if let Some(query) = query {
+            if let Some(result_hasher) = result_hasher {
+                let result_hash = result_hasher.finalize().to_vec();
+                let _ = pool.query_result_stats.write().insert(query, result_hash);
             }
         }
 

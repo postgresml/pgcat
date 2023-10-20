@@ -27,6 +27,7 @@ use crate::auth_passthrough::AuthPassthrough;
 use crate::plugins::prewarmer;
 use crate::server::{Server, ServerParameters};
 use crate::sharding::ShardingFunction;
+use crate::stats::query_result_stats::QueryResultStats;
 use crate::stats::{AddressStats, ClientStats, ServerStats};
 
 pub type ProcessId = i32;
@@ -120,6 +121,9 @@ pub struct PoolSettings {
     // Read from the primary as well or not.
     pub primary_reads_enabled: bool,
 
+    // Enable/disable query result stats.
+    pub query_result_stats_enabled: bool,
+
     // Sharding function.
     pub sharding_function: ShardingFunction,
 
@@ -168,6 +172,7 @@ impl Default for PoolSettings {
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
+            query_result_stats_enabled: false,
             primary_reads_enabled: true,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
@@ -223,6 +228,8 @@ pub struct ConnectionPool {
 
     /// AuthInfo
     pub auth_hash: Arc<RwLock<Option<String>>>,
+
+    pub query_result_stats: Arc<RwLock<QueryResultStats>>,
 }
 
 impl ConnectionPool {
@@ -468,6 +475,7 @@ impl ConnectionPool {
                             _ => unreachable!(),
                         },
                         query_parser_enabled: pool_config.query_parser_enabled,
+                        query_result_stats_enabled: pool_config.query_result_stats_enabled,
                         query_parser_max_length: pool_config.query_parser_max_length,
                         query_parser_read_write_splitting: pool_config
                             .query_parser_read_write_splitting,
@@ -498,6 +506,7 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
+                    query_result_stats: Arc::new(RwLock::new(QueryResultStats::new())),
                 };
 
                 // Connect to the servers to make sure pool configuration is valid

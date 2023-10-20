@@ -12,7 +12,9 @@ use std::sync::Arc;
 pub mod address;
 pub mod client;
 pub mod pool;
+pub mod query_result_stats;
 pub mod server;
+
 pub use address::AddressStats;
 pub use client::{ClientState, ClientStats};
 pub use server::{ServerState, ServerStats};

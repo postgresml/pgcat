@@ -12,6 +12,7 @@ pub mod mirrors;
 pub mod plugins;
 pub mod pool;
 pub mod prometheus;
+pub mod query;
 pub mod query_router;
 pub mod scram;
 pub mod server;
@@ -39,4 +40,11 @@ pub fn format_duration(duration: &chrono::Duration) -> String {
         "{}d {}:{}:{}.{}",
         days, hours, minutes, seconds, milliseconds
     )
+}
+
+pub fn hash_string(hash: &[u8]) -> String {
+    // TODO assert length == 256
+    let first = u128::from_ne_bytes(hash[0..16].try_into().unwrap());
+    let second = u128::from_ne_bytes(hash[0..16].try_into().unwrap());
+    format!("{:x}{:x}", first, second)
 }

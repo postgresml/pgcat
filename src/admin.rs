@@ -17,6 +17,7 @@ use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
+use crate::{format_duration, hash_string};
 
 pub fn generate_server_parameters_for_admin() -> ServerParameters {
     let mut server_parameters = ServerParameters::new();
@@ -108,6 +109,10 @@ where
             "POOLS" => {
                 trace!("SHOW POOLS");
                 show_pools(stream).await
+            }
+            "QUERY_RESULT_STATS" => {
+                trace!("SHOW QUERY_RESULT_STATS");
+                show_query_result_stats(stream).await
             }
             "CLIENTS" => {
                 trace!("SHOW CLIENTS");
@@ -269,6 +274,50 @@ where
     res.put(command_complete("SHOW"));
 
     // ReadyForQuery
+    res.put_u8(b'Z');
+    res.put_i32(5);
+    res.put_u8(b'I');
+
+    write_all_half(stream, &res).await
+}
+
+/// Show query cache statistics for each pool
+async fn show_query_result_stats<T>(stream: &mut T) -> Result<(), Error>
+where
+    T: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mut res = BytesMut::new();
+
+    res.put(row_description(&vec![
+        ("database", DataType::Text),
+        ("user", DataType::Text),
+        ("normalized", DataType::Text),
+        ("fingerprint", DataType::Numeric),
+        ("result_hash", DataType::Text),
+        ("count", DataType::Numeric),
+        ("first_seen", DataType::Text),
+        ("last_seen", DataType::Text),
+        ("duration", DataType::Text),
+    ]));
+
+    for (pool_identifier, pool) in get_all_pools() {
+        for (key, value) in pool.query_result_stats.read().statistics.iter() {
+            res.put(data_row(&vec![
+                pool_identifier.db.clone(),
+                pool_identifier.user.clone(),
+                key.normalized.clone(),
+                key.fingerprint.to_string(),
+                hash_string(&key.result_hash),
+                value.count.to_string(),
+                value.first_seen.to_string(),
+                value.last_seen.to_string(),
+                format_duration(&value.duration()),
+            ]));
+        }
+    }
+
+    res.put(command_complete("SHOW"));
+
     res.put_u8(b'Z');
     res.put_i32(5);
     res.put_u8(b'I');

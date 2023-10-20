@@ -3,6 +3,9 @@ name = "pgcat"
 version = "1.1.2-dev"
 edition = "2021"
 
+[profile.release]
+debug = true
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -48,6 +51,8 @@ itertools = "0.10"
 clap = { version = "4.3.1", features = ["derive", "env"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["json", "env-filter", "std"]}
+pg_query = "0.7"
+lru = "0.11"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"
