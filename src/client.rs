@@ -551,7 +551,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let mut pool = match get_pool(pool_name, username) {
+            let pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -813,6 +813,18 @@ where
             &self.pool_name,
         );
 
+        // Get a pool instance referenced by the most up-to-date
+        // pointer. This ensures we always read the latest config
+        // when starting a query.
+        let mut pool = if self.admin {
+            // Admin clients do not use pools.
+            ConnectionPool::default()
+        } else {
+            self.get_pool().await?
+        };
+
+        query_router.update_pool_settings(&pool.settings);
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -862,12 +874,6 @@ where
                 handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
                 continue;
             }
-
-            // Get a pool instance referenced by the most up-to-date
-            // pointer. This ensures we always read the latest config
-            // when starting a query.
-            let mut pool = self.get_pool().await?;
-            query_router.update_pool_settings(&pool.settings);
 
             // Handle all custom protocol commands, if any.
             if self
@@ -1006,12 +1012,11 @@ where
             };
 
             // Check if the pool is paused and wait until it's resumed.
-            if pool.wait_paused().await {
-                // Refresh pool information, something might have changed.
-                pool = self.get_pool().await?;
-                query_router.update_pool_settings(&pool.settings);
-            }
+            pool.wait_paused().await;
 
+            // Refresh pool information, something might have changed.
+            pool = self.get_pool().await?;
+            query_router.update_pool_settings(&pool.settings);
 
             debug!("Waiting for connection from pool");
             if !self.admin {
