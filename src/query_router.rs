@@ -128,8 +128,8 @@ impl QueryRouter {
     }
 
     /// Pool settings can change because of a config reload.
-    pub fn update_pool_settings(&mut self, pool_settings: PoolSettings) {
-        self.pool_settings = pool_settings;
+    pub fn update_pool_settings(&mut self, pool_settings: &PoolSettings) {
+        self.pool_settings = pool_settings.clone();
     }
 
     pub fn pool_settings(&self) -> &PoolSettings {
@@ -1403,7 +1403,7 @@ mod test {
         assert_eq!(qr.primary_reads_enabled, None);
 
         // Internal state must not be changed due to this, only defaults
-        qr.update_pool_settings(pool_settings.clone());
+        qr.update_pool_settings(&pool_settings);
 
         assert_eq!(qr.active_role, None);
         assert_eq!(qr.active_shard, None);
@@ -1476,7 +1476,7 @@ mod test {
         };
 
         let mut qr = QueryRouter::new();
-        qr.update_pool_settings(pool_settings);
+        qr.update_pool_settings(&pool_settings);
 
         // Shard should start out unset
         assert_eq!(qr.active_shard, None);
@@ -1860,7 +1860,7 @@ mod test {
             ..Default::default()
         };
         let mut qr = QueryRouter::new();
-        qr.update_pool_settings(pool_settings);
+        qr.update_pool_settings(&pool_settings);
 
         let query = simple_query("SELECT * FROM pg_database");
         let ast = qr.parse(&query).unwrap();
