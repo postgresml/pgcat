@@ -504,7 +504,7 @@ impl ConnectionPool {
                 // before setting it globally.
                 // Do this async and somewhere else, we don't have to wait here.
                 if config.general.validate_config {
-                    let mut validate_pool = pool.clone();
+                    let validate_pool = pool.clone();
                     tokio::task::spawn(async move {
                         let _ = validate_pool.validate().await;
                     });
@@ -525,7 +525,7 @@ impl ConnectionPool {
     /// when they connect.
     /// This also warms up the pool for clients that connect when
     /// the pooler starts up.
-    pub async fn validate(&mut self) -> Result<(), Error> {
+    pub async fn validate(&self) -> Result<(), Error> {
         let mut futures = Vec::new();
         let validated = Arc::clone(&self.validated);
 

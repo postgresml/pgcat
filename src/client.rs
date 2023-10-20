@@ -542,7 +542,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let mut pool = match get_pool(pool_name, username) {
+            let pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -803,7 +803,13 @@ where
         // Get a pool instance referenced by the most up-to-date
         // pointer. This ensures we always read the latest config
         // when starting a query.
-        let mut pool = self.get_pool().await?;
+        let mut pool = if self.admin {
+            // Admin clients do not use pools.
+            ConnectionPool::default()
+        } else {
+            self.get_pool().await?
+        };
+
         query_router.update_pool_settings(&pool.settings);
 
         // Our custom protocol loop.
