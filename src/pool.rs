@@ -190,11 +190,11 @@ impl Default for PoolSettings {
 #[derive(Clone, Debug, Default)]
 pub struct ConnectionPool {
     /// The pools handled internally by bb8.
-    databases: Vec<Vec<Pool<ServerPool>>>,
+    databases: Arc<Vec<Vec<Pool<ServerPool>>>>,
 
     /// The addresses (host, port, role) to handle
     /// failover and load balancing deterministically.
-    addresses: Vec<Vec<Address>>,
+    addresses: Arc<Vec<Vec<Address>>>,
 
     /// List of banned addresses (see above)
     /// that should not be queried.
@@ -206,7 +206,7 @@ pub struct ConnectionPool {
     original_server_parameters: Arc<RwLock<ServerParameters>>,
 
     /// Pool configuration.
-    pub settings: PoolSettings,
+    pub settings: Arc<PoolSettings>,
 
     /// If not validated, we need to double check the pool is available before allowing a client
     /// to use it.
@@ -445,13 +445,13 @@ impl ConnectionPool {
                 }
 
                 let pool = ConnectionPool {
-                    databases: shards,
-                    addresses,
+                    databases: Arc::new(shards),
+                    addresses: Arc::new(addresses),
                     banlist: Arc::new(RwLock::new(banlist)),
                     config_hash: new_pool_hash_value,
                     original_server_parameters: Arc::new(RwLock::new(ServerParameters::new())),
                     auth_hash: pool_auth_hash,
-                    settings: PoolSettings {
+                    settings: Arc::new(PoolSettings {
                         pool_mode: match user.pool_mode {
                             Some(pool_mode) => pool_mode,
                             None => pool_config.pool_mode,
@@ -494,7 +494,7 @@ impl ConnectionPool {
                             Some(ref plugins) => Some(plugins.clone()),
                             None => config.plugins.clone(),
                         },
-                    },
+                    }),
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),

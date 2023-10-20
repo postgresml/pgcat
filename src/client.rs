@@ -800,6 +800,12 @@ where
             &self.pool_name,
         );
 
+        // Get a pool instance referenced by the most up-to-date
+        // pointer. This ensures we always read the latest config
+        // when starting a query.
+        let mut pool = self.get_pool().await?;
+        query_router.update_pool_settings(&pool.settings);
+
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
         // or issue commands for our sharding and server selection protocol.
@@ -852,12 +858,6 @@ where
                 handle_admin(&mut self.write, message, self.client_server_map.clone()).await?;
                 continue;
             }
-
-            // Get a pool instance referenced by the most up-to-date
-            // pointer. This ensures we always read the latest config
-            // when starting a query.
-            let mut pool = self.get_pool().await?;
-            query_router.update_pool_settings(pool.settings.clone());
 
             let mut initial_parsed_ast = None;
 
@@ -990,12 +990,11 @@ where
             };
 
             // Check if the pool is paused and wait until it's resumed.
-            if pool.wait_paused().await {
-                // Refresh pool information, something might have changed.
-                pool = self.get_pool().await?;
-            }
+            pool.wait_paused().await;
 
-            query_router.update_pool_settings(pool.settings.clone());
+            // Refresh pool information, something might have changed.
+            pool = self.get_pool().await?;
+            query_router.update_pool_settings(&pool.settings);
 
             let current_shard = query_router.shard();
 
