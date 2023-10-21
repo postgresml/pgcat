@@ -1316,18 +1316,17 @@ where
                                     let (parse, hash) = match metadata {
                                         Some(metadata) => metadata,
                                         None => {
+                                            let first_char_in_name = *data.get(5).unwrap_or(&0);
+                                            if first_char_in_name != 0 {
+                                                // This is a named prepared statement while prepared statements are disabled
+                                                // Server connection state will need to be cleared at checkin
+                                                server.mark_dirty();
+                                            }
                                             // Not a prepared statement
                                             self.buffer.put(&data[..]);
                                             continue;
                                         }
                                     };
-
-                                    // TODO: Think about how to properly handle this since the server doesn't check this stuff
-                                    // This is a named prepared statement while prepared statements are disabled
-                                    if !self.prepared_statements_enabled {
-                                        // Server connection state will need to be cleared at checkin
-                                        server.mark_dirty();
-                                    }
 
                                     // This is a prepared statement we already have on the checked out server
                                     if server.has_prepared_statement(&parse.name) {
