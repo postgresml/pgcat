@@ -1689,7 +1689,7 @@ where
         address: &Address,
     ) -> Result<(), Error> {
         // We want to update this in the LRU to know this was recently used and add it if it isn't there already
-        // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it go removed)
+        // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it got removed)
         pool.register_parse_to_cache(hash, parse);
 
         if let Err(err) = server
@@ -1704,8 +1704,7 @@ where
     }
 
     /// Register and rewrite the parse statement to the clients statement cache
-    /// and also the pool's statement cache. Add it to extended protocol data
-    /// Returns True if the parse was registered, False otherwise
+    /// and also the pool's statement cache. Add it to extended protocol data.
     fn buffer_parse(&mut self, message: BytesMut, pool: &ConnectionPool) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
         let client_given_name = match self.prepared_statements_enabled {
@@ -1755,7 +1754,6 @@ where
 
     /// Rewrite the Bind (F) message to use the prepared statement name
     /// saved in the client cache.
-    /// Returns True if the bind is a named prepared statement, False otherwise
     async fn buffer_bind(&mut self, message: BytesMut) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
         let client_given_name = match self.prepared_statements_enabled {
