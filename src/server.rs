@@ -1116,14 +1116,21 @@ impl Server {
         Ok(bytes)
     }
 
+    // Determines if the server already has a prepared statement with the given name
+    // Increments the prepared statement cache hit counter
     pub fn has_prepared_statement(&mut self, name: &str) -> bool {
-        self.stats.prepared_cache_hit();
-        self.prepared_statement_cache.get(name).is_some()
+        let has_it = self.prepared_statement_cache.get(name).is_some();
+        if has_it {
+            self.stats.prepared_cache_hit();
+        } else {
+            self.stats.prepared_cache_miss();
+        }
+
+        has_it
     }
 
     pub fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
         self.stats.prepared_cache_add();
-        self.stats.prepared_cache_miss();
 
         // If we evict something, we need to close it on the server
         if let Some((evicted_name, _)) = self.prepared_statement_cache.push(name.to_string(), ()) {
@@ -1149,35 +1156,33 @@ impl Server {
         parse: &Parse,
         should_send_parse_to_server: bool,
     ) -> Result<(), Error> {
-        match self.prepared_statement_cache.get(&parse.name) {
-            Some(_) => self.stats.prepared_cache_hit(),
-            None => {
-                let mut bytes = BytesMut::new();
+        if !self.has_prepared_statement(&parse.name) {
+            let mut bytes = BytesMut::new();
 
-                if should_send_parse_to_server {
-                    let parse_bytes: BytesMut = parse.try_into()?;
-                    bytes.extend_from_slice(&parse_bytes);
-                }
+            if should_send_parse_to_server {
+                let parse_bytes: BytesMut = parse.try_into()?;
+                bytes.extend_from_slice(&parse_bytes);
+            }
 
-                // If we evict something, we need to close it on the server
-                // We do this by adding it to the messages we're sending to the server before the sync
-                if let Some(evicted_name) = self.add_prepared_statement_to_cache(&parse.name) {
-                    self.remove_prepared_statement_from_cache(&evicted_name);
-                    let close_bytes: BytesMut = Close::new(&evicted_name).try_into()?;
-                    bytes.extend_from_slice(&close_bytes);
-                };
+            // If we evict something, we need to close it on the server
+            // We do this by adding it to the messages we're sending to the server before the sync
+            if let Some(evicted_name) = self.add_prepared_statement_to_cache(&parse.name) {
+                self.remove_prepared_statement_from_cache(&evicted_name);
+                let close_bytes: BytesMut = Close::new(&evicted_name).try_into()?;
+                bytes.extend_from_slice(&close_bytes);
+            };
 
-                if !bytes.is_empty() {
-                    bytes.extend_from_slice(&sync());
+            // If we have a parse or close we need to send to the server, send them and sync
+            if !bytes.is_empty() {
+                bytes.extend_from_slice(&sync());
 
-                    self.send(&bytes).await?;
+                self.send(&bytes).await?;
 
-                    loop {
-                        self.recv(None).await?;
+                loop {
+                    self.recv(None).await?;
 
-                        if !self.is_data_available() {
-                            break;
-                        }
+                    if !self.is_data_available() {
+                        break;
                     }
                 }
             }

@@ -60,21 +60,18 @@ pub enum BanReason {
 pub type PreparedStatementCacheType = Arc<Mutex<PreparedStatementCache>>;
 
 // TODO: Add stats the this cache
+// TODO: Add application name to the cache value to help identify which application is using the cache
+// TODO: Create admin command to show which statements are in the cache
 #[derive(Debug)]
 pub struct PreparedStatementCache {
-    cache: LruCache<u64, Arc<Parse>>, // TODO: Store a tuple of BytesMut and String instead Parse to remove need to convert to BytesMut again
-}
-
-impl Default for PreparedStatementCache {
-    fn default() -> Self {
-        Self::new(1)
-    }
+    cache: LruCache<u64, Arc<Parse>>,
 }
 
 impl PreparedStatementCache {
-    pub fn new(size: usize) -> Self {
+    pub fn new(mut size: usize) -> Self {
+        // Cannot be zeros
         if size == 0 {
-            return Self::default();
+            size = 1;
         }
 
         PreparedStatementCache {

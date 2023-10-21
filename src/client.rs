@@ -109,7 +109,8 @@ pub struct Client<S, T> {
     /// Mapping of client named prepared statement to rewritten parse messages
     prepared_statements: HashMap<String, (Arc<Parse>, u64)>,
 
-    extended_protocol_data: VecDeque<ExtendedProtocolData>,
+    /// Buffered extended protocol data
+    extended_protocol_data_buffer: VecDeque<ExtendedProtocolData>,
 }
 
 /// Client entrypoint.
@@ -726,7 +727,7 @@ where
             shutdown,
             prepared_statements_enabled,
             prepared_statements: HashMap::new(),
-            extended_protocol_data: VecDeque::new(),
+            extended_protocol_data_buffer: VecDeque::new(),
         })
     }
 
@@ -764,7 +765,7 @@ where
             shutdown,
             prepared_statements_enabled: false,
             prepared_statements: HashMap::new(),
-            extended_protocol_data: VecDeque::new(),
+            extended_protocol_data_buffer: VecDeque::new(),
         })
     }
 
@@ -970,7 +971,7 @@ where
                 }
 
                 'E' => {
-                    self.extended_protocol_data
+                    self.extended_protocol_data_buffer
                         .push_back(ExtendedProtocolData::create_new_execute(message));
                     continue;
                 }
@@ -1259,7 +1260,7 @@ where
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        self.extended_protocol_data
+                        self.extended_protocol_data_buffer
                             .push_back(ExtendedProtocolData::create_new_execute(message));
                     }
 
@@ -1310,7 +1311,9 @@ where
                         //              ReadyForQuery
 
                         // Iterate over our extended protocol data that we've buffered
-                        while let Some(protocol_data) = self.extended_protocol_data.pop_front() {
+                        while let Some(protocol_data) =
+                            self.extended_protocol_data_buffer.pop_front()
+                        {
                             match protocol_data {
                                 ExtendedProtocolData::Parse { data, metadata } => {
                                     let (parse, hash) = match metadata {
@@ -1712,7 +1715,7 @@ where
 
         if client_given_name.is_empty() {
             debug!("Anonymous parse message");
-            self.extended_protocol_data
+            self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_parse(message, None));
             return Ok(());
         }
@@ -1741,7 +1744,7 @@ where
         self.prepared_statements
             .insert(client_given_name, (new_parse.clone(), hash));
 
-        self.extended_protocol_data
+        self.extended_protocol_data_buffer
             .push_back(ExtendedProtocolData::create_new_parse(
                 new_parse.as_ref().try_into()?,
                 Some((new_parse.clone(), hash)),
@@ -1762,7 +1765,7 @@ where
 
         if client_given_name.is_empty() {
             debug!("Anonymous bind message");
-            self.extended_protocol_data
+            self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_bind(message, None));
             return Ok(());
         }
@@ -1776,11 +1779,9 @@ where
                     client_given_name, rewritten_parse.name
                 );
 
-                self.extended_protocol_data
-                    .push_back(ExtendedProtocolData::create_new_bind(
-                        message,
-                        Some(client_given_name),
-                    ));
+                self.extended_protocol_data_buffer.push_back(
+                    ExtendedProtocolData::create_new_bind(message, Some(client_given_name)),
+                );
 
                 Ok(())
             }
@@ -1818,7 +1819,7 @@ where
 
         if describe.anonymous() {
             debug!("Anonymous describe message");
-            self.extended_protocol_data
+            self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_describe(message, None));
 
             return Ok(());
@@ -1835,11 +1836,12 @@ where
                     client_given_name, describe.statement_name
                 );
 
-                self.extended_protocol_data
-                    .push_back(ExtendedProtocolData::create_new_describe(
+                self.extended_protocol_data_buffer.push_back(
+                    ExtendedProtocolData::create_new_describe(
                         describe.try_into()?,
                         Some(client_given_name),
-                    ));
+                    ),
+                );
 
                 Ok(())
             }
@@ -1866,7 +1868,7 @@ where
 
     fn reset_buffered_state(&mut self) {
         self.buffer.clear();
-        self.extended_protocol_data.clear();
+        self.extended_protocol_data_buffer.clear();
         self.response_message_queue_buffer.clear();
     }
 
