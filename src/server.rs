@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
 use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 use std::mem;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
@@ -322,6 +323,9 @@ pub struct Server {
 
     /// Log client parameter status changes
     log_client_parameter_status_changes: bool,
+
+    // /// Prepared statements enabled
+    prepared_statement_enabled: bool,
 
     /// Prepared statements
     prepared_statement_cache: LruCache<String, ()>,
@@ -821,6 +825,7 @@ impl Server {
                         },
                         cleanup_connections,
                         log_client_parameter_status_changes,
+                        prepared_statement_enabled: prepared_statement_cache_size > 0,
                         prepared_statement_cache: match prepared_statement_cache_size {
                             0 => LruCache::new(NonZeroUsize::new(1).unwrap()),
                             _ => LruCache::new(
@@ -966,6 +971,41 @@ impl Server {
                         self.in_copy_mode = false;
                     }
                     // TODO: consider logging a warning here
+
+                    if self.prepared_statement_enabled {
+                        // It's probably okay to parse this since we don't expect to get ErrorResponses too frequently
+                        let mut cursor = Cursor::new(&message);
+
+                        loop {
+                            let code = cursor.get_u8();
+                            match cursor.read_string() {
+                                Ok(content) => {
+                                    println!(
+                                        "GOT CODE: {} with content: {}",
+                                        code as char, content
+                                    );
+                                    // This is allowed to be what looks like an infinite loop
+                                    // because the 'M' message is always present
+                                    if code as char == 'M' {
+                                        if content == "cached plan must not change result type" {
+                                            // This will still result in an error to the client, but this server connection
+                                            // will be dropped, and will not bleed into the pool.
+                                            // TODO: Other ideas to solve issues with DDL changes when using prepared statements
+                                            //  - Recreate connection pool to force recreation of server connections
+                                            //  - Just close the prepared statement instead of dropping the connection
+                                            //  - Implement a retry so the client doesn't see an error
+                                            self.mark_bad();
+                                        }
+                                        break;
+                                    }
+                                }
+                                Err(_) => {
+                                    warn!("Encountered an error while parsing ErrorResponse");
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // CommandComplete
