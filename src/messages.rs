@@ -21,6 +21,7 @@ use std::io::{BufRead, Cursor};
 use std::mem;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Postgres data type mappings
@@ -765,6 +766,43 @@ impl BytesMutReader for BytesMut {
         }
     }
 }
+
+pub enum ExtendedProtocolData {
+    Parse {
+        data: BytesMut,
+        metadata: Option<(Arc<Parse>, u64)>,
+    },
+    Bind {
+        data: BytesMut,
+        metadata: Option<String>,
+    },
+    Describe {
+        data: BytesMut,
+        metadata: Option<String>,
+    },
+    Execute {
+        data: BytesMut,
+    },
+}
+
+impl ExtendedProtocolData {
+    pub fn create_new_parse(data: BytesMut, metadata: Option<(Arc<Parse>, u64)>) -> Self {
+        Self::Parse { data, metadata }
+    }
+
+    pub fn create_new_bind(data: BytesMut, metadata: Option<String>) -> Self {
+        Self::Bind { data, metadata }
+    }
+
+    pub fn create_new_describe(data: BytesMut, metadata: Option<String>) -> Self {
+        Self::Describe { data, metadata }
+    }
+
+    pub fn create_new_execute(data: BytesMut) -> Self {
+        Self::Execute { data }
+    }
+}
+
 /// Parse (F) message.
 /// See: <https://www.postgresql.org/docs/current/protocol-message-formats.html>
 #[derive(Clone, Debug)]
@@ -858,8 +896,8 @@ impl Parse {
     /// Gets the name of the prepared statement from the buffer
     pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
         let mut cursor = Cursor::new(buf);
-        cursor.get_u8();
-        cursor.get_i32();
+        // Skip the code and length
+        cursor.advance(mem::size_of::<u8>() + mem::size_of::<i32>());
         cursor.read_string()
     }
 
@@ -1031,8 +1069,8 @@ impl Bind {
     /// Gets the name of the prepared statement from the buffer
     pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
         let mut cursor = Cursor::new(buf);
-        cursor.get_u8();
-        cursor.get_i32();
+        // Skip the code and length
+        cursor.advance(mem::size_of::<u8>() + mem::size_of::<i32>());
         cursor.read_string()?;
         cursor.read_string()
     }
@@ -1040,6 +1078,7 @@ impl Bind {
     /// Renames the prepared statement to a new name
     pub fn rename(buf: BytesMut, new_name: &str) -> Result<BytesMut, Error> {
         let mut cursor = Cursor::new(&buf);
+        // Read basic data from the cursor
         let code = cursor.get_u8();
         let current_len = cursor.get_i32();
         let portal = cursor.read_string()?;
@@ -1048,13 +1087,20 @@ impl Bind {
         // Calculate new length
         let new_len = current_len + new_name.len() as i32 - prepared_statement.len() as i32;
 
+        // Begin building the response buffer
         let mut response_buf = BytesMut::with_capacity(new_len as usize + 1);
         response_buf.put_u8(code);
         response_buf.put_i32(new_len);
+
+        // Put the portal and new name into the buffer
+        // Note: panic if the provided string contains null byte
         response_buf.put_slice(CString::new(portal)?.as_bytes_with_nul());
         response_buf.put_slice(CString::new(new_name)?.as_bytes_with_nul());
+
+        // Add the remainder of the original buffer into the response
         response_buf.put_slice(&buf[cursor.position() as usize..]);
 
+        // Return the buffer
         Ok(response_buf)
     }
 
@@ -1116,6 +1162,15 @@ impl TryFrom<Describe> for BytesMut {
 }
 
 impl Describe {
+    pub fn empty_new() -> Describe {
+        Describe {
+            code: 'D',
+            len: 4 + 1 + 1,
+            target: 'S',
+            statement_name: "".to_string(),
+        }
+    }
+
     pub fn rename(mut self, name: &str) -> Self {
         self.statement_name = name.to_string();
         self

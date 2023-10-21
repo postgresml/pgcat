@@ -62,7 +62,7 @@ pub type PreparedStatementCacheType = Arc<Mutex<PreparedStatementCache>>;
 // TODO: Add stats the this cache
 #[derive(Debug)]
 pub struct PreparedStatementCache {
-    cache: LruCache<u64, Arc<Parse>>,
+    cache: LruCache<u64, Arc<Parse>>, // TODO: Store a tuple of BytesMut and String instead Parse to remove need to convert to BytesMut again
 }
 
 impl Default for PreparedStatementCache {
@@ -86,11 +86,11 @@ impl PreparedStatementCache {
     /// if it already exists will give you the existing parse
     ///
     /// Pass the hash to this so that we can do the compute before acquiring the lock
-    pub fn get_or_insert(&mut self, parse: Parse, hash: u64) -> Arc<Parse> {
+    pub fn get_or_insert(&mut self, parse: &Parse, hash: u64) -> Arc<Parse> {
         match self.cache.get(&hash) {
             Some(rewritten_parse) => rewritten_parse.clone(),
             None => {
-                let new_parse = Arc::new(parse.rewrite());
+                let new_parse = Arc::new(parse.clone().rewrite());
                 let evicted = self.cache.push(hash, new_parse.clone());
 
                 if let Some((_, evicted_parse)) = evicted {
@@ -1064,7 +1064,7 @@ impl ConnectionPool {
     /// Register a parse statement to the pool's cache and return the rewritten parse
     ///
     /// Do not pass an anonymous parse statement to this function
-    pub fn register_parse_to_cache(&self, hash: u64, parse: Parse) -> Option<Arc<Parse>> {
+    pub fn register_parse_to_cache(&self, hash: u64, parse: &Parse) -> Option<Arc<Parse>> {
         // We should only be calling this function if the cache is enabled
         match self.prepared_statement_cache {
             Some(ref prepared_statement_cache) => {
