@@ -16,7 +16,8 @@ use tokio::net::TcpStream;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use crate::config::{
-    get_config, get_prepared_statements_cache_size, Address, CertificateVerificationVariant, User,
+    get_prepared_statements_cache_size, get_server_tls, get_verify_server_certificate, Address,
+    CertificateVerificationVariant, User,
 };
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
@@ -377,9 +378,8 @@ impl Server {
         // TCP timeouts.
         configure_socket(&stream);
 
-        let config = get_config();
-
-        let mut stream = if config.general.server_tls {
+        let mut stream = if get_server_tls() {
+            debug!("Connecting to server using TLS");
             // Request a TLS connection
             ssl_request(&mut stream).await?;
 
@@ -406,7 +406,7 @@ impl Server {
                     {
                         let mut dangerous = tls_config.dangerous(); // for security reasons, we will hide this variable from external scope
 
-                        match config.general.verify_server_certificate {
+                        match get_verify_server_certificate() {
                             CertificateVerificationVariant::Bool(v) => match v {
                                 true => { /* NOP */ } // verify-full (by default rustls checks certificates completely)
                                 false => {

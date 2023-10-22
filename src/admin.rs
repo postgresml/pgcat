@@ -1,8 +1,8 @@
-use crate::pool::{reload_pools, BanReason};
+use crate::pool::BanReason;
 use crate::server::ServerParameters;
 use crate::stats::pool::PoolStats;
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error, info, trace};
+use log::{error, info, trace};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::collections::HashMap;
@@ -17,7 +17,6 @@ use crate::messages::*;
 use crate::pool::ClientServerMap;
 use crate::pool::{get_all_pools, get_pool};
 use crate::stats::{get_client_stats, get_server_stats, ClientState, ServerState};
-use crate::tls::reload_root_cert_store;
 
 pub fn generate_server_parameters_for_admin() -> ServerParameters {
     let mut server_parameters = ServerParameters::new();
@@ -561,29 +560,10 @@ where
 {
     info!("Reloading config");
 
-    _ = reload_config().await?;
+    reload_config(client_server_map).await?;
 
     let cfg = get_config();
     cfg.show();
-
-    // Root certificates will only be reloaded if server certificate
-    // verification is enabled
-    if cfg.general.verify_server_certificate.is_enabled() {
-        debug!("Reloading root certificates");
-        _ = reload_root_cert_store().await?;
-    }
-
-    debug!("Reloading connection pools");
-
-    match reload_pools(client_server_map).await {
-        Ok(_) => {
-            debug!("Pools reloaded");
-        }
-
-        Err(err) => {
-            return Err(err);
-        }
-    }
 
     let mut res = BytesMut::new();
 
