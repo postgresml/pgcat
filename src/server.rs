@@ -974,10 +974,11 @@ impl Server {
                         let error_message = PgErrorMsg::parse(&message)?;
                         if error_message.message == "cached plan must not change result type" {
                             warn!("Server {:?} changed schema, dropping connection to clean up prepared statements", self.address);
-                            // This will still result in an error to the client, but this server connection will drop all cache prepared statements
+                            // This will still result in an error to the client, but this server connection will drop all cached prepared statements
                             // so that any new queries will be re-prepared
-                            // TODO: Other ideas to solve errors when there DDL changes after a statement has been prepared
+                            // TODO: Other ideas to solve errors when there are DDL changes after a statement has been prepared
                             //  - Recreate entire connection pool to force recreation of all server connections
+                            //  - Clear the ConnectionPool's statement cache so that new statement names are generated
                             //  - Implement a retry (re-prepare) so the client doesn't see an error
                             self.cleanup_state.needs_cleanup_prepare = true;
                         }
