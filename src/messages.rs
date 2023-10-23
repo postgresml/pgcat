@@ -1322,7 +1322,7 @@ impl Display for PgErrorMsg {
 }
 
 impl PgErrorMsg {
-    pub fn parse(error_msg: Vec<u8>) -> Result<PgErrorMsg, Error> {
+    pub fn parse(error_msg: &[u8]) -> Result<PgErrorMsg, Error> {
         let mut out = PgErrorMsg {
             severity_localized: "".to_string(),
             severity: "".to_string(),
@@ -1470,7 +1470,7 @@ mod tests {
 
         info!(
             "full message: {}",
-            PgErrorMsg::parse(complete_msg.clone()).unwrap()
+            PgErrorMsg::parse(&complete_msg).unwrap()
         );
         assert_eq!(
             PgErrorMsg {
@@ -1493,7 +1493,7 @@ mod tests {
                 line: Some(335),
                 routine: Some(routine_msg.to_string()),
             },
-            PgErrorMsg::parse(complete_msg).unwrap()
+            PgErrorMsg::parse(&complete_msg).unwrap()
         );
 
         let mut only_mandatory_msg = vec![];
@@ -1503,7 +1503,7 @@ mod tests {
         only_mandatory_msg.extend(field('M', message));
         only_mandatory_msg.extend(field('D', detail_msg));
 
-        let err_fields = PgErrorMsg::parse(only_mandatory_msg.clone()).unwrap();
+        let err_fields = PgErrorMsg::parse(&only_mandatory_msg).unwrap();
         info!("only mandatory fields: {}", &err_fields);
         error!(
             "server error: {}: {}",
@@ -1530,7 +1530,7 @@ mod tests {
                 line: None,
                 routine: None,
             },
-            PgErrorMsg::parse(only_mandatory_msg).unwrap()
+            PgErrorMsg::parse(&only_mandatory_msg).unwrap()
         );
     }
 }
