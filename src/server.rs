@@ -971,16 +971,15 @@ impl Server {
                     }
 
                     if self.prepared_statement_enabled {
-                        let error_message = crate::messages::PgErrorMsg::parse(&message)?;
+                        let error_message = PgErrorMsg::parse(&message)?;
                         if error_message.message == "cached plan must not change result type" {
                             warn!("Server {:?} changed schema, dropping connection to clean up prepared statements", self.address);
-                            // This will still result in an error to the client, but this server connection
-                            // will be dropped, and will not bleed into the pool.
-                            // TODO: Other ideas to solve issues with DDL changes when using prepared statements
-                            //  - Recreate connection pool to force recreation of server connections
-                            //  - Just close the prepared statement instead of dropping the connection
-                            //  - Implement a retry so the client doesn't see an error
-                            self.mark_bad();
+                            // This will still result in an error to the client, but this server connection will drop all cache prepared statements
+                            // so that any new queries will be re-prepared
+                            // TODO: Other ideas to solve errors when there DDL changes after a statement has been prepared
+                            //  - Recreate entire connection pool to force recreation of all server connections
+                            //  - Implement a retry (re-prepare) so the client doesn't see an error
+                            self.cleanup_state.needs_cleanup_prepare = true;
                         }
                     }
                 }
