@@ -22,6 +22,6 @@ UPDATE pgbench_branches SET bbalance = bbalance + :delta WHERE bid = :bid;
 
 INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);
 
-SELECT * FROM pgbench_accounts;
+SELECT * FROM pgbench_accounts limit 1;
 
 END;
