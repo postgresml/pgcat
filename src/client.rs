@@ -1350,7 +1350,7 @@ where
                                         // TODO: Consider adding the close logic that this function can send for eviction to the client buffer instead
                                         // In this case we don't want to send the parse message to the server since the client is sending it
                                         self.register_parse_to_server_cache(
-                                            false, hash, &parse, &pool, server, &address,
+                                            false, &hash, &parse, &pool, server, &address,
                                         )
                                         .await?;
 
@@ -1661,7 +1661,7 @@ where
                 debug!("Prepared statement `{}` found in cache", parse.name);
                 // In this case we want to send the parse message to the server
                 // since pgcat is initiating the prepared statement on this specific server
-                self.register_parse_to_server_cache(true, *hash, parse, pool, server, address)
+                self.register_parse_to_server_cache(true, hash, parse, pool, server, address)
                     .await?;
             }
 
@@ -1682,15 +1682,14 @@ where
     async fn register_parse_to_server_cache(
         &self,
         should_send_parse_to_server: bool,
-        hash: u64,
+        hash: &u64,
         parse: &Arc<Parse>,
         pool: &ConnectionPool,
         server: &mut Server,
         address: &Address,
     ) -> Result<(), Error> {
-        // We want to update this in the LRU to know this was recently used and add it if it isn't there already
-        // This could be the case if it was evicted or if doesn't exist (ie. we reloaded and it got removed)
-        pool.register_parse_to_cache(hash, parse);
+        // We want to promote this in the pool's LRU
+        pool.promote_prepared_statement_hash(hash);
 
         if let Err(err) = server
             .register_prepared_statement(parse, should_send_parse_to_server)

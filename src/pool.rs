@@ -101,6 +101,11 @@ impl PreparedStatementCache {
             }
         }
     }
+
+    /// Marks the hash as most recently used if it exists
+    pub fn promote(&mut self, hash: &u64) {
+        self.cache.promote(hash);
+    }
 }
 
 /// An identifier for a PgCat pool,
@@ -1069,6 +1074,15 @@ impl ConnectionPool {
                 Some(cache.get_or_insert(parse, hash))
             }
             None => None,
+        }
+    }
+
+    /// Promote a prepared statement hash in the LRU
+    pub fn promote_prepared_statement_hash(&self, hash: &u64) {
+        // We should only be calling this function if the cache is enabled
+        if let Some(ref prepared_statement_cache) = self.prepared_statement_cache {
+            let mut cache = prepared_statement_cache.lock();
+            cache.promote(hash);
         }
     }
 }
