@@ -783,6 +783,10 @@ pub enum ExtendedProtocolData {
     Execute {
         data: BytesMut,
     },
+    Close {
+        data: BytesMut,
+        close: Close,
+    },
 }
 
 impl ExtendedProtocolData {
@@ -800,6 +804,10 @@ impl ExtendedProtocolData {
 
     pub fn create_new_execute(data: BytesMut) -> Self {
         Self::Execute { data }
+    }
+
+    pub fn create_new_close(data: BytesMut, close: Close) -> Self {
+        Self::Close { data, close }
     }
 }
 

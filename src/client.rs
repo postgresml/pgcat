@@ -978,16 +978,11 @@ where
 
                 // Close (F)
                 'C' => {
-                    if self.prepared_statements_enabled {
-                        let close: Close = (&message).try_into()?;
+                    let close: Close = (&message).try_into()?;
 
-                        // No guarantee that the server we get is going to have this statement so just pretend we did it
-                        if close.is_prepared_statement() && !close.anonymous() {
-                            self.prepared_statements.remove(&close.name);
-                            self.response_message_queue_buffer.put(close_complete());
-                            continue;
-                        }
-                    }
+                    self.extended_protocol_data_buffer
+                        .push_back(ExtendedProtocolData::create_new_close(message, close));
+                    continue;
                 }
 
                 _ => (),
@@ -1264,6 +1259,15 @@ where
                             .push_back(ExtendedProtocolData::create_new_execute(message));
                     }
 
+                    // Close
+                    // Close the prepared statement.
+                    'C' => {
+                        let close: Close = (&message).try_into()?;
+
+                        self.extended_protocol_data_buffer
+                            .push_back(ExtendedProtocolData::create_new_close(message, close));
+                    }
+
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {
@@ -1389,6 +1393,21 @@ where
                                 ExtendedProtocolData::Execute { data } => {
                                     self.buffer.put(&data[..])
                                 }
+                                ExtendedProtocolData::Close { data, close } => {
+                                    // We don't send the close message to the server if prepared statements are enabled
+                                    // and it's a close with a prepared statement name provided
+                                    if self.prepared_statements_enabled
+                                        && close.is_prepared_statement()
+                                        && !close.anonymous()
+                                    {
+                                        self.prepared_statements.remove(&close.name);
+
+                                        // Queue up a close complete message to send to the client
+                                        self.response_message_queue_buffer.put(close_complete());
+                                    } else {
+                                        self.buffer.put(&data[..]);
+                                    }
+                                }
                             }
                         }
 
@@ -1448,27 +1467,6 @@ where
                             if self.transaction_mode && !server.in_copy_mode() {
                                 break;
                             }
-                        }
-                    }
-
-                    // Close the prepared statement.
-                    'C' => {
-                        let mut add_to_buffer = true;
-
-                        if self.prepared_statements_enabled {
-                            let close: Close = (&message).try_into()?;
-
-                            if close.is_prepared_statement() && !close.anonymous() {
-                                // We won't actually close the statement
-                                // since there's no guarantee that the server has it
-                                self.prepared_statements.remove(&close.name);
-                                self.response_message_queue_buffer.put(close_complete());
-                                add_to_buffer = false;
-                            }
-                        }
-
-                        if add_to_buffer {
-                            self.buffer.put(&message[..]);
                         }
                     }
 
