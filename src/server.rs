@@ -323,11 +323,8 @@ pub struct Server {
     /// Log client parameter status changes
     log_client_parameter_status_changes: bool,
 
-    // /// Prepared statements enabled
-    prepared_statement_enabled: bool,
-
     /// Prepared statements
-    prepared_statement_cache: LruCache<String, ()>,
+    prepared_statement_cache: Option<LruCache<String, ()>>,
 }
 
 impl Server {
@@ -824,12 +821,11 @@ impl Server {
                         },
                         cleanup_connections,
                         log_client_parameter_status_changes,
-                        prepared_statement_enabled: prepared_statement_cache_size > 0,
                         prepared_statement_cache: match prepared_statement_cache_size {
-                            0 => LruCache::new(NonZeroUsize::new(1).unwrap()),
-                            _ => LruCache::new(
+                            0 => None,
+                            _ => Some(LruCache::new(
                                 NonZeroUsize::new(prepared_statement_cache_size).unwrap(),
-                            ),
+                            )),
                         },
                     };
 
@@ -970,7 +966,7 @@ impl Server {
                         self.in_copy_mode = false;
                     }
 
-                    if self.prepared_statement_enabled {
+                    if self.prepared_statement_cache.is_some() {
                         let error_message = PgErrorMsg::parse(&message)?;
                         if error_message.message == "cached plan must not change result type" {
                             warn!("Server {:?} changed schema, dropping connection to clean up prepared statements", self.address);
@@ -1096,7 +1092,12 @@ impl Server {
     // Determines if the server already has a prepared statement with the given name
     // Increments the prepared statement cache hit counter
     pub fn has_prepared_statement(&mut self, name: &str) -> bool {
-        let has_it = self.prepared_statement_cache.get(name).is_some();
+        let cache = match &mut self.prepared_statement_cache {
+            Some(cache) => cache,
+            None => return false,
+        };
+
+        let has_it = cache.get(name).is_some();
         if has_it {
             self.stats.prepared_cache_hit();
         } else {
@@ -1107,10 +1108,15 @@ impl Server {
     }
 
     pub fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
+        let cache = match &mut self.prepared_statement_cache {
+            Some(cache) => cache,
+            None => return None,
+        };
+
         self.stats.prepared_cache_add();
 
         // If we evict something, we need to close it on the server
-        if let Some((evicted_name, _)) = self.prepared_statement_cache.push(name.to_string(), ()) {
+        if let Some((evicted_name, _)) = cache.push(name.to_string(), ()) {
             if evicted_name != name {
                 debug!(
                     "Evicted prepared statement {} from cache, replaced with {}",
@@ -1124,8 +1130,13 @@ impl Server {
     }
 
     pub fn remove_prepared_statement_from_cache(&mut self, name: &str) {
+        let cache = match &mut self.prepared_statement_cache {
+            Some(cache) => cache,
+            None => return,
+        };
+
         self.stats.prepared_cache_remove();
-        self.prepared_statement_cache.pop(name);
+        cache.pop(name);
     }
 
     pub async fn register_prepared_statement(
@@ -1301,7 +1312,9 @@ impl Server {
             if self.cleanup_state.needs_cleanup_prepare {
                 reset_string.push_str("DEALLOCATE ALL;");
                 // Since we deallocated all prepared statements, we need to clear the cache
-                self.prepared_statement_cache.clear();
+                if let Some(cache) = &mut self.prepared_statement_cache {
+                    cache.clear();
+                }
             };
 
             self.query(&reset_string).await?;
