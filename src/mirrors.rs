@@ -23,14 +23,15 @@ impl MirroredClient {
     async fn create_pool(&self) -> Pool<ServerPool> {
         let config = get_config();
         let default = std::time::Duration::from_millis(10_000).as_millis() as u64;
-        let (connection_timeout, idle_timeout, _cfg) =
+        let (connection_timeout, idle_timeout, _cfg, prepared_statement_cache_size) =
             match config.pools.get(&self.address.pool_name) {
                 Some(cfg) => (
                     cfg.connect_timeout.unwrap_or(default),
                     cfg.idle_timeout.unwrap_or(default),
                     cfg.clone(),
+                    cfg.prepared_statements_cache_size,
                 ),
-                None => (default, default, crate::config::Pool::default()),
+                None => (default, default, crate::config::Pool::default(), 0),
             };
 
         let manager = ServerPool::new(
@@ -42,6 +43,7 @@ impl MirroredClient {
             None,
             true,
             false,
+            prepared_statement_cache_size,
         );
 
         Pool::builder()

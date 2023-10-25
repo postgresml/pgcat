@@ -744,6 +744,7 @@ where
         ("age_seconds", DataType::Numeric),
         ("prepare_cache_hit", DataType::Numeric),
         ("prepare_cache_miss", DataType::Numeric),
+        ("prepare_cache_eviction", DataType::Numeric),
         ("prepare_cache_size", DataType::Numeric),
     ];
 
@@ -774,6 +775,10 @@ where
                 .to_string(),
             server
                 .prepared_miss_count
+                .load(Ordering::Relaxed)
+                .to_string(),
+            server
+                .prepared_eviction_count
                 .load(Ordering::Relaxed)
                 .to_string(),
             server

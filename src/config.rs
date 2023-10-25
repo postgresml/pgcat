@@ -116,10 +116,10 @@ impl Default for Address {
             host: String::from("127.0.0.1"),
             port: 5432,
             shard: 0,
-            address_index: 0,
-            replica_number: 0,
             database: String::from("database"),
             role: Role::Replica,
+            replica_number: 0,
+            address_index: 0,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
             mirrors: Vec::new(),
@@ -337,12 +337,6 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
-
-    #[serde(default)]
-    pub prepared_statements: bool,
-
-    #[serde(default = "General::default_prepared_statements_cache_size")]
-    pub prepared_statements_cache_size: usize,
 }
 
 impl General {
@@ -424,10 +418,6 @@ impl General {
     pub fn default_server_round_robin() -> bool {
         true
     }
-
-    pub fn default_prepared_statements_cache_size() -> usize {
-        500
-    }
 }
 
 impl Default for General {
@@ -439,35 +429,33 @@ impl Default for General {
             prometheus_exporter_port: 9930,
             connect_timeout: General::default_connect_timeout(),
             idle_timeout: General::default_idle_timeout(),
-            shutdown_timeout: Self::default_shutdown_timeout(),
-            healthcheck_timeout: Self::default_healthcheck_timeout(),
-            healthcheck_delay: Self::default_healthcheck_delay(),
-            ban_time: Self::default_ban_time(),
-            worker_threads: Self::default_worker_threads(),
-            idle_client_in_transaction_timeout: Self::default_idle_client_in_transaction_timeout(),
             tcp_keepalives_idle: Self::default_tcp_keepalives_idle(),
             tcp_keepalives_count: Self::default_tcp_keepalives_count(),
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
             tcp_user_timeout: Self::default_tcp_user_timeout(),
             log_client_connections: false,
             log_client_disconnections: false,
-            autoreload: None,
             dns_cache_enabled: false,
             dns_max_ttl: Self::default_dns_max_ttl(),
+            shutdown_timeout: Self::default_shutdown_timeout(),
+            healthcheck_timeout: Self::default_healthcheck_timeout(),
+            healthcheck_delay: Self::default_healthcheck_delay(),
+            ban_time: Self::default_ban_time(),
+            idle_client_in_transaction_timeout: Self::default_idle_client_in_transaction_timeout(),
+            server_lifetime: Self::default_server_lifetime(),
+            server_round_robin: Self::default_server_round_robin(),
+            worker_threads: Self::default_worker_threads(),
+            autoreload: None,
             tls_certificate: None,
             tls_private_key: None,
             server_tls: false,
             verify_server_certificate: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
+            validate_config: true,
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
-            server_lifetime: Self::default_server_lifetime(),
-            server_round_robin: Self::default_server_round_robin(),
-            validate_config: true,
-            prepared_statements: false,
-            prepared_statements_cache_size: 500,
         }
     }
 }
@@ -568,6 +556,9 @@ pub struct Pool {
     #[serde(default)] // False
     pub log_client_parameter_status_changes: bool,
 
+    #[serde(default = "Pool::default_prepared_statements_cache_size")]
+    pub prepared_statements_cache_size: usize,
+
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -615,6 +606,10 @@ impl Pool {
 
     pub fn default_cleanup_server_connections() -> bool {
         true
+    }
+
+    pub fn default_prepared_statements_cache_size() -> usize {
+        0
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -708,17 +703,16 @@ impl Default for Pool {
         Pool {
             pool_mode: Self::default_pool_mode(),
             load_balancing_mode: Self::default_load_balancing_mode(),
-            shards: BTreeMap::from([(String::from("1"), Shard::default())]),
-            users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
             primary_reads_enabled: false,
-            sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: None,
             connect_timeout: None,
             idle_timeout: None,
+            server_lifetime: None,
+            sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: None,
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: Some(1000),
@@ -726,10 +720,12 @@ impl Default for Pool {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
-            server_lifetime: None,
-            plugins: None,
             cleanup_server_connections: true,
             log_client_parameter_status_changes: false,
+            prepared_statements_cache_size: Self::default_prepared_statements_cache_size(),
+            plugins: None,
+            shards: BTreeMap::from([(String::from("1"), Shard::default())]),
+            users: BTreeMap::default(),
         }
     }
 }
@@ -841,13 +837,13 @@ impl Shard {
 impl Default for Shard {
     fn default() -> Shard {
         Shard {
+            database: String::from("postgres"),
+            mirrors: None,
             servers: vec![ServerConfig {
                 host: String::from("localhost"),
                 port: 5432,
                 role: Role::Primary,
             }],
-            mirrors: None,
-            database: String::from("postgres"),
         }
     }
 }
@@ -1018,8 +1014,8 @@ impl Default for Config {
         Config {
             path: Self::default_path(),
             general: General::default(),
-            pools: HashMap::default(),
             plugins: None,
+            pools: HashMap::default(),
         }
     }
 }
@@ -1128,6 +1124,7 @@ impl From<&Config> for std::collections::HashMap<String, String> {
 impl Config {
     /// Print current configuration.
     pub fn show(&self) {
+        info!("Config path: {}", self.path);
         info!("Ban time: {}s", self.general.ban_time);
         info!(
             "Idle client in transaction timeout: {}ms",
@@ -1174,13 +1171,6 @@ impl Config {
             "Server TLS certificate verification: {}",
             self.general.verify_server_certificate
         );
-        info!("Prepared statements: {}", self.general.prepared_statements);
-        if self.general.prepared_statements {
-            info!(
-                "Prepared statements server cache size: {}",
-                self.general.prepared_statements_cache_size
-            );
-        }
         info!(
             "Plugins: {}",
             match self.plugins {
@@ -1270,6 +1260,10 @@ impl Config {
             info!(
                 "[pool: {}] Log client parameter status changes: {}",
                 pool_name, pool_config.log_client_parameter_status_changes
+            );
+            info!(
+                "[pool: {}] Prepared statements server cache size: {}",
+                pool_name, pool_config.prepared_statements_cache_size
             );
             info!(
                 "[pool: {}] Plugins: {}",
@@ -1411,14 +1405,6 @@ pub fn get_config() -> Config {
 
 pub fn get_idle_client_in_transaction_timeout() -> u64 {
     CONFIG.load().general.idle_client_in_transaction_timeout
-}
-
-pub fn get_prepared_statements() -> bool {
-    CONFIG.load().general.prepared_statements
-}
-
-pub fn get_prepared_statements_cache_size() -> usize {
-    CONFIG.load().general.prepared_statements_cache_size
 }
 
 /// Parse the configuration file located at the path.

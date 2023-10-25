@@ -259,22 +259,6 @@ Password to be used for connecting to servers to obtain the hash used for md5 au
 specified in `auth_query_user`. The connection will be established using the database configured in the pool.
 This parameter is inherited by every pool and can be redefined in pool configuration.
 
-### prepared_statements
-```
-path: general.prepared_statements
-default: false
-```
-
-Whether to use prepared statements or not.
-
-### prepared_statements_cache_size
-```
-path: general.prepared_statements_cache_size
-default: 500
-```
-
-Size of the prepared statements cache.
-
 ### dns_cache_enabled
 ```
 path: general.dns_cache_enabled
@@ -323,6 +307,15 @@ If the client doesn't specify, PgCat routes traffic to this role by default.
 `any` round-robin between primary and replicas,
 `replica` round-robin between replicas only without touching the primary,
 `primary` all queries go to the primary unless otherwise specified.
+
+### prepared_statements_cache_size
+```
+path: general.prepared_statements_cache_size
+default: 0
+```
+
+Size of the prepared statements cache. 0 means disabled.
+TODO: update documentation
 
 ### query_parser_enabled
 ```

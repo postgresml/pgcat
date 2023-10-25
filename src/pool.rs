@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use bb8::{ManageConnection, Pool, PooledConnection, QueueStrategy};
 use chrono::naive::NaiveDateTime;
 use log::{debug, error, info, warn};
+use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use rand::seq::SliceRandom;
@@ -10,6 +11,7 @@ use rand::thread_rng;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicU64;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -24,6 +26,7 @@ use crate::config::{
 use crate::errors::Error;
 
 use crate::auth_passthrough::AuthPassthrough;
+use crate::messages::Parse;
 use crate::plugins::prewarmer;
 use crate::server::{Server, ServerParameters};
 use crate::sharding::ShardingFunction;
@@ -52,6 +55,57 @@ pub enum BanReason {
     FailedCheckout,
     StatementTimeout,
     AdminBan(i64),
+}
+
+pub type PreparedStatementCacheType = Arc<Mutex<PreparedStatementCache>>;
+
+// TODO: Add stats the this cache
+// TODO: Add application name to the cache value to help identify which application is using the cache
+// TODO: Create admin command to show which statements are in the cache
+#[derive(Debug)]
+pub struct PreparedStatementCache {
+    cache: LruCache<u64, Arc<Parse>>,
+}
+
+impl PreparedStatementCache {
+    pub fn new(mut size: usize) -> Self {
+        // Cannot be zeros
+        if size == 0 {
+            size = 1;
+        }
+
+        PreparedStatementCache {
+            cache: LruCache::new(NonZeroUsize::new(size).unwrap()),
+        }
+    }
+
+    /// Adds the prepared statement to the cache if it doesn't exist with a new name
+    /// if it already exists will give you the existing parse
+    ///
+    /// Pass the hash to this so that we can do the compute before acquiring the lock
+    pub fn get_or_insert(&mut self, parse: &Parse, hash: u64) -> Arc<Parse> {
+        match self.cache.get(&hash) {
+            Some(rewritten_parse) => rewritten_parse.clone(),
+            None => {
+                let new_parse = Arc::new(parse.clone().rewrite());
+                let evicted = self.cache.push(hash, new_parse.clone());
+
+                if let Some((_, evicted_parse)) = evicted {
+                    debug!(
+                        "Evicted prepared statement {} from cache",
+                        evicted_parse.name
+                    );
+                }
+
+                new_parse
+            }
+        }
+    }
+
+    /// Marks the hash as most recently used if it exists
+    pub fn promote(&mut self, hash: &u64) {
+        self.cache.promote(hash);
+    }
 }
 
 /// An identifier for a PgCat pool,
@@ -223,6 +277,9 @@ pub struct ConnectionPool {
 
     /// AuthInfo
     pub auth_hash: Arc<RwLock<Option<String>>>,
+
+    /// Cache
+    pub prepared_statement_cache: Option<PreparedStatementCacheType>,
 }
 
 impl ConnectionPool {
@@ -376,6 +433,7 @@ impl ConnectionPool {
                             },
                             pool_config.cleanup_server_connections,
                             pool_config.log_client_parameter_status_changes,
+                            pool_config.prepared_statements_cache_size,
                         );
 
                         let connect_timeout = match pool_config.connect_timeout {
@@ -498,6 +556,12 @@ impl ConnectionPool {
                     validated: Arc::new(AtomicBool::new(false)),
                     paused: Arc::new(AtomicBool::new(false)),
                     paused_waiter: Arc::new(Notify::new()),
+                    prepared_statement_cache: match pool_config.prepared_statements_cache_size {
+                        0 => None,
+                        _ => Some(Arc::new(Mutex::new(PreparedStatementCache::new(
+                            pool_config.prepared_statements_cache_size,
+                        )))),
+                    },
                 };
 
                 // Connect to the servers to make sure pool configuration is valid
@@ -998,6 +1062,29 @@ impl ConnectionPool {
             Some(shard) => shard < self.shards(),
         }
     }
+
+    /// Register a parse statement to the pool's cache and return the rewritten parse
+    ///
+    /// Do not pass an anonymous parse statement to this function
+    pub fn register_parse_to_cache(&self, hash: u64, parse: &Parse) -> Option<Arc<Parse>> {
+        // We should only be calling this function if the cache is enabled
+        match self.prepared_statement_cache {
+            Some(ref prepared_statement_cache) => {
+                let mut cache = prepared_statement_cache.lock();
+                Some(cache.get_or_insert(parse, hash))
+            }
+            None => None,
+        }
+    }
+
+    /// Promote a prepared statement hash in the LRU
+    pub fn promote_prepared_statement_hash(&self, hash: &u64) {
+        // We should only be calling this function if the cache is enabled
+        if let Some(ref prepared_statement_cache) = self.prepared_statement_cache {
+            let mut cache = prepared_statement_cache.lock();
+            cache.promote(hash);
+        }
+    }
 }
 
 /// Wrapper for the bb8 connection pool.
@@ -1025,6 +1112,9 @@ pub struct ServerPool {
 
     /// Log client parameter status changes
     log_client_parameter_status_changes: bool,
+
+    /// Prepared statement cache size
+    prepared_statement_cache_size: usize,
 }
 
 impl ServerPool {
@@ -1038,6 +1128,7 @@ impl ServerPool {
         plugins: Option<Plugins>,
         cleanup_connections: bool,
         log_client_parameter_status_changes: bool,
+        prepared_statement_cache_size: usize,
     ) -> ServerPool {
         ServerPool {
             address,
@@ -1048,6 +1139,7 @@ impl ServerPool {
             plugins,
             cleanup_connections,
             log_client_parameter_status_changes,
+            prepared_statement_cache_size,
         }
     }
 }
@@ -1078,6 +1170,7 @@ impl ManageConnection for ServerPool {
             self.auth_hash.clone(),
             self.cleanup_connections,
             self.log_client_parameter_status_changes,
+            self.prepared_statement_cache_size,
         )
         .await
         {
