@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: {{ include "pgcat.fullname" . }}
   labels:
-    {{- include "pgcat.fullname" . | nindent 4 }}
+    {{- include "pgcat.labels" . | nindent 4 }}
 data:
   pgcat.toml: |
     [general]
