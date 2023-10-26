@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       packageVersion:
-        default: "1.1.2-dev"
+        default: "1.1.2-dev1"
 jobs:
   build:
     strategy:

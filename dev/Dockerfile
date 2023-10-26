@@ -1,6 +1,8 @@
 FROM rust:1.70-bullseye
 
 # Dependencies
+COPY --from=sclevine/yj /bin/yj /bin/yj
+RUN /bin/yj -h
 RUN apt-get update -y \
     && apt-get install -y \
     llvm-11 psmisc postgresql-contrib postgresql-client \

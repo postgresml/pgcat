@@ -49,6 +49,7 @@ pub struct ServerStats {
     pub error_count: Arc<AtomicU64>,
     pub prepared_hit_count: Arc<AtomicU64>,
     pub prepared_miss_count: Arc<AtomicU64>,
+    pub prepared_eviction_count: Arc<AtomicU64>,
     pub prepared_cache_size: Arc<AtomicU64>,
 }
 
@@ -68,6 +69,7 @@ impl Default for ServerStats {
             reporter: get_reporter(),
             prepared_hit_count: Arc::new(AtomicU64::new(0)),
             prepared_miss_count: Arc::new(AtomicU64::new(0)),
+            prepared_eviction_count: Arc::new(AtomicU64::new(0)),
             prepared_cache_size: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -221,6 +223,7 @@ impl ServerStats {
     }
 
     pub fn prepared_cache_remove(&self) {
+        self.prepared_eviction_count.fetch_add(1, Ordering::Relaxed);
         self.prepared_cache_size.fetch_sub(1, Ordering::Relaxed);
     }
 }

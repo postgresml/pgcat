@@ -23,14 +23,15 @@ impl MirroredClient {
     async fn create_pool(&self) -> Pool<ServerPool> {
         let config = get_config();
         let default = std::time::Duration::from_millis(10_000).as_millis() as u64;
-        let (connection_timeout, idle_timeout, _cfg) =
+        let (connection_timeout, idle_timeout, _cfg, prepared_statement_cache_size) =
             match config.pools.get(&self.address.pool_name) {
                 Some(cfg) => (
                     cfg.connect_timeout.unwrap_or(default),
                     cfg.idle_timeout.unwrap_or(default),
                     cfg.clone(),
+                    cfg.prepared_statements_cache_size,
                 ),
-                None => (default, default, crate::config::Pool::default()),
+                None => (default, default, crate::config::Pool::default(), 0),
             };
 
         let manager = ServerPool::new(
@@ -42,6 +43,7 @@ impl MirroredClient {
             None,
             true,
             false,
+            prepared_statement_cache_size,
         );
 
         Pool::builder()
@@ -137,18 +139,18 @@ impl MirroringManager {
                 bytes_rx,
                 disconnect_rx: exit_rx,
             };
-            exit_senders.push(exit_tx.clone());
-            byte_senders.push(bytes_tx.clone());
+            exit_senders.push(exit_tx);
+            byte_senders.push(bytes_tx);
             client.start();
         });
 
         Self {
-            byte_senders: byte_senders,
+            byte_senders,
             disconnect_senders: exit_senders,
         }
     }
 
-    pub fn send(self: &mut Self, bytes: &BytesMut) {
+    pub fn send(&mut self, bytes: &BytesMut) {
         // We want to avoid performing an allocation if we won't be able to send the message
         // There is a possibility of a race here where we check the capacity and then the channel is
         // closed or the capacity is reduced to 0, but mirroring is best effort anyway
@@ -170,7 +172,7 @@ impl MirroringManager {
         });
     }
 
-    pub fn disconnect(self: &mut Self) {
+    pub fn disconnect(&mut self) {
         self.disconnect_senders
             .iter_mut()
             .for_each(|sender| match sender.try_send(()) {

@@ -3,12 +3,14 @@
 use bytes::{Buf, BufMut, BytesMut};
 use fallible_iterator::FallibleIterator;
 use log::{debug, error, info, trace, warn};
+use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
@@ -16,7 +18,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, get_prepared_statements_cache_size, Address, User};
+use crate::config::{get_config, Address, User};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -197,12 +199,8 @@ impl ServerParameters {
             key = "DateStyle".to_string();
         };
 
-        if TRACKED_PARAMETERS.contains(&key) {
+        if TRACKED_PARAMETERS.contains(&key) || startup {
             self.parameters.insert(key, value);
-        } else {
-            if startup {
-                self.parameters.insert(key, value);
-            }
         }
     }
 
@@ -326,12 +324,13 @@ pub struct Server {
     log_client_parameter_status_changes: bool,
 
     /// Prepared statements
-    prepared_statements: BTreeSet<String>,
+    prepared_statement_cache: Option<LruCache<String, ()>>,
 }
 
 impl Server {
     /// Pretend to be the Postgres client and connect to the server given host, port and credentials.
     /// Perform the authentication and return the server in a ready for query state.
+    #[allow(clippy::too_many_arguments)]
     pub async fn startup(
         address: &Address,
         user: &User,
@@ -341,6 +340,7 @@ impl Server {
         auth_hash: Arc<RwLock<Option<String>>>,
         cleanup_connections: bool,
         log_client_parameter_status_changes: bool,
+        prepared_statement_cache_size: usize,
     ) -> Result<Server, Error> {
         let cached_resolver = CACHED_RESOLVER.load();
         let mut addr_set: Option<AddrSet> = None;
@@ -440,10 +440,7 @@ impl Server {
 
                 // Something else?
                 m => {
-                    return Err(Error::SocketError(format!(
-                        "Unknown message: {}",
-                        m as char
-                    )));
+                    return Err(Error::SocketError(format!("Unknown message: {}", { m })));
                 }
             }
         } else {
@@ -461,26 +458,20 @@ impl Server {
             None => &user.username,
         };
 
-        let password = match user.server_password {
-            Some(ref server_password) => Some(server_password),
-            None => match user.password {
-                Some(ref password) => Some(password),
-                None => None,
-            },
+        let password = match user.server_password.as_ref() {
+            Some(server_password) => Some(server_password),
+            None => user.password.as_ref(),
         };
 
         startup(&mut stream, username, database).await?;
 
         let mut process_id: i32 = 0;
         let mut secret_key: i32 = 0;
-        let server_identifier = ServerIdentifier::new(username, &database);
+        let server_identifier = ServerIdentifier::new(username, database);
 
         // We'll be handling multiple packets, but they will all be structured the same.
         // We'll loop here until this exchange is complete.
-        let mut scram: Option<ScramSha256> = match password {
-            Some(password) => Some(ScramSha256::new(password)),
-            None => None,
-        };
+        let mut scram: Option<ScramSha256> = password.map(|password| ScramSha256::new(password));
 
         let mut server_parameters = ServerParameters::new();
 
@@ -725,7 +716,7 @@ impl Server {
                                 }
                             };
 
-                            let fields = match PgErrorMsg::parse(error) {
+                            let fields = match PgErrorMsg::parse(&error) {
                                 Ok(f) => f,
                                 Err(err) => {
                                     return Err(err);
@@ -830,7 +821,12 @@ impl Server {
                         },
                         cleanup_connections,
                         log_client_parameter_status_changes,
-                        prepared_statements: BTreeSet::new(),
+                        prepared_statement_cache: match prepared_statement_cache_size {
+                            0 => None,
+                            _ => Some(LruCache::new(
+                                NonZeroUsize::new(prepared_statement_cache_size).unwrap(),
+                            )),
+                        },
                     };
 
                     return Ok(server);
@@ -882,7 +878,7 @@ impl Server {
         self.mirror_send(messages);
         self.stats().data_sent(messages.len());
 
-        match write_all_flush(&mut self.stream, &messages).await {
+        match write_all_flush(&mut self.stream, messages).await {
             Ok(_) => {
                 // Successfully sent to server
                 self.last_activity = SystemTime::now();
@@ -968,6 +964,20 @@ impl Server {
                 'E' => {
                     if self.in_copy_mode {
                         self.in_copy_mode = false;
+                    }
+
+                    if self.prepared_statement_cache.is_some() {
+                        let error_message = PgErrorMsg::parse(&message)?;
+                        if error_message.message == "cached plan must not change result type" {
+                            warn!("Server {:?} changed schema, dropping connection to clean up prepared statements", self.address);
+                            // This will still result in an error to the client, but this server connection will drop all cached prepared statements
+                            // so that any new queries will be re-prepared
+                            // TODO: Other ideas to solve errors when there are DDL changes after a statement has been prepared
+                            //  - Recreate entire connection pool to force recreation of all server connections
+                            //  - Clear the ConnectionPool's statement cache so that new statement names are generated
+                            //  - Implement a retry (re-prepare) so the client doesn't see an error
+                            self.cleanup_state.needs_cleanup_prepare = true;
+                        }
                     }
                 }
 
@@ -1079,115 +1089,92 @@ impl Server {
         Ok(bytes)
     }
 
-    /// Add the prepared statement to being tracked by this server.
-    /// The client is processing data that will create a prepared statement on this server.
-    pub fn will_prepare(&mut self, name: &str) {
-        debug!("Will prepare `{}`", name);
+    // Determines if the server already has a prepared statement with the given name
+    // Increments the prepared statement cache hit counter
+    pub fn has_prepared_statement(&mut self, name: &str) -> bool {
+        let cache = match &mut self.prepared_statement_cache {
+            Some(cache) => cache,
+            None => return false,
+        };
 
-        self.prepared_statements.insert(name.to_string());
-        self.stats.prepared_cache_add();
-    }
-
-    /// Check if we should prepare a statement on the server.
-    pub fn should_prepare(&self, name: &str) -> bool {
-        let should_prepare = !self.prepared_statements.contains(name);
-
-        debug!("Should prepare `{}`: {}", name, should_prepare);
-
-        if should_prepare {
-            self.stats.prepared_cache_miss();
-        } else {
+        let has_it = cache.get(name).is_some();
+        if has_it {
             self.stats.prepared_cache_hit();
+        } else {
+            self.stats.prepared_cache_miss();
         }
 
-        should_prepare
+        has_it
     }
 
-    /// Create a prepared statement on the server.
-    pub async fn prepare(&mut self, parse: &Parse) -> Result<(), Error> {
-        debug!("Preparing `{}`", parse.name);
+    pub fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
+        let cache = match &mut self.prepared_statement_cache {
+            Some(cache) => cache,
+            None => return None,
+        };
 
-        let bytes: BytesMut = parse.try_into()?;
-        self.send(&bytes).await?;
-        self.send(&flush()).await?;
-
-        // Read and discard ParseComplete (B)
-        match read_message(&mut self.stream).await {
-            Ok(_) => (),
-            Err(err) => {
-                self.bad = true;
-                return Err(err);
-            }
-        }
-
-        self.prepared_statements.insert(parse.name.to_string());
         self.stats.prepared_cache_add();
 
-        debug!("Prepared `{}`", parse.name);
-
-        Ok(())
-    }
-
-    /// Maintain adequate cache size on the server.
-    pub async fn maintain_cache(&mut self) -> Result<(), Error> {
-        debug!("Cache maintenance run");
-
-        let max_cache_size = get_prepared_statements_cache_size();
-        let mut names = Vec::new();
-
-        while self.prepared_statements.len() >= max_cache_size {
-            // The prepared statmeents are alphanumerically sorted by the BTree.
-            // FIFO.
-            if let Some(name) = self.prepared_statements.pop_last() {
-                names.push(name);
+        // If we evict something, we need to close it on the server
+        if let Some((evicted_name, _)) = cache.push(name.to_string(), ()) {
+            if evicted_name != name {
+                debug!(
+                    "Evicted prepared statement {} from cache, replaced with {}",
+                    evicted_name, name
+                );
+                return Some(evicted_name);
             }
-        }
+        };
 
-        if !names.is_empty() {
-            self.deallocate(names).await?;
-        }
-
-        Ok(())
+        None
     }
 
-    /// Remove the prepared statement from being tracked by this server.
-    /// The client is processing data that will cause the server to close the prepared statement.
-    pub fn will_close(&mut self, name: &str) {
-        debug!("Will close `{}`", name);
+    pub fn remove_prepared_statement_from_cache(&mut self, name: &str) {
+        let cache = match &mut self.prepared_statement_cache {
+            Some(cache) => cache,
+            None => return,
+        };
 
-        self.prepared_statements.remove(name);
+        self.stats.prepared_cache_remove();
+        cache.pop(name);
     }
 
-    /// Close a prepared statement on the server.
-    pub async fn deallocate(&mut self, names: Vec<String>) -> Result<(), Error> {
-        for name in &names {
-            debug!("Deallocating prepared statement `{}`", name);
+    pub async fn register_prepared_statement(
+        &mut self,
+        parse: &Parse,
+        should_send_parse_to_server: bool,
+    ) -> Result<(), Error> {
+        if !self.has_prepared_statement(&parse.name) {
+            let mut bytes = BytesMut::new();
 
-            let close = Close::new(name);
-            let bytes: BytesMut = close.try_into()?;
+            if should_send_parse_to_server {
+                let parse_bytes: BytesMut = parse.try_into()?;
+                bytes.extend_from_slice(&parse_bytes);
+            }
 
-            self.send(&bytes).await?;
-        }
-
-        if !names.is_empty() {
-            self.send(&flush()).await?;
-        }
-
-        // Read and discard CloseComplete (3)
-        for name in &names {
-            match read_message(&mut self.stream).await {
-                Ok(_) => {
-                    self.prepared_statements.remove(name);
-                    self.stats.prepared_cache_remove();
-                    debug!("Closed `{}`", name);
-                }
-
-                Err(err) => {
-                    self.bad = true;
-                    return Err(err);
-                }
+            // If we evict something, we need to close it on the server
+            // We do this by adding it to the messages we're sending to the server before the sync
+            if let Some(evicted_name) = self.add_prepared_statement_to_cache(&parse.name) {
+                self.remove_prepared_statement_from_cache(&evicted_name);
+                let close_bytes: BytesMut = Close::new(&evicted_name).try_into()?;
+                bytes.extend_from_slice(&close_bytes);
             };
-        }
+
+            // If we have a parse or close we need to send to the server, send them and sync
+            if !bytes.is_empty() {
+                bytes.extend_from_slice(&sync());
+
+                self.send(&bytes).await?;
+
+                loop {
+                    self.recv(None).await?;
+
+                    if !self.is_data_available() {
+                        break;
+                    }
+                }
+            }
+        };
 
         Ok(())
     }
@@ -1324,6 +1311,10 @@ impl Server {
 
             if self.cleanup_state.needs_cleanup_prepare {
                 reset_string.push_str("DEALLOCATE ALL;");
+                // Since we deallocated all prepared statements, we need to clear the cache
+                if let Some(cache) = &mut self.prepared_statement_cache {
+                    cache.clear();
+                }
             };
 
             self.query(&reset_string).await?;
@@ -1359,16 +1350,14 @@ impl Server {
     }
 
     pub fn mirror_send(&mut self, bytes: &BytesMut) {
-        match self.mirror_manager.as_mut() {
-            Some(manager) => manager.send(bytes),
-            None => (),
+        if let Some(manager) = self.mirror_manager.as_mut() {
+            manager.send(bytes)
         }
     }
 
     pub fn mirror_disconnect(&mut self) {
-        match self.mirror_manager.as_mut() {
-            Some(manager) => manager.disconnect(),
-            None => (),
+        if let Some(manager) = self.mirror_manager.as_mut() {
+            manager.disconnect()
         }
     }
 
@@ -1391,13 +1380,14 @@ impl Server {
             Arc::new(RwLock::new(None)),
             true,
             false,
+            0,
         )
         .await?;
         debug!("Connected!, sending query.");
         server.send(&simple_query(query)).await?;
         let mut message = server.recv(None).await?;
 
-        Ok(parse_query_message(&mut message).await?)
+        parse_query_message(&mut message).await
     }
 }
 

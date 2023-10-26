@@ -20,7 +20,7 @@ impl<'a> Prewarmer<'a> {
                 self.server.address(),
                 query
             );
-            self.server.query(&query).await?;
+            self.server.query(query).await?;
         }
 
         Ok(())

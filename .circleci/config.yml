@@ -64,6 +64,9 @@ jobs:
           name: "Lint"
           command: "cargo fmt --check"
       - run:
+          name: "Clippy"
+          command: "cargo clippy --all --all-targets -- -Dwarnings"
+      - run:
           name: "Tests"
           command: "cargo clean && cargo build && cargo test && bash .circleci/run_tests.sh && .circleci/generate_coverage.sh"
       - store_artifacts:
