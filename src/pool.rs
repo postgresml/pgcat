@@ -20,6 +20,7 @@ use std::sync::{
 use std::time::Instant;
 use tokio::sync::Notify;
 
+use crate::auth::AuthMethod;
 use crate::config::{
     get_config, Address, DefaultShard, General, LoadBalancingMode, Plugins, PoolMode, Role, User,
 };
@@ -201,6 +202,7 @@ pub struct PoolSettings {
     // Limit how much of each query is searched for a potential shard regex match
     pub regex_search_limit: usize,
 
+    pub auth_method: Option<AuthMethod>,
     // Auth query parameters
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -232,6 +234,7 @@ impl Default for PoolSettings {
             shard_id_regex: None,
             regex_search_limit: 1000,
             default_shard: DefaultShard::Shard(0),
+            auth_method: None,
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -545,6 +548,7 @@ impl ConnectionPool {
                             .map(|regex| Regex::new(regex.as_str()).unwrap()),
                         regex_search_limit: pool_config.regex_search_limit.unwrap_or(1000),
                         default_shard: pool_config.default_shard,
+                        auth_method: pool_config.auth_method.clone(),
                         auth_query: pool_config.auth_query.clone(),
                         auth_query_user: pool_config.auth_query_user.clone(),
                         auth_query_password: pool_config.auth_query_password.clone(),
@@ -1215,6 +1219,10 @@ pub fn get_pool(db: &str, user: &str) -> Option<ConnectionPool> {
         .cloned()
 }
 
+/// Get a pointer to all configured pools.
+pub fn get_all_pools_shared() -> Arc<HashMap<PoolIdentifier, ConnectionPool>> {
+    Arc::clone(&*POOLS.load())
+}
 /// Get a pointer to all configured pools.
 pub fn get_all_pools() -> HashMap<PoolIdentifier, ConnectionPool> {
     (*(*POOLS.load())).clone()

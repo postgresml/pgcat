@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
+use crate::auth::AuthMethod;
 use crate::dns_cache::CachedResolver;
 use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
@@ -333,6 +334,9 @@ pub struct General {
     #[serde(default = "General::default_validate_config")]
     pub validate_config: bool,
 
+    #[serde(default = "General::default_auth_method")]
+    pub auth_method: AuthMethod,
+
     // Support for auth query
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -418,6 +422,14 @@ impl General {
     pub fn default_server_round_robin() -> bool {
         true
     }
+
+    pub fn default_prepared_statements_cache_size() -> usize {
+        500
+    }
+
+    pub fn default_auth_method() -> AuthMethod {
+        AuthMethod::Md5
+    }
 }
 
 impl Default for General {
@@ -453,6 +465,7 @@ impl Default for General {
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
             validate_config: true,
+            auth_method: Self::default_auth_method(),
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -545,6 +558,8 @@ pub struct Pool {
 
     #[serde(default = "Pool::default_default_shard")]
     pub default_shard: DefaultShard,
+
+    pub auth_method: Option<AuthMethod>,
 
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
@@ -717,6 +732,7 @@ impl Default for Pool {
             shard_id_regex: None,
             regex_search_limit: Some(1000),
             default_shard: Self::default_default_shard(),
+            auth_method: None,
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
@@ -1401,6 +1417,11 @@ impl Config {
 /// ArcSwap makes this cheap and quick.
 pub fn get_config() -> Config {
     (*(*CONFIG.load())).clone()
+}
+
+/// Returns a shared reference to the global configuration
+pub fn get_config_shared() -> Arc<Config> {
+    Arc::clone(&*CONFIG.load())
 }
 
 pub fn get_idle_client_in_transaction_timeout() -> u64 {
