@@ -7,6 +7,7 @@ use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+use crate::auth::SaslMechanism;
 use crate::client::PREPARED_STATEMENT_COUNTER;
 use crate::config::get_config;
 use crate::errors::Error;
@@ -62,6 +63,71 @@ where
     auth_ok.put_i32(0);
 
     write_all(stream, auth_ok).await
+}
+
+/// SASL authentication request
+///
+/// https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONSASL
+pub async fn authentication_sasl<S>(
+    stream: &mut S,
+    mechanisms: &[SaslMechanism],
+) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let mechanisms = mechanisms
+        .iter()
+        .map(|m| m.to_string() + "\0")
+        .collect::<String>();
+    let mechanisms = mechanisms.as_bytes();
+
+    let message_content_len = 9 + mechanisms.len();
+
+    let mut auth_sasl = BytesMut::with_capacity(1 + message_content_len);
+
+    // Identifies the message as an authentication request.
+    auth_sasl.put_u8(b'R');
+
+    auth_sasl.put_i32(
+        message_content_len
+            .try_into()
+            .expect("couldn't fit authentication mechanisms"),
+    );
+    // Specifies that SASL authentication is required.
+    auth_sasl.put_i32(10);
+    auth_sasl.put_slice(mechanisms);
+    auth_sasl.put_u8(0);
+
+    write_all(stream, auth_sasl).await
+}
+
+/// SASL authentication continue server response
+///
+/// https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-AUTHENTICATIONSASLCONTINUE
+pub async fn authentication_sasl_continue<S>(
+    stream: &mut S,
+    server_first_response: &[u8],
+) -> Result<(), Error>
+where
+    S: tokio::io::AsyncWrite + std::marker::Unpin,
+{
+    let message_content_len = 8 + server_first_response.len();
+
+    let mut auth_sasl_continue = BytesMut::with_capacity(1 + message_content_len);
+
+    // Identifies the message as an authentication request.
+    auth_sasl_continue.put_u8(b'R');
+
+    auth_sasl_continue.put_i32(
+        message_content_len
+            .try_into()
+            .expect("couldn't fit authentication mechanisms"),
+    );
+    // Specifies that this message contains a SASL challenge
+    auth_sasl_continue.put_i32(11);
+    auth_sasl_continue.put_slice(server_first_response);
+
+    write_all(stream, auth_sasl_continue).await
 }
 
 /// Generate md5 password challenge.
