@@ -112,7 +112,7 @@ where
             .send_auth_sasl_continue(
                 s_nonce.as_bytes(),
                 client_first_message_bare.nonce.as_ref(),
-                &salt,
+                salt,
                 iteration_count,
             )
             .await?;
@@ -122,8 +122,8 @@ where
             match std::str::from_utf8(&client_final_message[..]) {
                 Ok(s) => match s.rsplit_once(',') {
                     Some((without_proof, proof)) => {
-                        if proof.starts_with("p=") {
-                            (without_proof, &proof[2..])
+                        if let Some(proof) = proof.strip_prefix("p=") {
+                            (without_proof, proof)
                         } else {
                             return Err(Error::ProtocolSyncError(
                                 "invalid client final message".to_string(),
@@ -145,10 +145,8 @@ where
 
         // Verify nonce
         let saved_nonce = format!("{}{}", c_nonce, s_nonce);
-        match client_final_message_without_proof.split_once(",") {
-            Some((_, nonce)) if nonce.starts_with("r=") && saved_nonce.as_str() == &nonce[2..] => {
-                ()
-            }
+        match client_final_message_without_proof.split_once(',') {
+            Some((_, nonce)) if nonce.starts_with("r=") && saved_nonce.as_str() == &nonce[2..] => {}
             _ => return Err(Error::AuthError("failed to validate nonce".to_string())),
         }
 
@@ -160,7 +158,7 @@ where
 
         let salted_password = scram::ScramSha256::hi(
             &scram::normalize(password.as_bytes()),
-            &salt,
+            salt,
             iteration_count,
         );
 
@@ -350,7 +348,7 @@ where
         }
 
         let client_first_message_bare =
-            Self::parse_client_first_message_bare(&parts[2..].join(",").as_bytes())?;
+            Self::parse_client_first_message_bare(parts[2..].join(",").as_bytes())?;
 
         Ok(client_first_message_bare)
     }
@@ -534,10 +532,13 @@ mod tests {
         bytes
     }
 
+    type ReadResponseHandle = ReadHalf<Cursor<Vec<u8>>>;
+    type WriteResponseHandle = WriteHalf<Cursor<Vec<u8>>>;
+
     fn build_sasl_initial_response_handles(
         sasl_mechanism: &String,
         client_first_message: &str,
-    ) -> (ReadHalf<Cursor<Vec<u8>>>, WriteHalf<Cursor<Vec<u8>>>) {
+    ) -> (ReadResponseHandle, WriteResponseHandle) {
         let bytes = build_sasl_initial_response(sasl_mechanism, client_first_message);
 
         split(Cursor::new(bytes.to_vec()))
@@ -584,12 +585,8 @@ mod tests {
             .authenticate::<TestNonceGenerator>("pencil", &salt[..], iteration_count)
             .await
         {
-            Ok(_) => assert!(true),
-            Err(e) => assert!(
-                false,
-                "SASL authentication should succeed. Received error {:?}",
-                e
-            ),
+            Ok(_) => (),
+            Err(e) => panic!("SASL authentication should succeed. Received error {:?}", e),
         }
     }
 
@@ -607,9 +604,8 @@ mod tests {
             .recv_client_sasl_initial_response(&[SaslMechanism::ScramSha256])
             .await
         {
-            Ok(_) => assert!(true),
-            Err(e) => assert!(
-                false,
+            Ok(_) => (),
+            Err(e) => panic!(
                 "Receiving initial response should succeed. Received error {:?}",
                 e
             ),
@@ -631,10 +627,7 @@ mod tests {
             .recv_client_sasl_initial_response(&[SaslMechanism::ScramSha256])
             .await
         {
-            Ok(_) => assert!(
-                false,
-                "SASL authentication with unsupported mechanisms should fail"
-            ),
+            Ok(_) => panic!("SASL authentication with unsupported mechanisms should fail"),
             Err(e) => assert!(
                 matches!(e, Error::AuthError(_)),
                 "SASL authentication should fail with an AuthError. Received error {:?}",
@@ -670,11 +663,8 @@ mod tests {
                 .recv_client_sasl_initial_response(&[SaslMechanism::ScramSha256])
                 .await
             {
-                Ok(_) if supported_binds.contains(bind) => assert!(true),
-                Ok(_) => assert!(
-                    false,
-                    "SASL authentication with unsupported channel binding should fail"
-                ),
+                Ok(_) if supported_binds.contains(bind) => (),
+                Ok(_) => panic!("SASL authentication with unsupported channel binding should fail"),
                 Err(e) => {
                     if unsupported_binds.contains(bind) {
                         assert!(

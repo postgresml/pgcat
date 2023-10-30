@@ -585,7 +585,7 @@ where
                             pool_name
                         );
 
-                        match refetch_auth_hash(&pool).await {
+                        match refetch_auth_hash(pool).await {
                             Ok(fetched_hash) => {
                                 warn!("Password for {}, obtained. Updating.", client_identifier);
 
@@ -639,7 +639,7 @@ where
                 } else {
                     let message = "Auth query is unsupported for SCRAM authentication";
                     // Auth query is unsupported for SCRAM
-                    error_response(&mut write, &format!("{}", message)).await?;
+                    error_response(&mut write, message).await?;
 
                     return Err(Error::ClientGeneralError(message.into(), client_identifier));
                 }
