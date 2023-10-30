@@ -77,6 +77,10 @@ admin_username = "admin_user"
 # Password to access the virtual administrative database
 admin_password = "admin_pass"
 
+# Default authentication method for all pools. Can be overriden per pool.
+# Defaults to "md5" if not set.
+# auth_method = "scram-sha-256"
+
 # Default plugins that are configured on all pools.
 [plugins]
 
@@ -84,9 +88,7 @@ admin_password = "admin_pass"
 # to the client.
 [plugins.prewarmer]
 enabled = false
-queries = [
-  "SELECT pg_prewarm('pgbench_accounts')",
-]
+queries = ["SELECT pg_prewarm('pgbench_accounts')"]
 
 # Log all queries to stdout.
 [plugins.query_logger]
@@ -95,11 +97,7 @@ enabled = false
 # Block access to tables that Postgres does not allow us to control.
 [plugins.table_access]
 enabled = false
-tables = [
-  "pg_user",
-  "pg_roles",
-  "pg_database",
-]
+tables = ["pg_user", "pg_roles", "pg_database"]
 
 # Intercept user queries and give a fake reply.
 [plugins.intercept]
@@ -108,25 +106,27 @@ enabled = true
 [plugins.intercept.queries.0]
 
 query = "select current_database() as a, current_schemas(false) as b"
-schema = [
-  ["a", "text"],
-  ["b", "text"],
-]
-result = [
-  ["${DATABASE}", "{public}"],
-]
+schema = [["a", "text"], ["b", "text"]]
+result = [["${DATABASE}", "{public}"]]
 
 [plugins.intercept.queries.1]
 
 query = "select current_database(), current_schema(), current_user"
 schema = [
-  ["current_database", "text"],
-  ["current_schema", "text"],
-  ["current_user", "text"],
+  [
+    "current_database",
+    "text",
+  ],
+  [
+    "current_schema",
+    "text",
+  ],
+  [
+    "current_user",
+    "text",
+  ],
 ]
-result = [
-  ["${DATABASE}", "public", "${USER}"],
-]
+result = [["${DATABASE}", "public", "${USER}"]]
 
 
 # pool configs are structured as pool.<pool_name>
@@ -188,6 +188,10 @@ primary_reads_enabled = true
 # `sha1`: A hashing function based on SHA1
 sharding_function = "pg_bigint_hash"
 
+# Authentication method to use for this pool. Overrides the general auth_method value.
+# Defaults to the general auth_method if not set.
+# auth_method = "scram-sha-256"
+
 # Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
 # established using the database configured in the pool. This parameter is inherited by every pool
 # and can be redefined in pool configuration.
@@ -226,20 +230,14 @@ connect_timeout = 3000
 
 [pools.sharded_db.plugins.prewarmer]
 enabled = true
-queries = [
-  "SELECT pg_prewarm('pgbench_accounts')",
-]
+queries = ["SELECT pg_prewarm('pgbench_accounts')"]
 
 [pools.sharded_db.plugins.query_logger]
 enabled = false
 
 [pools.sharded_db.plugins.table_access]
 enabled = false
-tables = [
-  "pg_user",
-  "pg_roles",
-  "pg_database",
-]
+tables = ["pg_user", "pg_roles", "pg_database"]
 
 [pools.sharded_db.plugins.intercept]
 enabled = true
@@ -247,25 +245,27 @@ enabled = true
 [pools.sharded_db.plugins.intercept.queries.0]
 
 query = "select current_database() as a, current_schemas(false) as b"
-schema = [
-  ["a", "text"],
-  ["b", "text"],
-]
-result = [
-  ["${DATABASE}", "{public}"],
-]
+schema = [["a", "text"], ["b", "text"]]
+result = [["${DATABASE}", "{public}"]]
 
 [pools.sharded_db.plugins.intercept.queries.1]
 
 query = "select current_database(), current_schema(), current_user"
 schema = [
-  ["current_database", "text"],
-  ["current_schema", "text"],
-  ["current_user", "text"],
+  [
+    "current_database",
+    "text",
+  ],
+  [
+    "current_schema",
+    "text",
+  ],
+  [
+    "current_user",
+    "text",
+  ],
 ]
-result = [
-  ["${DATABASE}", "public", "${USER}"],
-]
+result = [["${DATABASE}", "public", "${USER}"]]
 
 # User configs are structured as pool.<pool_name>.users.<user_index>
 # This section holds the credentials for users that may connect to this cluster
@@ -321,7 +321,7 @@ servers = [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
 database = "shard1"
 
 [pools.sharded_db.shards.2]
-servers = [["127.0.0.1", 5432, "primary" ], ["localhost", 5432, "replica" ]]
+servers = [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
 database = "shard2"
 
 
@@ -341,8 +341,5 @@ server_lifetime = 60000
 statement_timeout = 0
 
 [pools.simple_db.shards.0]
-servers = [
-    [ "127.0.0.1", 5432, "primary" ],
-    [ "localhost", 5432, "replica" ]
-]
+servers = [["127.0.0.1", 5432, "primary"], ["localhost", 5432, "replica"]]
 database = "some_db"
