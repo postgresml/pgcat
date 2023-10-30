@@ -39,7 +39,7 @@ pub fn rand_alphanumeric(len: usize) -> String {
     let chars: String = std::iter::repeat(())
         .map(|()| rng.sample(rand::distributions::Alphanumeric))
         .map(char::from)
-        .take(7)
+        .take(len)
         .collect();
 
     chars
