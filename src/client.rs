@@ -560,12 +560,10 @@ where
                     }
                 };
 
-                // Check using admin username/password
-                // Give priority to plaintext pass
-                // If not found, check if auth query is configured
-                // If configured, fetch the auth hash if it isn't found
-                //
-                // Cleartext password
+                // When determining the password hash, we give priority to the
+                // plain-text password in the config. If that's not present,
+                // we'll try to fetch the hash from the server if auth query
+                // is configured.
                 let password_hash = if let Some(password) = password {
                     md5_hash_password(username, password, &salt)
                 } else {
@@ -576,11 +574,19 @@ where
 
                     let pool = pool.expect("connection pool should be present");
 
-                    let mut hash = (*pool.auth_hash.read()).clone();
+                    let saved_hash = (*pool.auth_hash.read())
+                        .clone()
+                        .map(|h| md5_hash_second_pass(&h, &salt));
 
-                    if hash.is_none() {
+                    // If the password hash is missing, we'll try to fetch it.
+                    // It's also possible that the password changed in the server
+                    // since we last fetched it. If that's the case, we'll
+                    // try to refetch it and update the pool.
+                    let md5_hash: Vec<u8> = if saved_hash.is_none()
+                        || saved_hash.as_ref().expect("must be present") != &password_response
+                    {
                         warn!(
-                            "Query auth configured but no hash password found \
+                            "Query auth configured but hash password is either missing or incorrect \
                             for pool {}. Attempting to refetch it.",
                             pool_name
                         );
@@ -594,7 +600,7 @@ where
                                     *pool_auth_hash = Some(fetched_hash.clone());
                                 }
 
-                                hash = Some(fetched_hash);
+                                md5_hash_second_pass(&fetched_hash, &salt)
                             }
 
                             Err(err) => {
@@ -606,39 +612,9 @@ where
                                 ));
                             }
                         }
+                    } else {
+                        saved_hash.expect("must be present")
                     };
-
-                    let mut md5_hash = md5_hash_second_pass(&hash.unwrap(), &salt);
-
-                    // It's possible that the password changed in the server
-                    // since we last fetched it. If that's the case, we'll
-                    // try to refetch it and update the pool.
-                    if md5_hash != password_response {
-                        warn!(
-                            "Invalid password {}, will try to refetch it.",
-                            client_identifier
-                        );
-
-                        let fetched_hash = match refetch_auth_hash(pool).await {
-                            Ok(fetched_hash) => {
-                                warn!("Password for {}, obtained. Updating.", client_identifier);
-
-                                {
-                                    let mut pool_auth_hash = pool.auth_hash.write();
-                                    *pool_auth_hash = Some(fetched_hash.clone());
-                                }
-
-                                fetched_hash
-                            }
-                            Err(err) => {
-                                wrong_password(&mut write, username).await?;
-
-                                return Err(err);
-                            }
-                        };
-
-                        md5_hash = md5_hash_second_pass(fetched_hash.as_str(), &salt);
-                    }
 
                     md5_hash
                 };
