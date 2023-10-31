@@ -608,7 +608,39 @@ where
                         }
                     };
 
-                    md5_hash_second_pass(&hash.unwrap(), &salt)
+                    let mut md5_hash = md5_hash_second_pass(&hash.unwrap(), &salt);
+
+                    // It's possible that the password changed in the server
+                    // since we last fetched it. If that's the case, we'll
+                    // try to refetch it and update the pool.
+                    if md5_hash != password_response {
+                        warn!(
+                            "Invalid password {}, will try to refetch it.",
+                            client_identifier
+                        );
+
+                        let fetched_hash = match refetch_auth_hash(pool).await {
+                            Ok(fetched_hash) => {
+                                warn!("Password for {}, obtained. Updating.", client_identifier);
+
+                                {
+                                    let mut pool_auth_hash = pool.auth_hash.write();
+                                    *pool_auth_hash = Some(fetched_hash.clone());
+                                }
+
+                                fetched_hash
+                            }
+                            Err(err) => {
+                                wrong_password(&mut write, username).await?;
+
+                                return Err(err);
+                            }
+                        };
+
+                        md5_hash = md5_hash_second_pass(fetched_hash.as_str(), &salt);
+                    }
+
+                    md5_hash
                 };
 
                 if password_hash != password_response {
