@@ -491,32 +491,6 @@ where
             .and_then(|pool| pool.settings.auth_method.clone())
             .unwrap_or(config.general.auth_method.clone());
 
-        let (username, password) = if admin {
-            (
-                &config.general.admin_username,
-                Some(&config.general.admin_password),
-            )
-        } else if let Some(pool) = pool {
-            (
-                &pool.settings.user.username,
-                pool.settings.user.password.as_ref(),
-            )
-        } else {
-            error_response(
-                &mut write,
-                &format!(
-                    "No pool configured for database: {:?}, user: {:?}",
-                    pool_name, username
-                ),
-            )
-            .await?;
-
-            return Err(Error::ClientGeneralError(
-                "Invalid pool name".into(),
-                client_identifier,
-            ));
-        };
-
         match auth_method {
             AuthMethod::Md5 => {
                 let salt = md5_challenge(&mut write).await?;
@@ -560,97 +534,179 @@ where
                     }
                 };
 
-                // When determining the password hash, we give priority to the
-                // plain-text password in the config. If that's not present,
-                // we'll try to fetch the hash from the server if auth query
-                // is configured.
-                let password_hash = if let Some(password) = password {
-                    md5_hash_password(username, password, &salt)
-                } else {
-                    if !config.is_auth_query_configured() {
+                // Authenticate admin user.
+                if admin {
+                    // Compare server and client hashes.
+                    let password_hash = md5_hash_password(
+                        &config.general.admin_username,
+                        &config.general.admin_password,
+                        &salt,
+                    );
+
+                    if password_hash != password_response {
+                        let error =
+                            Error::ClientGeneralError("Invalid password".into(), client_identifier);
+
+                        warn!("{}", error);
                         wrong_password(&mut write, username).await?;
-                        return Err(Error::ClientAuthImpossible(username.into()));
+
+                        return Err(error);
                     }
+                }
+                // Authenticate normal user.
+                else {
+                    let pool = match pool {
+                        Some(pool) => pool,
+                        None => {
+                            error_response(
+                                &mut write,
+                                &format!(
+                                    "No pool configured for database: {:?}, user: {:?}",
+                                    pool_name, username
+                                ),
+                            )
+                            .await?;
 
-                    let pool = pool.expect("connection pool should be present");
+                            return Err(Error::ClientGeneralError(
+                                "Invalid pool name".into(),
+                                client_identifier,
+                            ));
+                        }
+                    };
 
-                    let saved_hash = (*pool.auth_hash.read())
-                        .clone()
-                        .map(|h| md5_hash_second_pass(&h, &salt));
+                    // Obtain the hash to compare, we give preference to that written in cleartext in config
+                    // if there is nothing set in cleartext and auth passthrough (auth_query) is configured, we use the hash obtained
+                    // when the pool was created. If there is no hash there, we try to fetch it one more time.
+                    let password_hash = if let Some(password) = &pool.settings.user.password {
+                        Some(md5_hash_password(username, password, &salt))
+                    } else {
+                        if !config.is_auth_query_configured() {
+                            wrong_password(&mut write, username).await?;
+                            return Err(Error::ClientAuthImpossible(username.into()));
+                        }
 
-                    // If the password hash is missing, we'll try to fetch it.
-                    // It's also possible that the password changed in the server
-                    // since we last fetched it. If that's the case, we'll
-                    // try to refetch it and update the pool.
-                    let md5_hash: Vec<u8> = if saved_hash.is_none()
-                        || saved_hash.as_ref().expect("must be present") != &password_response
-                    {
-                        warn!(
-                            "Query auth configured but hash password is either missing or incorrect \
-                            for pool {}. Attempting to refetch it.",
-                            pool_name
-                        );
+                        let mut hash = (*pool.auth_hash.read()).clone();
 
-                        match refetch_auth_hash(pool).await {
-                            Ok(fetched_hash) => {
-                                warn!("Password for {}, obtained. Updating.", client_identifier);
+                        if hash.is_none() {
+                            warn!(
+                                "Query auth configured \
+                          but no hash password found \
+                          for pool {}. Will try to refetch it.",
+                                pool_name
+                            );
 
-                                {
-                                    let mut pool_auth_hash = pool.auth_hash.write();
-                                    *pool_auth_hash = Some(fetched_hash.clone());
+                            match refetch_auth_hash(pool).await {
+                                Ok(fetched_hash) => {
+                                    warn!(
+                                        "Password for {}, obtained. Updating.",
+                                        client_identifier
+                                    );
+
+                                    {
+                                        let mut pool_auth_hash = pool.auth_hash.write();
+                                        *pool_auth_hash = Some(fetched_hash.clone());
+                                    }
+
+                                    hash = Some(fetched_hash);
                                 }
 
-                                md5_hash_second_pass(&fetched_hash, &salt)
-                            }
+                                Err(err) => {
+                                    wrong_password(&mut write, username).await?;
 
+                                    return Err(Error::ClientAuthPassthroughError(
+                                        err.to_string(),
+                                        client_identifier,
+                                    ));
+                                }
+                            }
+                        };
+
+                        Some(md5_hash_second_pass(&hash.unwrap(), &salt))
+                    };
+
+                    // Once we have the resulting hash, we compare with what the client gave us.
+                    // If they do not match and auth query is set up, we try to refetch the hash one more time
+                    // to see if the password has changed since the pool was created.
+                    //
+                    // @TODO: we could end up fetching again the same password twice (see above).
+                    if password_hash.unwrap() != password_response {
+                        warn!(
+                            "Invalid password {}, will try to refetch it.",
+                            client_identifier
+                        );
+
+                        let fetched_hash = match refetch_auth_hash(pool).await {
+                            Ok(fetched_hash) => fetched_hash,
                             Err(err) => {
                                 wrong_password(&mut write, username).await?;
 
-                                return Err(Error::ClientAuthPassthroughError(
-                                    err.to_string(),
-                                    client_identifier,
-                                ));
+                                return Err(err);
                             }
+                        };
+
+                        let new_password_hash = md5_hash_second_pass(&fetched_hash, &salt);
+
+                        // Ok password changed in server an auth is possible.
+                        if new_password_hash == password_response {
+                            warn!(
+                                "Password for {}, changed in server. Updating.",
+                                client_identifier
+                            );
+
+                            {
+                                let mut pool_auth_hash = pool.auth_hash.write();
+                                *pool_auth_hash = Some(fetched_hash);
+                            }
+                        } else {
+                            wrong_password(&mut write, username).await?;
+                            return Err(Error::ClientGeneralError(
+                                "Invalid password".into(),
+                                client_identifier,
+                            ));
                         }
-                    } else {
-                        saved_hash.expect("must be present")
-                    };
-
-                    md5_hash
-                };
-
-                if password_hash != password_response {
-                    let error =
-                        Error::ClientGeneralError("Invalid password".into(), client_identifier);
-
-                    warn!("{}", error);
-                    wrong_password(&mut write, username).await?;
-
-                    return Err(error);
+                    }
                 }
             }
             AuthMethod::ScramSha256 => {
-                if let Some(password) = password {
-                    let mut authentication =
-                        SaslAuthentication::new(&mut read, &mut write, &client_identifier);
-
-                    let salt = rand_alphanumeric(4);
-                    let iteration_count = 4096;
-
-                    authentication
-                        .authenticate::<DefaultNonceGenerator>(
-                            password.as_str(),
-                            salt.as_bytes(),
-                            iteration_count,
-                        )
-                        .await?;
+                let password = if admin {
+                    &config.general.admin_password
+                } else if let Some(pool) = pool {
+                    match pool.settings.user.password.as_ref() {
+                        Some(password) => password,
+                        None => {
+                            wrong_password(&mut write, username).await?;
+                            return Err(Error::ClientAuthImpossible(username.into()));
+                        }
+                    }
                 } else {
-                    let message = "Auth query is unsupported for SCRAM authentication";
-                    // Auth query is unsupported for SCRAM
-                    error_response(&mut write, message).await?;
+                    error_response(
+                        &mut write,
+                        &format!(
+                            "No pool configured for database: {:?}, user: {:?}",
+                            pool_name, username
+                        ),
+                    )
+                    .await?;
 
-                    return Err(Error::ClientGeneralError(message.into(), client_identifier));
-                }
+                    return Err(Error::ClientGeneralError(
+                        "Invalid pool name".into(),
+                        client_identifier,
+                    ));
+                };
+
+                let mut authentication =
+                    SaslAuthentication::new(&mut read, &mut write, &client_identifier);
+
+                let salt = rand_alphanumeric(4);
+                let iteration_count = 4096;
+
+                authentication
+                    .authenticate::<DefaultNonceGenerator>(
+                        password.as_str(),
+                        salt.as_bytes(),
+                        iteration_count,
+                    )
+                    .await?;
             }
         }
 
