@@ -444,9 +444,12 @@ impl ConnectionPool {
                             },
                         };
 
-                        let idle_timeout = match pool_config.idle_timeout {
+                        let idle_timeout = match user.idle_timeout {
                             Some(idle_timeout) => idle_timeout,
-                            None => config.general.idle_timeout,
+                            None => match pool_config.idle_timeout {
+                                Some(idle_timeout) => idle_timeout,
+                                None => config.general.idle_timeout,
+                            },
                         };
 
                         let server_lifetime = match user.server_lifetime {

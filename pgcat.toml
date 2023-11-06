@@ -302,6 +302,7 @@ password = "other_user"
 pool_size = 21
 statement_timeout = 15000
 connect_timeout = 1000
+idle_timeout = 1000
 
 # Shard configs are structured as pool.<pool_name>.shards.<shard_id>
 # Each shard config contains a list of servers that make up the shard

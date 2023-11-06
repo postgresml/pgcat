@@ -217,6 +217,7 @@ pub struct User {
     #[serde(default)] // 0
     pub statement_timeout: u64,
     pub connect_timeout: Option<u64>,
+    pub idle_timeout: Option<u64>,
 }
 
 impl Default for User {
@@ -232,6 +233,7 @@ impl Default for User {
             pool_mode: None,
             server_lifetime: None,
             connect_timeout: None,
+            idle_timeout: None,
         }
     }
 }
@@ -1315,6 +1317,15 @@ impl Config {
                     user.1.username,
                     match user.1.connect_timeout {
                         Some(connect_timeout) => format!("{}ms", connect_timeout),
+                        None => "not set".to_string(),
+                    }
+                );
+                info!(
+                    "[pool: {}][user: {}] Idle timeout: {}",
+                    pool_name,
+                    user.1.username,
+                    match user.1.idle_timeout {
+                        Some(idle_timeout) => format!("{}ms", idle_timeout),
                         None => "not set".to_string(),
                     }
                 );
