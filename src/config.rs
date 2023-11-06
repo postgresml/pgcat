@@ -216,6 +216,7 @@ pub struct User {
     pub server_lifetime: Option<u64>,
     #[serde(default)] // 0
     pub statement_timeout: u64,
+    pub connect_timeout: Option<u64>,
 }
 
 impl Default for User {
@@ -230,6 +231,7 @@ impl Default for User {
             statement_timeout: 0,
             pool_mode: None,
             server_lifetime: None,
+            connect_timeout: None,
         }
     }
 }
@@ -1305,6 +1307,15 @@ impl Config {
                     match user.1.server_lifetime {
                         Some(server_lifetime) => format!("{}ms", server_lifetime),
                         None => "default".to_string(),
+                    }
+                );
+                info!(
+                    "[pool: {}][user: {}] Connection timeout: {}",
+                    pool_name,
+                    user.1.username,
+                    match user.1.connect_timeout {
+                        Some(connect_timeout) => format!("{}ms", connect_timeout),
+                        None => "not set".to_string(),
                     }
                 );
             }

@@ -436,10 +436,15 @@ impl ConnectionPool {
                             pool_config.prepared_statements_cache_size,
                         );
 
-                        let connect_timeout = match pool_config.connect_timeout {
+                        let connect_timeout = match user.connect_timeout {
                             Some(connect_timeout) => connect_timeout,
-                            None => config.general.connect_timeout,
+                            None => match pool_config.connect_timeout {
+                                Some(connect_timeout) => connect_timeout,
+                                None => config.general.connect_timeout,
+                            },
                         };
+
+                        println!("connect timeout: {}", connect_timeout);
 
                         let idle_timeout = match pool_config.idle_timeout {
                             Some(idle_timeout) => idle_timeout,
