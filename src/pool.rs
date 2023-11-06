@@ -444,8 +444,6 @@ impl ConnectionPool {
                             },
                         };
 
-                        println!("connect timeout: {}", connect_timeout);
-
                         let idle_timeout = match pool_config.idle_timeout {
                             Some(idle_timeout) => idle_timeout,
                             None => config.general.idle_timeout,
