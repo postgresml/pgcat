@@ -111,10 +111,8 @@ python3 tests/python/tests.py || exit 1
 
 #
 # Go tests
-# Starts its own pgcat server and therefore needs to kill existing pgcat server before starting
+# Starts its own pgcat server
 #
-kill -SIGINT $(pgrep pgcat)
-
 pushd tests/go
 /usr/local/go/bin/go test || exit 1
 popd
