@@ -1109,7 +1109,7 @@ pub struct Describe {
 
     #[allow(dead_code)]
     len: i32,
-    target: char,
+    pub target: char,
     pub statement_name: String,
 }
 

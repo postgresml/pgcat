@@ -1809,6 +1809,14 @@ where
         }
 
         let describe: Describe = (&message).try_into()?;
+        if describe.target == 'P' {
+            debug!("Portal describe message");
+            self.extended_protocol_data_buffer
+                .push_back(ExtendedProtocolData::create_new_describe(message, None));
+
+            return Ok(());
+        }
+
         let client_given_name = describe.statement_name.clone();
 
         match self.prepared_statements.get(&client_given_name) {
