@@ -1704,18 +1704,14 @@ where
     /// and also the pool's statement cache. Add it to extended protocol data.
     fn buffer_parse(&mut self, message: BytesMut, pool: &ConnectionPool) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
-        let client_given_name = match self.prepared_statements_enabled {
-            true => Parse::get_name(&message)?,
-            false => "".to_string(),
-        };
-
-        if client_given_name.is_empty() {
+        if !self.prepared_statements_enabled {
             debug!("Anonymous parse message");
             self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_parse(message, None));
             return Ok(());
         }
 
+        let client_given_name = Parse::get_name(&message)?;
         let parse: Parse = (&message).try_into()?;
 
         // Compute the hash of the parse statement
@@ -1753,17 +1749,14 @@ where
     /// saved in the client cache.
     async fn buffer_bind(&mut self, message: BytesMut) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
-        let client_given_name = match self.prepared_statements_enabled {
-            true => Bind::get_name(&message)?,
-            false => "".to_string(),
-        };
-
-        if client_given_name.is_empty() {
+        if !self.prepared_statements_enabled {
             debug!("Anonymous bind message");
             self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_bind(message, None));
             return Ok(());
         }
+
+        let client_given_name = Bind::get_name(&message)?;
 
         match self.prepared_statements.get(&client_given_name) {
             Some((rewritten_parse, _)) => {
@@ -1807,12 +1800,7 @@ where
     /// saved in the client cache.
     async fn buffer_describe(&mut self, message: BytesMut) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
-        let describe: Describe = match self.prepared_statements_enabled {
-            true => (&message).try_into()?,
-            false => Describe::empty_new(),
-        };
-
-        if describe.anonymous() {
+        if !self.prepared_statements_enabled {
             debug!("Anonymous describe message");
             self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_describe(message, None));
@@ -1820,6 +1808,7 @@ where
             return Ok(());
         }
 
+        let describe: Describe = (&message).try_into()?;
         let client_given_name = describe.statement_name.clone();
 
         match self.prepared_statements.get(&client_given_name) {
