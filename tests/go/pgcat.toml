@@ -1,0 +1,162 @@
+#
+# PgCat config example.
+#
+
+#
+# General pooler settings
+[general]
+# What IP to run on, 0.0.0.0 means accessible from everywhere.
+host = "0.0.0.0"
+
+# Port to run on, same as PgBouncer used in this example.
+port = "${PORT}"
+
+# Whether to enable prometheus exporter or not.
+enable_prometheus_exporter = true
+
+# Port at which prometheus exporter listens on.
+prometheus_exporter_port = 9930
+
+# How long to wait before aborting a server connection (ms).
+connect_timeout = 1000
+
+# How much time to give the health check query to return with a result (ms).
+healthcheck_timeout = 1000
+
+# How long to keep connection available for immediate re-use, without running a healthcheck query on it
+healthcheck_delay = 30000
+
+# How much time to give clients during shutdown before forcibly killing client connections (ms).
+shutdown_timeout = 5000
+
+# For how long to ban a server if it fails a health check (seconds).
+ban_time = 60 # Seconds
+
+# If we should log client connections
+log_client_connections = false
+
+# If we should log client disconnections
+log_client_disconnections = false
+
+# Reload config automatically if it changes.
+autoreload = 15000
+
+server_round_robin = false
+
+# TLS
+tls_certificate = "../../.circleci/server.cert"
+tls_private_key = "../../.circleci/server.key"
+
+# Credentials to access the virtual administrative database (pgbouncer or pgcat)
+# Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DATABASES`, etc..
+admin_username = "admin_user"
+admin_password = "admin_pass"
+
+# pool
+# configs are structured as pool.<pool_name>
+# the pool_name is what clients use as database name when connecting
+# For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded_db"
+[pools.sharded_db]
+# Pool mode (see PgBouncer docs for more).
+# session: one server connection per connected client
+# transaction: one server connection per client transaction
+pool_mode = "transaction"
+
+# If the client doesn't specify, route traffic to
+# this role by default.
+#
+# any: round-robin between primary and replicas,
+# replica: round-robin between replicas only without touching the primary,
+# primary: all queries go to the primary unless otherwise specified.
+default_role = "any"
+
+# Query parser. If enabled, we'll attempt to parse
+# every incoming query to determine if it's a read or a write.
+# If it's a read query, we'll direct it to a replica. Otherwise, if it's a write,
+# we'll direct it to the primary.
+query_parser_enabled = true
+
+# If the query parser is enabled and this setting is enabled, we'll attempt to
+# infer the role from the query itself.
+query_parser_read_write_splitting = true
+
+# If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
+# load balancing of read queries. Otherwise, the primary will only be used for write
+# queries. The primary can always be explicitely selected with our custom protocol.
+primary_reads_enabled = true
+
+# So what if you wanted to implement a different hashing function,
+# or you've already built one and you want this pooler to use it?
+#
+# Current options:
+#
+# pg_bigint_hash: PARTITION BY HASH (Postgres hashing function)
+# sha1: A hashing function based on SHA1
+#
+sharding_function = "pg_bigint_hash"
+
+# Prepared statements cache size.
+prepared_statements_cache_size = 500
+
+# Credentials for users that may connect to this cluster
+[pools.sharded_db.users.0]
+username = "sharding_user"
+password = "sharding_user"
+# Maximum number of server connections that can be established for this user
+# The maximum number of connection from a single Pgcat process to any database in the cluster
+# is the sum of pool_size across all users.
+pool_size = 5
+statement_timeout = 0
+
+
+[pools.sharded_db.users.1]
+username = "other_user"
+password = "other_user"
+pool_size = 21
+statement_timeout = 30000
+
+# Shard 0
+[pools.sharded_db.shards.0]
+# [ host, port, role ]
+servers = [
+    [ "127.0.0.1", 5432, "primary" ],
+    [ "localhost", 5432, "replica" ]
+]
+# Database name (e.g. "postgres")
+database = "shard0"
+
+[pools.sharded_db.shards.1]
+servers = [
+    [ "127.0.0.1", 5432, "primary" ],
+    [ "localhost", 5432, "replica" ],
+]
+database = "shard1"
+
+[pools.sharded_db.shards.2]
+servers = [
+    [ "127.0.0.1", 5432, "primary" ],
+    [ "localhost", 5432, "replica" ],
+]
+database = "shard2"
+
+
+[pools.simple_db]
+pool_mode = "session"
+default_role = "primary"
+query_parser_enabled = true
+query_parser_read_write_splitting = true
+primary_reads_enabled = true
+sharding_function = "pg_bigint_hash"
+
+[pools.simple_db.users.0]
+username = "simple_user"
+password = "simple_user"
+pool_size = 5
+statement_timeout = 30000
+
+[pools.simple_db.shards.0]
+servers = [
+    [ "127.0.0.1", 5432, "primary" ],
+    [ "localhost", 5432, "replica" ]
+]
+database = "some_db"
