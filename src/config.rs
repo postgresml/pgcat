@@ -18,9 +18,10 @@ use tokio::io::AsyncReadExt;
 
 use crate::dns_cache::CachedResolver;
 use crate::errors::Error;
+use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
 use crate::stats::AddressStats;
-use crate::tls::{load_certs, load_keys};
+use crate::tls::{load_certs, load_keys, reload_root_cert_store};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -1441,6 +1442,14 @@ pub fn get_prepared_statements_cache_size() -> usize {
     CONFIG.load().general.prepared_statements_cache_size
 }
 
+pub fn get_server_tls() -> bool {
+    CONFIG.load().general.server_tls
+}
+
+pub fn get_verify_server_certificate() -> CertificateVerificationVariant {
+    CONFIG.load().general.verify_server_certificate.clone()
+}
+
 /// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();
@@ -1479,7 +1488,7 @@ pub async fn parse(path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn reload_config() -> Result<bool, Error> {
+pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, Error> {
     let old_config = get_config();
 
     match parse(&old_config.path).await {
@@ -1497,11 +1506,16 @@ pub async fn reload_config() -> Result<bool, Error> {
         Err(err) => error!("DNS cache reinitialization error: {:?}", err),
     };
 
+    if new_config.general.verify_server_certificate.is_enabled() {
+        debug!("Reloading certificates from the system root store");
+        reload_root_cert_store().await?;
+    }
+
     if old_config != new_config {
-        info!("Config changed, requires pools to be reloaded");
+        // Re-create the connection pools, if they have changed.
+        ConnectionPool::from_config(client_server_map).await?;
         Ok(true)
     } else {
-        debug!("Config has not changed, no pools need to be reloaded");
         Ok(false)
     }
 }
