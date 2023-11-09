@@ -79,6 +79,8 @@ impl AuthPassthrough {
             pool_mode: None,
             server_lifetime: None,
             min_pool_size: None,
+            connect_timeout: None,
+            idle_timeout: None,
         };
 
         let user = &address.username;

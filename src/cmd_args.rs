@@ -25,7 +25,7 @@ pub struct Args {
 }
 
 pub fn parse() -> Args {
-    return Args::parse();
+    Args::parse()
 }
 
 #[derive(ValueEnum, Clone, Debug)]

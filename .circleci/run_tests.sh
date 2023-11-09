@@ -108,6 +108,15 @@ cd ../..
 pip3 install -r tests/python/requirements.txt
 python3 tests/python/tests.py || exit 1
 
+
+#
+# Go tests
+# Starts its own pgcat server
+#
+pushd tests/go
+/usr/local/go/bin/go test || exit 1
+popd
+
 start_pgcat "info"
 
 # Admin tests

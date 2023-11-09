@@ -60,12 +60,6 @@ tcp_keepalives_count = 5
 # Number of seconds between keepalive packets.
 tcp_keepalives_interval = 5
 
-# Handle prepared statements.
-prepared_statements = true
-
-# Prepared statements server cache size.
-prepared_statements_cache_size = 500
-
 # Path to TLS Certificate file to use for TLS connections
 # tls_certificate = ".circleci/server.cert"
 # Path to TLS private key file to use for TLS connections
@@ -155,6 +149,10 @@ load_balancing_mode = "random"
 # `replica` round-robin between replicas only without touching the primary,
 # `primary` all queries go to the primary unless otherwise specified.
 default_role = "any"
+
+# Prepared statements cache size.
+# TODO: update documentation
+prepared_statements_cache_size = 500
 
 # If Query Parser is enabled, we'll attempt to parse
 # every incoming query to determine if it's a read or a write.
@@ -303,6 +301,8 @@ username = "other_user"
 password = "other_user"
 pool_size = 21
 statement_timeout = 15000
+connect_timeout = 1000
+idle_timeout = 1000
 
 # Shard configs are structured as pool.<pool_name>.shards.<shard_id>
 # Each shard config contains a list of servers that make up the shard

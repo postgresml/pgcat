@@ -12,13 +12,16 @@ use crate::config::get_config;
 use crate::errors::Error;
 
 use crate::constants::MESSAGE_TERMINATOR;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, Cursor};
 use std::mem;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Postgres data type mappings
@@ -114,19 +117,11 @@ pub fn simple_query(query: &str) -> BytesMut {
 }
 
 /// Tell the client we're ready for another query.
-pub async fn ready_for_query<S>(stream: &mut S) -> Result<(), Error>
+pub async fn send_ready_for_query<S>(stream: &mut S) -> Result<(), Error>
 where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
-    let mut bytes = BytesMut::with_capacity(
-        mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
-    );
-
-    bytes.put_u8(b'Z');
-    bytes.put_i32(5);
-    bytes.put_u8(b'I'); // Idle
-
-    write_all(stream, bytes).await
+    write_all(stream, ready_for_query(false)).await
 }
 
 /// Send the startup packet the server. We're pretending we're a Pg client.
@@ -163,12 +158,10 @@ where
 
     match stream.write_all(&startup).await {
         Ok(_) => Ok(()),
-        Err(err) => {
-            return Err(Error::SocketError(format!(
-                "Error writing startup to server socket - Error: {:?}",
-                err
-            )))
-        }
+        Err(err) => Err(Error::SocketError(format!(
+            "Error writing startup to server socket - Error: {:?}",
+            err
+        ))),
     }
 }
 
@@ -244,8 +237,8 @@ pub fn md5_hash_password(user: &str, password: &str, salt: &[u8]) -> Vec<u8> {
     let mut md5 = Md5::new();
 
     // First pass
-    md5.update(&password.as_bytes());
-    md5.update(&user.as_bytes());
+    md5.update(password.as_bytes());
+    md5.update(user.as_bytes());
 
     let output = md5.finalize_reset();
 
@@ -281,7 +274,7 @@ where
 {
     let password = md5_hash_password(user, password, salt);
 
-    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+    let mut message = BytesMut::with_capacity(password.len() + 5);
 
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
@@ -295,7 +288,7 @@ where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let password = md5_hash_second_pass(hash, salt);
-    let mut message = BytesMut::with_capacity(password.len() as usize + 5);
+    let mut message = BytesMut::with_capacity(password.len() + 5);
 
     message.put_u8(b'p');
     message.put_i32(password.len() as i32 + 4);
@@ -322,7 +315,7 @@ where
     res.put_slice(&set_complete[..]);
 
     write_all_half(stream, &res).await?;
-    ready_for_query(stream).await
+    send_ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
@@ -333,7 +326,7 @@ where
     S: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     error_response_terminal(stream, message).await?;
-    ready_for_query(stream).await
+    send_ready_for_query(stream).await
 }
 
 /// Send a custom error message to the client.
@@ -434,7 +427,7 @@ where
     res.put(command_complete("SELECT 1"));
 
     write_all_half(stream, &res).await?;
-    ready_for_query(stream).await
+    send_ready_for_query(stream).await
 }
 
 pub fn row_description(columns: &Vec<(&str, DataType)>) -> BytesMut {
@@ -516,7 +509,7 @@ pub fn data_row_nullable(row: &Vec<Option<String>>) -> BytesMut {
             data_row.put_i32(column.len() as i32);
             data_row.put_slice(column);
         } else {
-            data_row.put_i32(-1 as i32);
+            data_row.put_i32(-1_i32);
         }
     }
 
@@ -564,6 +557,37 @@ pub fn flush() -> BytesMut {
     bytes
 }
 
+pub fn sync() -> BytesMut {
+    let mut bytes = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>());
+    bytes.put_u8(b'S');
+    bytes.put_i32(4);
+    bytes
+}
+
+pub fn parse_complete() -> BytesMut {
+    let mut bytes = BytesMut::with_capacity(mem::size_of::<u8>() + mem::size_of::<i32>());
+
+    bytes.put_u8(b'1');
+    bytes.put_i32(4);
+    bytes
+}
+
+pub fn ready_for_query(in_transaction: bool) -> BytesMut {
+    let mut bytes = BytesMut::with_capacity(
+        mem::size_of::<u8>() + mem::size_of::<i32>() + mem::size_of::<u8>(),
+    );
+
+    bytes.put_u8(b'Z');
+    bytes.put_i32(5);
+    if in_transaction {
+        bytes.put_u8(b'T');
+    } else {
+        bytes.put_u8(b'I');
+    }
+
+    bytes
+}
+
 /// Write all data in the buffer to the TcpStream.
 pub async fn write_all<S>(stream: &mut S, buf: BytesMut) -> Result<(), Error>
 where
@@ -571,12 +595,10 @@ where
 {
     match stream.write_all(&buf).await {
         Ok(_) => Ok(()),
-        Err(err) => {
-            return Err(Error::SocketError(format!(
-                "Error writing to socket - Error: {:?}",
-                err
-            )))
-        }
+        Err(err) => Err(Error::SocketError(format!(
+            "Error writing to socket - Error: {:?}",
+            err
+        ))),
     }
 }
 
@@ -587,12 +609,10 @@ where
 {
     match stream.write_all(buf).await {
         Ok(_) => Ok(()),
-        Err(err) => {
-            return Err(Error::SocketError(format!(
-                "Error writing to socket - Error: {:?}",
-                err
-            )))
-        }
+        Err(err) => Err(Error::SocketError(format!(
+            "Error writing to socket - Error: {:?}",
+            err
+        ))),
     }
 }
 
@@ -603,19 +623,15 @@ where
     match stream.write_all(buf).await {
         Ok(_) => match stream.flush().await {
             Ok(_) => Ok(()),
-            Err(err) => {
-                return Err(Error::SocketError(format!(
-                    "Error flushing socket - Error: {:?}",
-                    err
-                )))
-            }
-        },
-        Err(err) => {
-            return Err(Error::SocketError(format!(
-                "Error writing to socket - Error: {:?}",
+            Err(err) => Err(Error::SocketError(format!(
+                "Error flushing socket - Error: {:?}",
                 err
-            )))
-        }
+            ))),
+        },
+        Err(err) => Err(Error::SocketError(format!(
+            "Error writing to socket - Error: {:?}",
+            err
+        ))),
     }
 }
 
@@ -730,7 +746,7 @@ impl BytesMutReader for Cursor<&BytesMut> {
         let mut buf = vec![];
         match self.read_until(b'\0', &mut buf) {
             Ok(_) => Ok(String::from_utf8_lossy(&buf[..buf.len() - 1]).to_string()),
-            Err(err) => return Err(Error::ParseBytesError(err.to_string())),
+            Err(err) => Err(Error::ParseBytesError(err.to_string())),
         }
     }
 }
@@ -746,10 +762,55 @@ impl BytesMutReader for BytesMut {
                 let string_bytes = self.split_to(index + 1);
                 Ok(String::from_utf8_lossy(&string_bytes[..string_bytes.len() - 1]).to_string())
             }
-            None => return Err(Error::ParseBytesError("Could not read string".to_string())),
+            None => Err(Error::ParseBytesError("Could not read string".to_string())),
         }
     }
 }
+
+pub enum ExtendedProtocolData {
+    Parse {
+        data: BytesMut,
+        metadata: Option<(Arc<Parse>, u64)>,
+    },
+    Bind {
+        data: BytesMut,
+        metadata: Option<String>,
+    },
+    Describe {
+        data: BytesMut,
+        metadata: Option<String>,
+    },
+    Execute {
+        data: BytesMut,
+    },
+    Close {
+        data: BytesMut,
+        close: Close,
+    },
+}
+
+impl ExtendedProtocolData {
+    pub fn create_new_parse(data: BytesMut, metadata: Option<(Arc<Parse>, u64)>) -> Self {
+        Self::Parse { data, metadata }
+    }
+
+    pub fn create_new_bind(data: BytesMut, metadata: Option<String>) -> Self {
+        Self::Bind { data, metadata }
+    }
+
+    pub fn create_new_describe(data: BytesMut, metadata: Option<String>) -> Self {
+        Self::Describe { data, metadata }
+    }
+
+    pub fn create_new_execute(data: BytesMut) -> Self {
+        Self::Execute { data }
+    }
+
+    pub fn create_new_close(data: BytesMut, close: Close) -> Self {
+        Self::Close { data, close }
+    }
+}
+
 /// Parse (F) message.
 /// See: <https://www.postgresql.org/docs/current/protocol-message-formats.html>
 #[derive(Clone, Debug)]
@@ -758,7 +819,6 @@ pub struct Parse {
     #[allow(dead_code)]
     len: i32,
     pub name: String,
-    pub generated_name: String,
     query: String,
     num_params: i16,
     param_types: Vec<i32>,
@@ -784,7 +844,6 @@ impl TryFrom<&BytesMut> for Parse {
             code,
             len,
             name,
-            generated_name: prepared_statement_name(),
             query,
             num_params,
             param_types,
@@ -833,9 +892,42 @@ impl TryFrom<&Parse> for BytesMut {
 }
 
 impl Parse {
-    pub fn rename(mut self) -> Self {
-        self.name = self.generated_name.to_string();
+    /// Renames the prepared statement to a new name based on the global counter
+    pub fn rewrite(mut self) -> Self {
+        self.name = format!(
+            "PGCAT_{}",
+            PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
+        );
         self
+    }
+
+    /// Gets the name of the prepared statement from the buffer
+    pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
+        let mut cursor = Cursor::new(buf);
+        // Skip the code and length
+        cursor.advance(mem::size_of::<u8>() + mem::size_of::<i32>());
+        cursor.read_string()
+    }
+
+    /// Hashes the parse statement to be used as a key in the global cache
+    pub fn get_hash(&self) -> u64 {
+        // TODO_ZAIN: Take a look at which hashing function is being used
+        let mut hasher = DefaultHasher::new();
+
+        let concatenated = format!(
+            "{}{}{}",
+            self.query,
+            self.num_params,
+            self.param_types
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        concatenated.hash(&mut hasher);
+
+        hasher.finish()
     }
 
     pub fn anonymous(&self) -> bool {
@@ -968,9 +1060,42 @@ impl TryFrom<Bind> for BytesMut {
 }
 
 impl Bind {
-    pub fn reassign(mut self, parse: &Parse) -> Self {
-        self.prepared_statement = parse.name.clone();
-        self
+    /// Gets the name of the prepared statement from the buffer
+    pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
+        let mut cursor = Cursor::new(buf);
+        // Skip the code and length
+        cursor.advance(mem::size_of::<u8>() + mem::size_of::<i32>());
+        cursor.read_string()?;
+        cursor.read_string()
+    }
+
+    /// Renames the prepared statement to a new name
+    pub fn rename(buf: BytesMut, new_name: &str) -> Result<BytesMut, Error> {
+        let mut cursor = Cursor::new(&buf);
+        // Read basic data from the cursor
+        let code = cursor.get_u8();
+        let current_len = cursor.get_i32();
+        let portal = cursor.read_string()?;
+        let prepared_statement = cursor.read_string()?;
+
+        // Calculate new length
+        let new_len = current_len + new_name.len() as i32 - prepared_statement.len() as i32;
+
+        // Begin building the response buffer
+        let mut response_buf = BytesMut::with_capacity(new_len as usize + 1);
+        response_buf.put_u8(code);
+        response_buf.put_i32(new_len);
+
+        // Put the portal and new name into the buffer
+        // Note: panic if the provided string contains null byte
+        response_buf.put_slice(CString::new(portal)?.as_bytes_with_nul());
+        response_buf.put_slice(CString::new(new_name)?.as_bytes_with_nul());
+
+        // Add the remainder of the original buffer into the response
+        response_buf.put_slice(&buf[cursor.position() as usize..]);
+
+        // Return the buffer
+        Ok(response_buf)
     }
 
     pub fn anonymous(&self) -> bool {
@@ -984,7 +1109,7 @@ pub struct Describe {
 
     #[allow(dead_code)]
     len: i32,
-    target: char,
+    pub target: char,
     pub statement_name: String,
 }
 
@@ -1026,6 +1151,15 @@ impl TryFrom<Describe> for BytesMut {
 }
 
 impl Describe {
+    pub fn empty_new() -> Describe {
+        Describe {
+            code: 'D',
+            len: 4 + 1 + 1,
+            target: 'S',
+            statement_name: "".to_string(),
+        }
+    }
+
     pub fn rename(mut self, name: &str) -> Self {
         self.statement_name = name.to_string();
         self
@@ -1114,13 +1248,6 @@ pub fn close_complete() -> BytesMut {
     bytes
 }
 
-pub fn prepared_statement_name() -> String {
-    format!(
-        "P_{}",
-        PREPARED_STATEMENT_COUNTER.fetch_add(1, Ordering::SeqCst)
-    )
-}
-
 // from https://www.postgresql.org/docs/12/protocol-error-fields.html
 #[derive(Debug, Default, PartialEq)]
 pub struct PgErrorMsg {
@@ -1203,7 +1330,7 @@ impl Display for PgErrorMsg {
 }
 
 impl PgErrorMsg {
-    pub fn parse(error_msg: Vec<u8>) -> Result<PgErrorMsg, Error> {
+    pub fn parse(error_msg: &[u8]) -> Result<PgErrorMsg, Error> {
         let mut out = PgErrorMsg {
             severity_localized: "".to_string(),
             severity: "".to_string(),
@@ -1311,38 +1438,38 @@ mod tests {
     fn parse_fields() {
         let mut complete_msg = vec![];
         let severity = "FATAL";
-        complete_msg.extend(field('S', &severity));
-        complete_msg.extend(field('V', &severity));
+        complete_msg.extend(field('S', severity));
+        complete_msg.extend(field('V', severity));
 
         let error_code = "29P02";
-        complete_msg.extend(field('C', &error_code));
+        complete_msg.extend(field('C', error_code));
         let message = "password authentication failed for user \"wrong_user\"";
-        complete_msg.extend(field('M', &message));
+        complete_msg.extend(field('M', message));
         let detail_msg = "super detailed message";
-        complete_msg.extend(field('D', &detail_msg));
+        complete_msg.extend(field('D', detail_msg));
         let hint_msg = "hint detail here";
-        complete_msg.extend(field('H', &hint_msg));
+        complete_msg.extend(field('H', hint_msg));
         complete_msg.extend(field('P', "123"));
         complete_msg.extend(field('p', "234"));
         let internal_query = "SELECT * from foo;";
-        complete_msg.extend(field('q', &internal_query));
+        complete_msg.extend(field('q', internal_query));
         let where_msg = "where goes here";
-        complete_msg.extend(field('W', &where_msg));
+        complete_msg.extend(field('W', where_msg));
         let schema_msg = "schema_name";
-        complete_msg.extend(field('s', &schema_msg));
+        complete_msg.extend(field('s', schema_msg));
         let table_msg = "table_name";
-        complete_msg.extend(field('t', &table_msg));
+        complete_msg.extend(field('t', table_msg));
         let column_msg = "column_name";
-        complete_msg.extend(field('c', &column_msg));
+        complete_msg.extend(field('c', column_msg));
         let data_type_msg = "type_name";
-        complete_msg.extend(field('d', &data_type_msg));
+        complete_msg.extend(field('d', data_type_msg));
         let constraint_msg = "constraint_name";
-        complete_msg.extend(field('n', &constraint_msg));
+        complete_msg.extend(field('n', constraint_msg));
         let file_msg = "pgcat.c";
-        complete_msg.extend(field('F', &file_msg));
+        complete_msg.extend(field('F', file_msg));
         complete_msg.extend(field('L', "335"));
         let routine_msg = "my_failing_routine";
-        complete_msg.extend(field('R', &routine_msg));
+        complete_msg.extend(field('R', routine_msg));
 
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::INFO)
@@ -1351,7 +1478,7 @@ mod tests {
 
         info!(
             "full message: {}",
-            PgErrorMsg::parse(complete_msg.clone()).unwrap()
+            PgErrorMsg::parse(&complete_msg).unwrap()
         );
         assert_eq!(
             PgErrorMsg {
@@ -1374,17 +1501,17 @@ mod tests {
                 line: Some(335),
                 routine: Some(routine_msg.to_string()),
             },
-            PgErrorMsg::parse(complete_msg).unwrap()
+            PgErrorMsg::parse(&complete_msg).unwrap()
         );
 
         let mut only_mandatory_msg = vec![];
-        only_mandatory_msg.extend(field('S', &severity));
-        only_mandatory_msg.extend(field('V', &severity));
-        only_mandatory_msg.extend(field('C', &error_code));
-        only_mandatory_msg.extend(field('M', &message));
-        only_mandatory_msg.extend(field('D', &detail_msg));
+        only_mandatory_msg.extend(field('S', severity));
+        only_mandatory_msg.extend(field('V', severity));
+        only_mandatory_msg.extend(field('C', error_code));
+        only_mandatory_msg.extend(field('M', message));
+        only_mandatory_msg.extend(field('D', detail_msg));
 
-        let err_fields = PgErrorMsg::parse(only_mandatory_msg.clone()).unwrap();
+        let err_fields = PgErrorMsg::parse(&only_mandatory_msg).unwrap();
         info!("only mandatory fields: {}", &err_fields);
         error!(
             "server error: {}: {}",
@@ -1411,7 +1538,7 @@ mod tests {
                 line: None,
                 routine: None,
             },
-            PgErrorMsg::parse(only_mandatory_msg).unwrap()
+            PgErrorMsg::parse(&only_mandatory_msg).unwrap()
         );
     }
 }

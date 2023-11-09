@@ -4,7 +4,7 @@ use crate::pool::BanReason;
 use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Instant;
 use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
@@ -14,9 +14,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_parameters_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
-use crate::config::{
-    get_config, get_idle_client_in_transaction_timeout, get_prepared_statements, Address, PoolMode,
-};
+use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode};
 use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
@@ -52,6 +50,9 @@ pub struct Client<S, T> {
     /// Internal buffer, where we place messages until we have to flush
     /// them to the backend.
     buffer: BytesMut,
+
+    /// Used to buffer response messages to the client
+    response_message_queue_buffer: BytesMut,
 
     /// Address
     addr: std::net::SocketAddr,
@@ -102,8 +103,14 @@ pub struct Client<S, T> {
     /// Used to notify clients about an impending shutdown
     shutdown: Receiver<()>,
 
-    /// Prepared statements
-    prepared_statements: HashMap<String, Parse>,
+    /// Whether prepared statements are enabled for this client
+    prepared_statements_enabled: bool,
+
+    /// Mapping of client named prepared statement to rewritten parse messages
+    prepared_statements: HashMap<String, (Arc<Parse>, u64)>,
+
+    /// Buffered extended protocol data
+    extended_protocol_data_buffer: VecDeque<ExtendedProtocolData>,
 }
 
 /// Client entrypoint.
@@ -131,7 +138,7 @@ pub async fn client_entrypoint(
         // Client requested a TLS connection.
         Ok((ClientConnectionType::Tls, _)) => {
             // TLS settings are configured, will setup TLS now.
-            if tls_certificate != None {
+            if tls_certificate.is_some() {
                 debug!("Accepting TLS request");
 
                 let mut yes = BytesMut::new();
@@ -448,7 +455,7 @@ where
             None => "pgcat",
         };
 
-        let client_identifier = ClientIdentifier::new(&application_name, &username, &pool_name);
+        let client_identifier = ClientIdentifier::new(application_name, username, pool_name);
 
         let admin = ["pgcat", "pgbouncer"]
             .iter()
@@ -518,6 +525,8 @@ where
             }
         };
 
+        let mut prepared_statements_enabled = false;
+
         // Authenticate admin user.
         let (transaction_mode, mut server_parameters) = if admin {
             let config = get_config();
@@ -542,7 +551,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let mut pool = match get_pool(pool_name, username) {
+            let pool = match get_pool(pool_name, username) {
                 Some(pool) => pool,
                 None => {
                     error_response(
@@ -651,6 +660,8 @@ where
             }
 
             let transaction_mode = pool.settings.pool_mode == PoolMode::Transaction;
+            prepared_statements_enabled =
+                transaction_mode && pool.prepared_statement_cache.is_some();
 
             // If the pool hasn't been validated yet,
             // connect to the servers and figure out what's what.
@@ -682,7 +693,7 @@ where
         auth_ok(&mut write).await?;
         write_all(&mut write, (&server_parameters).into()).await?;
         backend_key_data(&mut write, process_id, secret_key).await?;
-        ready_for_query(&mut write).await?;
+        send_ready_for_query(&mut write).await?;
 
         trace!("Startup OK");
         let stats = Arc::new(ClientStats::new(
@@ -696,8 +707,9 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
-            addr,
             buffer: BytesMut::with_capacity(8196),
+            response_message_queue_buffer: BytesMut::with_capacity(8196),
+            addr,
             cancel_mode: false,
             transaction_mode,
             process_id,
@@ -708,12 +720,14 @@ where
             admin,
             last_address_id: None,
             last_server_stats: None,
+            connected_to_server: false,
             pool_name: pool_name.clone(),
             username: username.clone(),
             server_parameters,
             shutdown,
-            connected_to_server: false,
+            prepared_statements_enabled,
             prepared_statements: HashMap::new(),
+            extended_protocol_data_buffer: VecDeque::new(),
         })
     }
 
@@ -731,8 +745,9 @@ where
         Ok(Client {
             read: BufReader::new(read),
             write,
-            addr,
             buffer: BytesMut::with_capacity(8196),
+            response_message_queue_buffer: BytesMut::with_capacity(8196),
+            addr,
             cancel_mode: true,
             transaction_mode: false,
             process_id,
@@ -743,12 +758,14 @@ where
             admin: false,
             last_address_id: None,
             last_server_stats: None,
+            connected_to_server: false,
             pool_name: String::from("undefined"),
             username: String::from("undefined"),
             server_parameters: ServerParameters::new(),
             shutdown,
-            connected_to_server: false,
+            prepared_statements_enabled: false,
             prepared_statements: HashMap::new(),
+            extended_protocol_data_buffer: VecDeque::new(),
         })
     }
 
@@ -790,15 +807,23 @@ where
         // Result returned by one of the plugins.
         let mut plugin_output = None;
 
-        // Prepared statement being executed
-        let mut prepared_statement = None;
-        let mut will_prepare = false;
-
         let client_identifier = ClientIdentifier::new(
-            &self.server_parameters.get_application_name(),
+            self.server_parameters.get_application_name(),
             &self.username,
             &self.pool_name,
         );
+
+        // Get a pool instance referenced by the most up-to-date
+        // pointer. This ensures we always read the latest config
+        // when starting a query.
+        let mut pool = if self.admin {
+            // Admin clients do not use pools.
+            ConnectionPool::default()
+        } else {
+            self.get_pool().await?
+        };
+
+        query_router.update_pool_settings(&pool.settings);
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries
@@ -809,16 +834,13 @@ where
                 self.transaction_mode
             );
 
-            // Should we rewrite prepared statements and bind messages?
-            let mut prepared_statements_enabled = get_prepared_statements();
-
             // Read a complete message from the client, which normally would be
             // either a `Q` (query) or `P` (prepare, extended protocol).
             // We can parse it here before grabbing a server from the pool,
             // in case the client is sending some custom protocol messages, e.g.
             // SET SHARDING KEY TO 'bigint';
 
-            let mut message = tokio::select! {
+            let message = tokio::select! {
                 _ = self.shutdown.recv() => {
                     if !self.admin {
                         error_response_terminal(
@@ -853,41 +875,18 @@ where
                 continue;
             }
 
-            // Get a pool instance referenced by the most up-to-date
-            // pointer. This ensures we always read the latest config
-            // when starting a query.
-            let mut pool = self.get_pool().await?;
-            query_router.update_pool_settings(pool.settings.clone());
+            // Handle all custom protocol commands, if any.
+            if self
+                .handle_custom_protocol(&mut query_router, &message, &pool)
+                .await?
+            {
+                continue;
+            }
 
             let mut initial_parsed_ast = None;
 
             match message[0] as char {
-                // Buffer extended protocol messages even if we do not have
-                // a server connection yet. Hopefully, when we get the S message
-                // we'll be able to allocate a connection. Also, clients do not expect
-                // the server to respond to these messages so even if we were not able to
-                // allocate a connection, we wouldn't be able to send back an error message
-                // to the client so we buffer them and defer the decision to error out or not
-                // to when we get the S message
-                'D' => {
-                    if prepared_statements_enabled {
-                        let name;
-                        (name, message) = self.rewrite_describe(message).await?;
-
-                        if let Some(name) = name {
-                            prepared_statement = Some(name);
-                        }
-                    }
-
-                    self.buffer.put(&message[..]);
-                    continue;
-                }
-
-                'E' => {
-                    self.buffer.put(&message[..]);
-                    continue;
-                }
-
+                // Query
                 'Q' => {
                     if query_router.query_parser_enabled() {
                         match query_router.parse(&message) {
@@ -922,14 +921,15 @@ where
                     }
                 }
 
+                // Buffer extended protocol messages even if we do not have
+                // a server connection yet. Hopefully, when we get the S message
+                // we'll be able to allocate a connection. Also, clients do not expect
+                // the server to respond to these messages so even if we were not able to
+                // allocate a connection, we wouldn't be able to send back an error message
+                // to the client so we buffer them and defer the decision to error out or not
+                // to when we get the S message
+                // Parse
                 'P' => {
-                    if prepared_statements_enabled {
-                        (prepared_statement, message) = self.rewrite_parse(message)?;
-                        will_prepare = true;
-                    }
-
-                    self.buffer.put(&message[..]);
-
                     if query_router.query_parser_enabled() {
                         match query_router.parse(&message) {
                             Ok(ast) => {
@@ -948,129 +948,60 @@ where
                         };
                     }
 
+                    self.buffer_parse(message, &pool)?;
+
                     continue;
                 }
 
+                // Bind
                 'B' => {
-                    if prepared_statements_enabled {
-                        (prepared_statement, message) = self.rewrite_bind(message).await?;
-                    }
-
-                    self.buffer.put(&message[..]);
-
                     if query_router.query_parser_enabled() {
                         query_router.infer_shard_from_bind(&message);
                     }
 
+                    self.buffer_bind(message).await?;
+
+                    continue;
+                }
+
+                // Describe
+                'D' => {
+                    self.buffer_describe(message).await?;
+                    continue;
+                }
+
+                'E' => {
+                    self.extended_protocol_data_buffer
+                        .push_back(ExtendedProtocolData::create_new_execute(message));
                     continue;
                 }
 
                 // Close (F)
                 'C' => {
-                    if prepared_statements_enabled {
-                        let close: Close = (&message).try_into()?;
+                    let close: Close = (&message).try_into()?;
 
-                        if close.is_prepared_statement() && !close.anonymous() {
-                            self.prepared_statements.remove(&close.name);
-                            write_all_flush(&mut self.write, &close_complete()).await?;
-                            continue;
-                        }
-                    }
+                    self.extended_protocol_data_buffer
+                        .push_back(ExtendedProtocolData::create_new_close(message, close));
+                    continue;
                 }
 
                 _ => (),
             }
 
             // Check on plugin results.
-            match plugin_output {
-                Some(PluginOutput::Deny(error)) => {
-                    self.buffer.clear();
-                    error_response(&mut self.write, &error).await?;
-                    plugin_output = None;
-                    continue;
-                }
-
-                _ => (),
+            if let Some(PluginOutput::Deny(error)) = plugin_output {
+                self.reset_buffered_state();
+                error_response(&mut self.write, &error).await?;
+                plugin_output = None;
+                continue;
             };
 
             // Check if the pool is paused and wait until it's resumed.
-            if pool.wait_paused().await {
-                // Refresh pool information, something might have changed.
-                pool = self.get_pool().await?;
-            }
+            pool.wait_paused().await;
 
-            query_router.update_pool_settings(pool.settings.clone());
-
-            let current_shard = query_router.shard();
-
-            // Handle all custom protocol commands, if any.
-            match query_router.try_execute_command(&message) {
-                // Normal query, not a custom command.
-                None => (),
-
-                // SET SHARD TO
-                Some((Command::SetShard, _)) => {
-                    match query_router.shard() {
-                        None => (),
-                        Some(selected_shard) => {
-                            if selected_shard >= pool.shards() {
-                                // Bad shard number, send error message to client.
-                                query_router.set_shard(current_shard);
-
-                                error_response(
-                                    &mut self.write,
-                                    &format!(
-                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
-                                        selected_shard,
-                                        pool.shards(),
-                                        current_shard,
-                                    ),
-                                )
-                                    .await?;
-                            } else {
-                                custom_protocol_response_ok(&mut self.write, "SET SHARD").await?;
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                // SET PRIMARY READS TO
-                Some((Command::SetPrimaryReads, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
-                    continue;
-                }
-
-                // SET SHARDING KEY TO
-                Some((Command::SetShardingKey, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
-                    continue;
-                }
-
-                // SET SERVER ROLE TO
-                Some((Command::SetServerRole, _)) => {
-                    custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
-                    continue;
-                }
-
-                // SHOW SERVER ROLE
-                Some((Command::ShowServerRole, value)) => {
-                    show_response(&mut self.write, "server role", &value).await?;
-                    continue;
-                }
-
-                // SHOW SHARD
-                Some((Command::ShowShard, value)) => {
-                    show_response(&mut self.write, "shard", &value).await?;
-                    continue;
-                }
-
-                // SHOW PRIMARY READS
-                Some((Command::ShowPrimaryReads, value)) => {
-                    show_response(&mut self.write, "primary reads", &value).await?;
-                    continue;
-                }
-            };
+            // Refresh pool information, something might have changed.
+            pool = self.get_pool().await?;
+            query_router.update_pool_settings(&pool.settings);
 
             debug!("Waiting for connection from pool");
             if !self.admin {
@@ -1095,7 +1026,7 @@ where
 
                     if message[0] as char == 'S' {
                         error!("Got Sync message but failed to get a connection from the pool");
-                        self.buffer.clear();
+                        self.reset_buffered_state();
                     }
 
                     error_response(
@@ -1161,58 +1092,7 @@ where
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
             loop {
-                // Only check if we should rewrite prepared statements
-                // in session mode. In transaction mode, we check at the beginning of
-                // each transaction.
-                if !self.transaction_mode {
-                    prepared_statements_enabled = get_prepared_statements();
-                }
-
-                debug!("Prepared statement active: {:?}", prepared_statement);
-
-                // We are processing a prepared statement.
-                if let Some(ref name) = prepared_statement {
-                    debug!("Checking prepared statement is on server");
-                    // Get the prepared statement the server expects to see.
-                    let statement = match self.prepared_statements.get(name) {
-                        Some(statement) => {
-                            debug!("Prepared statement `{}` found in cache", name);
-                            statement
-                        }
-                        None => {
-                            return Err(Error::ClientError(format!(
-                                "prepared statement `{}` not found",
-                                name
-                            )))
-                        }
-                    };
-
-                    // Since it's already in the buffer, we don't need to prepare it on this server.
-                    if will_prepare {
-                        server.will_prepare(&statement.name);
-                        will_prepare = false;
-                    } else {
-                        // The statement is not prepared on the server, so we need to prepare it.
-                        if server.should_prepare(&statement.name) {
-                            match server.prepare(statement).await {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    pool.ban(
-                                        &address,
-                                        BanReason::MessageSendFailed,
-                                        Some(&self.stats),
-                                    );
-                                    return Err(err);
-                                }
-                            }
-                        }
-                    }
-
-                    // Done processing the prepared statement.
-                    prepared_statement = None;
-                }
-
-                let mut message = match initial_message {
+                let message = match initial_message {
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
@@ -1267,7 +1147,7 @@ where
 
                 // Safe to unwrap because we know this message has a certain length and has the code
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
-                let code = *message.get(0).unwrap() as char;
+                let code = *message.first().unwrap() as char;
 
                 trace!("Message: {}", code);
 
@@ -1325,7 +1205,7 @@ where
                             self.stats.transaction();
                             server
                                 .stats()
-                                .transaction(&self.server_parameters.get_application_name());
+                                .transaction(self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1343,21 +1223,12 @@ where
                         self.stats.disconnect();
                         self.release();
 
-                        if prepared_statements_enabled {
-                            server.maintain_cache().await?;
-                        }
-
                         return Ok(());
                     }
 
                     // Parse
                     // The query with placeholders is here, e.g. `SELECT * FROM users WHERE email = $1 AND active = $2`.
                     'P' => {
-                        if prepared_statements_enabled {
-                            (prepared_statement, message) = self.rewrite_parse(message)?;
-                            will_prepare = true;
-                        }
-
                         if query_router.query_parser_enabled() {
                             if let Ok(ast) = query_router.parse(&message) {
                                 if let Ok(output) = query_router.execute_plugins(&ast).await {
@@ -1366,58 +1237,35 @@ where
                             }
                         }
 
-                        self.buffer.put(&message[..]);
+                        self.buffer_parse(message, &pool)?;
                     }
 
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        if prepared_statements_enabled {
-                            (prepared_statement, message) = self.rewrite_bind(message).await?;
-                        }
-
-                        self.buffer.put(&message[..]);
+                        self.buffer_bind(message).await?;
                     }
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
                     'D' => {
-                        if prepared_statements_enabled {
-                            let name;
-                            (name, message) = self.rewrite_describe(message).await?;
-
-                            if let Some(name) = name {
-                                prepared_statement = Some(name);
-                            }
-                        }
-
-                        self.buffer.put(&message[..]);
-                    }
-
-                    // Close the prepared statement.
-                    'C' => {
-                        if prepared_statements_enabled {
-                            let close: Close = (&message).try_into()?;
-
-                            if close.is_prepared_statement() && !close.anonymous() {
-                                match self.prepared_statements.get(&close.name) {
-                                    Some(parse) => {
-                                        server.will_close(&parse.generated_name);
-                                    }
-
-                                    // A prepared statement slipped through? Not impossible, since we don't support PREPARE yet.
-                                    None => (),
-                                };
-                            }
-                        }
-
-                        self.buffer.put(&message[..]);
+                        self.buffer_describe(message).await?;
                     }
 
                     // Execute
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
-                        self.buffer.put(&message[..]);
+                        self.extended_protocol_data_buffer
+                            .push_back(ExtendedProtocolData::create_new_execute(message));
+                    }
+
+                    // Close
+                    // Close the prepared statement.
+                    'C' => {
+                        let close: Close = (&message).try_into()?;
+
+                        self.extended_protocol_data_buffer
+                            .push_back(ExtendedProtocolData::create_new_close(message, close));
                     }
 
                     // Sync
@@ -1429,47 +1277,182 @@ where
                             Some(PluginOutput::Deny(error)) => {
                                 error_response(&mut self.write, &error).await?;
                                 plugin_output = None;
-                                self.buffer.clear();
+                                self.reset_buffered_state();
                                 continue;
                             }
 
                             Some(PluginOutput::Intercept(result)) => {
                                 write_all(&mut self.write, result).await?;
                                 plugin_output = None;
-                                self.buffer.clear();
+                                self.reset_buffered_state();
                                 continue;
                             }
 
                             _ => (),
                         };
 
-                        self.buffer.put(&message[..]);
+                        // Prepared statements can arrive like this
+                        // 1. Without named describe
+                        //      Client: Parse, with name, query and params
+                        //              Sync
+                        //      Server: ParseComplete
+                        //              ReadyForQuery
+                        // 3. Without named describe
+                        //      Client: Parse, with name, query and params
+                        //              Describe, with no name
+                        //              Sync
+                        //      Server: ParseComplete
+                        //              ParameterDescription
+                        //              RowDescription
+                        //              ReadyForQuery
+                        // 2. With named describe
+                        //      Client: Parse, with name, query and params
+                        //              Describe, with name
+                        //              Sync
+                        //      Server: ParseComplete
+                        //              ParameterDescription
+                        //              RowDescription
+                        //              ReadyForQuery
 
-                        let first_message_code = (*self.buffer.get(0).unwrap_or(&0)) as char;
+                        // Iterate over our extended protocol data that we've buffered
+                        while let Some(protocol_data) =
+                            self.extended_protocol_data_buffer.pop_front()
+                        {
+                            match protocol_data {
+                                ExtendedProtocolData::Parse { data, metadata } => {
+                                    let (parse, hash) = match metadata {
+                                        Some(metadata) => metadata,
+                                        None => {
+                                            let first_char_in_name = *data.get(5).unwrap_or(&0);
+                                            if first_char_in_name != 0 {
+                                                // This is a named prepared statement while prepared statements are disabled
+                                                // Server connection state will need to be cleared at checkin
+                                                server.mark_dirty();
+                                            }
+                                            // Not a prepared statement
+                                            self.buffer.put(&data[..]);
+                                            continue;
+                                        }
+                                    };
 
-                        // Almost certainly true
-                        if first_message_code == 'P' && !prepared_statements_enabled {
-                            // Message layout
-                            // P followed by 32 int followed by null-terminated statement name
-                            // So message code should be in offset 0 of the buffer, first character
-                            // in prepared statement name would be index 5
-                            let first_char_in_name = *self.buffer.get(5).unwrap_or(&0);
-                            if first_char_in_name != 0 {
-                                // This is a named prepared statement
-                                // Server connection state will need to be cleared at checkin
-                                server.mark_dirty();
+                                    // This is a prepared statement we already have on the checked out server
+                                    if server.has_prepared_statement(&parse.name) {
+                                        debug!(
+                                            "Prepared statement `{}` found in server cache",
+                                            parse.name
+                                        );
+
+                                        // We don't want to send the parse message to the server
+                                        // Instead queue up a parse complete message to send to the client
+                                        self.response_message_queue_buffer.put(parse_complete());
+                                    } else {
+                                        debug!(
+                                            "Prepared statement `{}` not found in server cache",
+                                            parse.name
+                                        );
+
+                                        // TODO: Consider adding the close logic that this function can send for eviction to the client buffer instead
+                                        // In this case we don't want to send the parse message to the server since the client is sending it
+                                        self.register_parse_to_server_cache(
+                                            false, &hash, &parse, &pool, server, &address,
+                                        )
+                                        .await?;
+
+                                        // Add parse message to buffer
+                                        self.buffer.put(&data[..]);
+                                    }
+                                }
+                                ExtendedProtocolData::Bind { data, metadata } => {
+                                    // This is using a prepared statement
+                                    if let Some(client_given_name) = metadata {
+                                        self.ensure_prepared_statement_is_on_server(
+                                            client_given_name,
+                                            &pool,
+                                            server,
+                                            &address,
+                                        )
+                                        .await?;
+                                    }
+
+                                    self.buffer.put(&data[..]);
+                                }
+                                ExtendedProtocolData::Describe { data, metadata } => {
+                                    // This is using a prepared statement
+                                    if let Some(client_given_name) = metadata {
+                                        self.ensure_prepared_statement_is_on_server(
+                                            client_given_name,
+                                            &pool,
+                                            server,
+                                            &address,
+                                        )
+                                        .await?;
+                                    }
+
+                                    self.buffer.put(&data[..]);
+                                }
+                                ExtendedProtocolData::Execute { data } => {
+                                    self.buffer.put(&data[..])
+                                }
+                                ExtendedProtocolData::Close { data, close } => {
+                                    // We don't send the close message to the server if prepared statements are enabled
+                                    // and it's a close with a prepared statement name provided
+                                    if self.prepared_statements_enabled
+                                        && close.is_prepared_statement()
+                                        && !close.anonymous()
+                                    {
+                                        self.prepared_statements.remove(&close.name);
+
+                                        // Queue up a close complete message to send to the client
+                                        self.response_message_queue_buffer.put(close_complete());
+                                    } else {
+                                        self.buffer.put(&data[..]);
+                                    }
+                                }
                             }
                         }
 
-                        self.send_and_receive_loop(
-                            code,
-                            None,
-                            server,
-                            &address,
-                            &pool,
-                            &self.stats.clone(),
-                        )
-                        .await?;
+                        // Add the sync message
+                        self.buffer.put(&message[..]);
+
+                        let mut should_send_to_server = true;
+
+                        // If we have just a sync message left (maybe after omitting sending some messages to the server) no need to send it to the server
+                        if *self.buffer.first().unwrap() == b'S' {
+                            should_send_to_server = false;
+                            // queue up a ready for query message to send to the client, respecting the transaction state of the server
+                            self.response_message_queue_buffer
+                                .put(ready_for_query(server.in_transaction()));
+                        }
+
+                        // Send all queued messages to the client
+                        // NOTE: it's possible we don't perfectly send things back in the same order as postgres would,
+                        //       however clients should be able to handle this
+                        if !self.response_message_queue_buffer.is_empty() {
+                            if let Err(err) = write_all_flush(
+                                &mut self.write,
+                                &self.response_message_queue_buffer,
+                            )
+                            .await
+                            {
+                                // We might be in some kind of error/in between protocol state
+                                server.mark_bad();
+                                return Err(err);
+                            }
+
+                            self.response_message_queue_buffer.clear();
+                        }
+
+                        if should_send_to_server {
+                            self.send_and_receive_loop(
+                                code,
+                                None,
+                                server,
+                                &address,
+                                &pool,
+                                &self.stats.clone(),
+                            )
+                            .await?;
+                        }
 
                         self.buffer.clear();
 
@@ -1477,7 +1460,7 @@ where
                             self.stats.transaction();
                             server
                                 .stats()
-                                .transaction(&self.server_parameters.get_application_name());
+                                .transaction(self.server_parameters.get_application_name());
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1551,10 +1534,6 @@ where
 
             server.checkin_cleanup().await?;
 
-            if prepared_statements_enabled {
-                server.maintain_cache().await?;
-            }
-
             server.stats().idle();
             self.connected_to_server = false;
 
@@ -1588,68 +1567,230 @@ where
         }
     }
 
-    /// Rewrite Parse (F) message to set the prepared statement name to one we control.
-    /// Save it into the client cache.
-    fn rewrite_parse(&mut self, message: BytesMut) -> Result<(Option<String>, BytesMut), Error> {
-        let parse: Parse = (&message).try_into()?;
+    /// Handles custom protocol messages
+    /// Returns true if the message is custom protocol message, false otherwise
+    /// Does not work with prepared statements, only simple and extended protocol without parameters
+    async fn handle_custom_protocol(
+        &mut self,
+        query_router: &mut QueryRouter,
+        message: &BytesMut,
+        pool: &ConnectionPool,
+    ) -> Result<bool, Error> {
+        let current_shard = query_router.shard();
 
-        let name = parse.name.clone();
+        match query_router.try_execute_command(message) {
+            None => Ok(false),
 
-        // Don't rewrite anonymous prepared statements
-        if parse.anonymous() {
-            debug!("Anonymous prepared statement");
-            return Ok((None, message));
+            Some(custom) => {
+                match custom {
+                    // SET SHARD TO
+                    (Command::SetShard, _) => {
+                        match query_router.shard() {
+                            None => {}
+                            Some(selected_shard) => {
+                                if selected_shard >= pool.shards() {
+                                    // Bad shard number, send error message to client.
+                                    query_router.set_shard(current_shard);
+
+                                    error_response(
+                                                    &mut self.write,
+                                                    &format!(
+                                                        "shard {} is not configured {}, staying on shard {:?} (shard numbers start at 0)",
+                                                        selected_shard,
+                                                        pool.shards(),
+                                                        current_shard,
+                                                    ),
+                                                )
+                                                    .await?;
+                                } else {
+                                    custom_protocol_response_ok(&mut self.write, "SET SHARD")
+                                        .await?;
+                                }
+                            }
+                        }
+                    }
+
+                    // SET PRIMARY READS TO
+                    (Command::SetPrimaryReads, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET PRIMARY READS").await?;
+                    }
+
+                    // SET SHARDING KEY TO
+                    (Command::SetShardingKey, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
+                    }
+
+                    // SET SERVER ROLE TO
+                    (Command::SetServerRole, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;
+                    }
+
+                    // SHOW SERVER ROLE
+                    (Command::ShowServerRole, value) => {
+                        show_response(&mut self.write, "server role", &value).await?;
+                    }
+
+                    // SHOW SHARD
+                    (Command::ShowShard, value) => {
+                        show_response(&mut self.write, "shard", &value).await?;
+                    }
+
+                    // SHOW PRIMARY READS
+                    (Command::ShowPrimaryReads, value) => {
+                        show_response(&mut self.write, "primary reads", &value).await?;
+                    }
+                };
+
+                Ok(true)
+            }
+        }
+    }
+
+    /// Makes sure the the checked out server has the prepared statement and sends it to the server if it doesn't
+    async fn ensure_prepared_statement_is_on_server(
+        &mut self,
+        client_name: String,
+        pool: &ConnectionPool,
+        server: &mut Server,
+        address: &Address,
+    ) -> Result<(), Error> {
+        match self.prepared_statements.get(&client_name) {
+            Some((parse, hash)) => {
+                debug!("Prepared statement `{}` found in cache", parse.name);
+                // In this case we want to send the parse message to the server
+                // since pgcat is initiating the prepared statement on this specific server
+                self.register_parse_to_server_cache(true, hash, parse, pool, server, address)
+                    .await?;
+            }
+
+            None => {
+                return Err(Error::ClientError(format!(
+                    "prepared statement `{}` not found",
+                    client_name
+                )))
+            }
+        };
+
+        Ok(())
+    }
+
+    /// Register the parse to the server cache and send it to the server if requested (ie. requested by pgcat)
+    ///
+    /// Also updates the pool LRU that this parse was used recently
+    async fn register_parse_to_server_cache(
+        &self,
+        should_send_parse_to_server: bool,
+        hash: &u64,
+        parse: &Arc<Parse>,
+        pool: &ConnectionPool,
+        server: &mut Server,
+        address: &Address,
+    ) -> Result<(), Error> {
+        // We want to promote this in the pool's LRU
+        pool.promote_prepared_statement_hash(hash);
+
+        if let Err(err) = server
+            .register_prepared_statement(parse, should_send_parse_to_server)
+            .await
+        {
+            pool.ban(address, BanReason::MessageSendFailed, Some(&self.stats));
+            return Err(err);
         }
 
-        let parse = parse.rename();
+        Ok(())
+    }
+
+    /// Register and rewrite the parse statement to the clients statement cache
+    /// and also the pool's statement cache. Add it to extended protocol data.
+    fn buffer_parse(&mut self, message: BytesMut, pool: &ConnectionPool) -> Result<(), Error> {
+        // Avoid parsing if prepared statements not enabled
+        if !self.prepared_statements_enabled {
+            debug!("Anonymous parse message");
+            self.extended_protocol_data_buffer
+                .push_back(ExtendedProtocolData::create_new_parse(message, None));
+            return Ok(());
+        }
+
+        let client_given_name = Parse::get_name(&message)?;
+        let parse: Parse = (&message).try_into()?;
+
+        // Compute the hash of the parse statement
+        let hash = parse.get_hash();
+
+        // Add the statement to the cache or check if we already have it
+        let new_parse = match pool.register_parse_to_cache(hash, &parse) {
+            Some(parse) => parse,
+            None => {
+                return Err(Error::ClientError(format!(
+                    "Could not store Prepared statement `{}`",
+                    client_given_name
+                )))
+            }
+        };
 
         debug!(
             "Renamed prepared statement `{}` to `{}` and saved to cache",
-            name, parse.name
+            client_given_name, new_parse.name
         );
 
-        self.prepared_statements.insert(name.clone(), parse.clone());
+        self.prepared_statements
+            .insert(client_given_name, (new_parse.clone(), hash));
 
-        Ok((Some(name), parse.try_into()?))
+        self.extended_protocol_data_buffer
+            .push_back(ExtendedProtocolData::create_new_parse(
+                new_parse.as_ref().try_into()?,
+                Some((new_parse.clone(), hash)),
+            ));
+
+        Ok(())
     }
 
     /// Rewrite the Bind (F) message to use the prepared statement name
     /// saved in the client cache.
-    async fn rewrite_bind(
-        &mut self,
-        message: BytesMut,
-    ) -> Result<(Option<String>, BytesMut), Error> {
-        let bind: Bind = (&message).try_into()?;
-        let name = bind.prepared_statement.clone();
-
-        if bind.anonymous() {
+    async fn buffer_bind(&mut self, message: BytesMut) -> Result<(), Error> {
+        // Avoid parsing if prepared statements not enabled
+        if !self.prepared_statements_enabled {
             debug!("Anonymous bind message");
-            return Ok((None, message));
+            self.extended_protocol_data_buffer
+                .push_back(ExtendedProtocolData::create_new_bind(message, None));
+            return Ok(());
         }
 
-        match self.prepared_statements.get(&name) {
-            Some(prepared_stmt) => {
-                let bind = bind.reassign(prepared_stmt);
+        let client_given_name = Bind::get_name(&message)?;
 
-                debug!("Rewrote bind `{}` to `{}`", name, bind.prepared_statement);
+        match self.prepared_statements.get(&client_given_name) {
+            Some((rewritten_parse, _)) => {
+                let message = Bind::rename(message, &rewritten_parse.name)?;
 
-                Ok((Some(name), bind.try_into()?))
+                debug!(
+                    "Rewrote bind `{}` to `{}`",
+                    client_given_name, rewritten_parse.name
+                );
+
+                self.extended_protocol_data_buffer.push_back(
+                    ExtendedProtocolData::create_new_bind(message, Some(client_given_name)),
+                );
+
+                Ok(())
             }
             None => {
-                debug!("Got bind for unknown prepared statement {:?}", bind);
+                debug!(
+                    "Got bind for unknown prepared statement {:?}",
+                    client_given_name
+                );
 
                 error_response(
                     &mut self.write,
                     &format!(
                         "prepared statement \"{}\" does not exist",
-                        bind.prepared_statement
+                        client_given_name
                     ),
                 )
                 .await?;
 
                 Err(Error::ClientError(format!(
                     "Prepared statement `{}` doesn't exist",
-                    name
+                    client_given_name
                 )))
             }
         }
@@ -1657,36 +1798,70 @@ where
 
     /// Rewrite the Describe (F) message to use the prepared statement name
     /// saved in the client cache.
-    async fn rewrite_describe(
-        &mut self,
-        message: BytesMut,
-    ) -> Result<(Option<String>, BytesMut), Error> {
-        let describe: Describe = (&message).try_into()?;
-        let name = describe.statement_name.clone();
+    async fn buffer_describe(&mut self, message: BytesMut) -> Result<(), Error> {
+        // Avoid parsing if prepared statements not enabled
+        if !self.prepared_statements_enabled {
+            debug!("Anonymous describe message");
+            self.extended_protocol_data_buffer
+                .push_back(ExtendedProtocolData::create_new_describe(message, None));
 
-        if describe.anonymous() {
-            debug!("Anonymous describe");
-            return Ok((None, message));
+            return Ok(());
         }
 
-        match self.prepared_statements.get(&name) {
-            Some(prepared_stmt) => {
-                let describe = describe.rename(&prepared_stmt.name);
+        let describe: Describe = (&message).try_into()?;
+        if describe.target == 'P' {
+            debug!("Portal describe message");
+            self.extended_protocol_data_buffer
+                .push_back(ExtendedProtocolData::create_new_describe(message, None));
+
+            return Ok(());
+        }
+
+        let client_given_name = describe.statement_name.clone();
+
+        match self.prepared_statements.get(&client_given_name) {
+            Some((rewritten_parse, _)) => {
+                let describe = describe.rename(&rewritten_parse.name);
 
                 debug!(
                     "Rewrote describe `{}` to `{}`",
-                    name, describe.statement_name
+                    client_given_name, describe.statement_name
                 );
 
-                Ok((Some(name), describe.try_into()?))
+                self.extended_protocol_data_buffer.push_back(
+                    ExtendedProtocolData::create_new_describe(
+                        describe.try_into()?,
+                        Some(client_given_name),
+                    ),
+                );
+
+                Ok(())
             }
 
             None => {
                 debug!("Got describe for unknown prepared statement {:?}", describe);
 
-                Ok((None, message))
+                error_response(
+                    &mut self.write,
+                    &format!(
+                        "prepared statement \"{}\" does not exist",
+                        client_given_name
+                    ),
+                )
+                .await?;
+
+                Err(Error::ClientError(format!(
+                    "Prepared statement `{}` doesn't exist",
+                    client_given_name
+                )))
             }
         }
+    }
+
+    fn reset_buffered_state(&mut self) {
+        self.buffer.clear();
+        self.extended_protocol_data_buffer.clear();
+        self.response_message_queue_buffer.clear();
     }
 
     /// Release the server from the client: it can't cancel its queries anymore.
@@ -1725,6 +1900,7 @@ where
             match write_all_flush(&mut self.write, &response).await {
                 Ok(_) => (),
                 Err(err) => {
+                    // We might be in some kind of error/in between protocol state, better to just kill this server
                     server.mark_bad();
                     return Err(err);
                 }
@@ -1739,7 +1915,7 @@ where
         client_stats.query();
         server.stats().query(
             Instant::now().duration_since(query_start).as_millis() as u64,
-            &self.server_parameters.get_application_name(),
+            self.server_parameters.get_application_name(),
         );
 
         Ok(())

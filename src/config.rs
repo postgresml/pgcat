@@ -117,10 +117,10 @@ impl Default for Address {
             host: String::from("127.0.0.1"),
             port: 5432,
             shard: 0,
-            address_index: 0,
-            replica_number: 0,
             database: String::from("database"),
             role: Role::Replica,
+            replica_number: 0,
+            address_index: 0,
             username: String::from("username"),
             pool_name: String::from("pool_name"),
             mirrors: Vec::new(),
@@ -217,6 +217,8 @@ pub struct User {
     pub server_lifetime: Option<u64>,
     #[serde(default)] // 0
     pub statement_timeout: u64,
+    pub connect_timeout: Option<u64>,
+    pub idle_timeout: Option<u64>,
 }
 
 impl Default for User {
@@ -231,24 +233,22 @@ impl Default for User {
             statement_timeout: 0,
             pool_mode: None,
             server_lifetime: None,
+            connect_timeout: None,
+            idle_timeout: None,
         }
     }
 }
 
 impl User {
     fn validate(&self) -> Result<(), Error> {
-        match self.min_pool_size {
-            Some(min_pool_size) => {
-                if min_pool_size > self.pool_size {
-                    error!(
-                        "min_pool_size of {} cannot be larger than pool_size of {}",
-                        min_pool_size, self.pool_size
-                    );
-                    return Err(Error::BadConfig);
-                }
+        if let Some(min_pool_size) = self.min_pool_size {
+            if min_pool_size > self.pool_size {
+                error!(
+                    "min_pool_size of {} cannot be larger than pool_size of {}",
+                    min_pool_size, self.pool_size
+                );
+                return Err(Error::BadConfig);
             }
-
-            None => (),
         };
 
         Ok(())
@@ -384,12 +384,6 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
-
-    #[serde(default)]
-    pub prepared_statements: bool,
-
-    #[serde(default = "General::default_prepared_statements_cache_size")]
-    pub prepared_statements_cache_size: usize,
 }
 
 impl General {
@@ -471,10 +465,6 @@ impl General {
     pub fn default_server_round_robin() -> bool {
         true
     }
-
-    pub fn default_prepared_statements_cache_size() -> usize {
-        500
-    }
 }
 
 impl Default for General {
@@ -486,35 +476,33 @@ impl Default for General {
             prometheus_exporter_port: 9930,
             connect_timeout: General::default_connect_timeout(),
             idle_timeout: General::default_idle_timeout(),
-            shutdown_timeout: Self::default_shutdown_timeout(),
-            healthcheck_timeout: Self::default_healthcheck_timeout(),
-            healthcheck_delay: Self::default_healthcheck_delay(),
-            ban_time: Self::default_ban_time(),
-            worker_threads: Self::default_worker_threads(),
-            idle_client_in_transaction_timeout: Self::default_idle_client_in_transaction_timeout(),
             tcp_keepalives_idle: Self::default_tcp_keepalives_idle(),
             tcp_keepalives_count: Self::default_tcp_keepalives_count(),
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
             tcp_user_timeout: Self::default_tcp_user_timeout(),
             log_client_connections: false,
             log_client_disconnections: false,
-            autoreload: None,
             dns_cache_enabled: false,
             dns_max_ttl: Self::default_dns_max_ttl(),
+            shutdown_timeout: Self::default_shutdown_timeout(),
+            healthcheck_timeout: Self::default_healthcheck_timeout(),
+            healthcheck_delay: Self::default_healthcheck_delay(),
+            ban_time: Self::default_ban_time(),
+            idle_client_in_transaction_timeout: Self::default_idle_client_in_transaction_timeout(),
+            server_lifetime: Self::default_server_lifetime(),
+            server_round_robin: Self::default_server_round_robin(),
+            worker_threads: Self::default_worker_threads(),
+            autoreload: None,
             tls_certificate: None,
             tls_private_key: None,
             server_tls: false,
             verify_server_certificate: CertificateVerificationVariant::Bool(false), // equivalent to false in earlier versions
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
+            validate_config: true,
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
-            server_lifetime: Self::default_server_lifetime(),
-            server_round_robin: Self::default_server_round_robin(),
-            validate_config: true,
-            prepared_statements: false,
-            prepared_statements_cache_size: 500,
         }
     }
 }
@@ -615,6 +603,9 @@ pub struct Pool {
     #[serde(default)] // False
     pub log_client_parameter_status_changes: bool,
 
+    #[serde(default = "Pool::default_prepared_statements_cache_size")]
+    pub prepared_statements_cache_size: usize,
+
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -662,6 +653,10 @@ impl Pool {
 
     pub fn default_cleanup_server_connections() -> bool {
         true
+    }
+
+    pub fn default_prepared_statements_cache_size() -> usize {
+        0
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -720,9 +715,9 @@ impl Pool {
             Some(key) => {
                 // No quotes in the key so we don't have to compare quoted
                 // to unquoted idents.
-                let key = key.replace("\"", "");
+                let key = key.replace('\"', "");
 
-                if key.split(".").count() != 2 {
+                if key.split('.').count() != 2 {
                     error!(
                         "automatic_sharding_key '{}' must be fully qualified, e.g. t.{}`",
                         key, key
@@ -735,17 +730,14 @@ impl Pool {
             None => None,
         };
 
-        match self.default_shard {
-            DefaultShard::Shard(shard_number) => {
-                if shard_number >= self.shards.len() {
-                    error!("Invalid shard {:?}", shard_number);
-                    return Err(Error::BadConfig);
-                }
+        if let DefaultShard::Shard(shard_number) = self.default_shard {
+            if shard_number >= self.shards.len() {
+                error!("Invalid shard {:?}", shard_number);
+                return Err(Error::BadConfig);
             }
-            _ => (),
         }
 
-        for (_, user) in &self.users {
+        for user in self.users.values() {
             user.validate()?;
         }
 
@@ -758,17 +750,16 @@ impl Default for Pool {
         Pool {
             pool_mode: Self::default_pool_mode(),
             load_balancing_mode: Self::default_load_balancing_mode(),
-            shards: BTreeMap::from([(String::from("1"), Shard::default())]),
-            users: BTreeMap::default(),
             default_role: String::from("any"),
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
             primary_reads_enabled: false,
-            sharding_function: ShardingFunction::PgBigintHash,
-            automatic_sharding_key: None,
             connect_timeout: None,
             idle_timeout: None,
+            server_lifetime: None,
+            sharding_function: ShardingFunction::PgBigintHash,
+            automatic_sharding_key: None,
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: Some(1000),
@@ -776,10 +767,12 @@ impl Default for Pool {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
-            server_lifetime: None,
-            plugins: None,
             cleanup_server_connections: true,
             log_client_parameter_status_changes: false,
+            prepared_statements_cache_size: Self::default_prepared_statements_cache_size(),
+            plugins: None,
+            shards: BTreeMap::from([(String::from("1"), Shard::default())]),
+            users: BTreeMap::default(),
         }
     }
 }
@@ -820,8 +813,8 @@ impl<'de> serde::Deserialize<'de> for DefaultShard {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        if s.starts_with("shard_") {
-            let shard = s[6..].parse::<usize>().map_err(serde::de::Error::custom)?;
+        if let Some(s) = s.strip_prefix("shard_") {
+            let shard = s.parse::<usize>().map_err(serde::de::Error::custom)?;
             return Ok(DefaultShard::Shard(shard));
         }
 
@@ -891,13 +884,13 @@ impl Shard {
 impl Default for Shard {
     fn default() -> Shard {
         Shard {
+            database: String::from("postgres"),
+            mirrors: None,
             servers: vec![ServerConfig {
                 host: String::from("localhost"),
                 port: 5432,
                 role: Role::Primary,
             }],
-            mirrors: None,
-            database: String::from("postgres"),
         }
     }
 }
@@ -910,15 +903,26 @@ pub struct Plugins {
     pub prewarmer: Option<Prewarmer>,
 }
 
+pub trait Plugin {
+    fn is_enabled(&self) -> bool;
+}
+
 impl std::fmt::Display for Plugins {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn is_enabled<T: Plugin>(arg: Option<&T>) -> bool {
+            if let Some(arg) = arg {
+                arg.is_enabled()
+            } else {
+                false
+            }
+        }
         write!(
             f,
             "interceptor: {}, table_access: {}, query_logger: {}, prewarmer: {}",
-            self.intercept.is_some(),
-            self.table_access.is_some(),
-            self.query_logger.is_some(),
-            self.prewarmer.is_some(),
+            is_enabled(self.intercept.as_ref()),
+            is_enabled(self.table_access.as_ref()),
+            is_enabled(self.query_logger.as_ref()),
+            is_enabled(self.prewarmer.as_ref()),
         )
     }
 }
@@ -929,10 +933,22 @@ pub struct Intercept {
     pub queries: BTreeMap<String, Query>,
 }
 
+impl Plugin for Intercept {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct TableAccess {
     pub enabled: bool,
     pub tables: Vec<String>,
+}
+
+impl Plugin for TableAccess {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
@@ -940,10 +956,22 @@ pub struct QueryLogger {
     pub enabled: bool,
 }
 
+impl Plugin for QueryLogger {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
 pub struct Prewarmer {
     pub enabled: bool,
     pub queries: Vec<String>,
+}
+
+impl Plugin for Prewarmer {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
 }
 
 impl Intercept {
@@ -963,6 +991,7 @@ pub struct Query {
 }
 
 impl Query {
+    #[allow(clippy::needless_range_loop)]
     pub fn substitute(&mut self, db: &str, user: &str) {
         for col in self.result.iter_mut() {
             for i in 0..col.len() {
@@ -1032,8 +1061,8 @@ impl Default for Config {
         Config {
             path: Self::default_path(),
             general: General::default(),
-            pools: HashMap::default(),
             plugins: None,
+            pools: HashMap::default(),
         }
     }
 }
@@ -1087,8 +1116,8 @@ impl From<&Config> for std::collections::HashMap<String, String> {
                     (
                         format!("pools.{:?}.users", pool_name),
                         pool.users
-                            .iter()
-                            .map(|(_username, user)| &user.username)
+                            .values()
+                            .map(|user| &user.username)
                             .cloned()
                             .collect::<Vec<String>>()
                             .join(", "),
@@ -1142,6 +1171,7 @@ impl From<&Config> for std::collections::HashMap<String, String> {
 impl Config {
     /// Print current configuration.
     pub fn show(&self) {
+        info!("Config path: {}", self.path);
         info!("Ban time: {}s", self.general.ban_time);
         info!(
             "Idle client in transaction timeout: {}ms",
@@ -1173,13 +1203,9 @@ impl Config {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);
 
-                match self.general.tls_private_key.clone() {
-                    Some(tls_private_key) => {
-                        info!("TLS private key: {}", tls_private_key);
-                        info!("TLS support is enabled");
-                    }
-
-                    None => (),
+                if let Some(tls_private_key) = self.general.tls_private_key.clone() {
+                    info!("TLS private key: {}", tls_private_key);
+                    info!("TLS support is enabled");
                 }
             }
 
@@ -1192,13 +1218,6 @@ impl Config {
             "Server TLS certificate verification: {}",
             self.general.verify_server_certificate
         );
-        info!("Prepared statements: {}", self.general.prepared_statements);
-        if self.general.prepared_statements {
-            info!(
-                "Prepared statements server cache size: {}",
-                self.general.prepared_statements_cache_size
-            );
-        }
         info!(
             "Plugins: {}",
             match self.plugins {
@@ -1214,8 +1233,8 @@ impl Config {
                 pool_name,
                 pool_config
                     .users
-                    .iter()
-                    .map(|(_, user_cfg)| user_cfg.pool_size)
+                    .values()
+                    .map(|user_cfg| user_cfg.pool_size)
                     .sum::<u32>()
                     .to_string()
             );
@@ -1290,6 +1309,10 @@ impl Config {
                 pool_name, pool_config.log_client_parameter_status_changes
             );
             info!(
+                "[pool: {}] Prepared statements server cache size: {}",
+                pool_name, pool_config.prepared_statements_cache_size
+            );
+            info!(
                 "[pool: {}] Plugins: {}",
                 pool_name,
                 match pool_config.plugins {
@@ -1329,6 +1352,24 @@ impl Config {
                     match user.1.server_lifetime {
                         Some(server_lifetime) => format!("{}ms", server_lifetime),
                         None => "default".to_string(),
+                    }
+                );
+                info!(
+                    "[pool: {}][user: {}] Connection timeout: {}",
+                    pool_name,
+                    user.1.username,
+                    match user.1.connect_timeout {
+                        Some(connect_timeout) => format!("{}ms", connect_timeout),
+                        None => "not set".to_string(),
+                    }
+                );
+                info!(
+                    "[pool: {}][user: {}] Idle timeout: {}",
+                    pool_name,
+                    user.1.username,
+                    match user.1.idle_timeout {
+                        Some(idle_timeout) => format!("{}ms", idle_timeout),
+                        None => "not set".to_string(),
                     }
                 );
             }
@@ -1385,34 +1426,31 @@ impl Config {
         }
 
         // Validate TLS!
-        match self.general.tls_certificate.clone() {
-            Some(tls_certificate) => {
-                match load_certs(Path::new(&tls_certificate)) {
-                    Ok(_) => {
-                        // Cert is okay, but what about the private key?
-                        match self.general.tls_private_key.clone() {
-                            Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
-                                Ok(_) => (),
-                                Err(err) => {
-                                    error!("tls_private_key is incorrectly configured: {:?}", err);
-                                    return Err(Error::BadConfig);
-                                }
-                            },
-
-                            None => {
-                                error!("tls_certificate is set, but the tls_private_key is not");
+        if let Some(tls_certificate) = self.general.tls_certificate.clone() {
+            match load_certs(Path::new(&tls_certificate)) {
+                Ok(_) => {
+                    // Cert is okay, but what about the private key?
+                    match self.general.tls_private_key.clone() {
+                        Some(tls_private_key) => match load_keys(Path::new(&tls_private_key)) {
+                            Ok(_) => (),
+                            Err(err) => {
+                                error!("tls_private_key is incorrectly configured: {:?}", err);
                                 return Err(Error::BadConfig);
                             }
-                        };
-                    }
+                        },
 
-                    Err(err) => {
-                        error!("tls_certificate is incorrectly configured: {:?}", err);
-                        return Err(Error::BadConfig);
-                    }
+                        None => {
+                            error!("tls_certificate is set, but the tls_private_key is not");
+                            return Err(Error::BadConfig);
+                        }
+                    };
+                }
+
+                Err(err) => {
+                    error!("tls_certificate is incorrectly configured: {:?}", err);
+                    return Err(Error::BadConfig);
                 }
             }
-            None => (),
         };
 
         for pool in self.pools.values_mut() {
