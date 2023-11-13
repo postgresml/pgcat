@@ -329,6 +329,40 @@ describe "Stats" do
       admin_conn.close
       connections.map(&:close)
     end
+
+    context "when client has waited for a server" do
+      let(:processes) { Helpers::Pgcat.single_instance_setup("sharded_db", 2) }
+
+      it "shows correct maxwait" do
+        threads = []
+        connections = Array.new(3) { |i| PG::connect("#{pgcat_conn_str}?application_name=app#{i}") }
+        connections.each do |c|
+          threads << Thread.new { c.async_exec("SELECT pg_sleep(1.5)") rescue nil }
+        end
+
+        sleep(2.5) # Allow time for stats to update
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        results = admin_conn.async_exec("SHOW CLIENTS")
+
+        normal_client_results = results.reject { |r| r["database"] == "pgcat" }
+
+        non_waiting_clients = normal_client_results.select { |c| c["maxwait"] == "0" }
+        waiting_clients = normal_client_results.select { |c| c["maxwait"].to_i > 0 }
+
+        expect(non_waiting_clients.count).to eq(2)
+        non_waiting_clients.each do |client|
+          expect(client["maxwait_us"].to_i).to be_between(0, 50_000)
+        end
+
+        expect(waiting_clients.count).to eq(1)
+        waiting_clients.each do |client|
+          expect(client["maxwait_us"].to_i).to be_within(200_000).of(500_000)
+        end
+
+        admin_conn.close
+        connections.map(&:close)
+      end
+    end
   end
 
 
