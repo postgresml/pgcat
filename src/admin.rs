@@ -690,7 +690,7 @@ where
         ("query_count", DataType::Numeric),
         ("error_count", DataType::Numeric),
         ("age_seconds", DataType::Numeric),
-        ("maxwait_seconds", DataType::Numeric),
+        ("maxwait", DataType::Numeric),
         ("maxwait_us", DataType::Numeric),
     ];
 

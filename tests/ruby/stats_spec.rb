@@ -346,8 +346,8 @@ describe "Stats" do
 
         normal_client_results = results.reject { |r| r["database"] == "pgcat" }
 
-        non_waiting_clients = normal_client_results.select { |c| c["maxwait_seconds"] == "0" }
-        waiting_clients = normal_client_results.select { |c| c["maxwait_seconds"].to_i > 0 }
+        non_waiting_clients = normal_client_results.select { |c| c["maxwait"] == "0" }
+        waiting_clients = normal_client_results.select { |c| c["maxwait"].to_i > 0 }
 
         expect(non_waiting_clients.count).to eq(2)
         non_waiting_clients.each do |client|
