@@ -690,6 +690,8 @@ where
         ("query_count", DataType::Numeric),
         ("error_count", DataType::Numeric),
         ("age_seconds", DataType::Numeric),
+        ("maxwait", DataType::Numeric),
+        ("maxwait_us", DataType::Numeric),
     ];
 
     let new_map = get_client_stats();
@@ -697,6 +699,7 @@ where
     res.put(row_description(&columns));
 
     for (_, client) in new_map {
+        let max_wait = client.max_wait_time.load(Ordering::Relaxed);
         let row = vec![
             format!("{:#010X}", client.client_id()),
             client.pool_name(),
@@ -710,6 +713,8 @@ where
                 .duration_since(client.connect_time())
                 .as_secs()
                 .to_string(),
+            (max_wait / 1_000_000).to_string(),
+            (max_wait % 1_000_000).to_string(),
         ];
 
         res.put(data_row(&row));

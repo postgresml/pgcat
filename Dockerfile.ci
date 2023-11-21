@@ -9,6 +9,9 @@ RUN sudo apt-get update && \
 	sudo apt-get upgrade curl && \
 	cargo install cargo-binutils rustfilt && \
 	rustup component add llvm-tools-preview && \
- 	pip3 install psycopg2 && sudo gem install bundler && \
+	pip3 install psycopg2 && sudo gem install bundler && \
 	wget -O /tmp/toxiproxy-2.4.0.deb https://github.com/Shopify/toxiproxy/releases/download/v2.4.0/toxiproxy_2.4.0_linux_$(dpkg --print-architecture).deb && \
 	sudo dpkg -i /tmp/toxiproxy-2.4.0.deb
+RUN wget -O /tmp/go1.21.3.linux-$(dpkg --print-architecture).tar.gz https://go.dev/dl/go1.21.3.linux-$(dpkg --print-architecture).tar.gz && \
+    sudo tar -C /usr/local -xzf /tmp/go1.21.3.linux-$(dpkg --print-architecture).tar.gz && \
+    rm /tmp/go1.21.3.linux-$(dpkg --print-architecture).tar.gz
