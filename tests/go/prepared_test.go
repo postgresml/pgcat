@@ -41,7 +41,7 @@ func unnamedParameterizedPreparedStatement(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, 2) // create error channel
 
-	// Have to concurrent clients executing different unnamed prepared statements
+	// Have two concurrent clients executing different unnamed prepared statements
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 
