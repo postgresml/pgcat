@@ -1711,8 +1711,8 @@ where
             return Ok(());
         }
 
-        let client_given_name = Parse::get_name(&message)?;
         let parse: Parse = (&message).try_into()?;
+        let client_given_name = &parse.name;
 
         // Compute the hash of the parse statement
         let hash = parse.get_hash();
@@ -1734,7 +1734,7 @@ where
         );
 
         self.prepared_statements
-            .insert(client_given_name, (new_parse.clone(), hash));
+            .insert(client_given_name.clone(), (new_parse.clone(), hash));
 
         self.extended_protocol_data_buffer
             .push_back(ExtendedProtocolData::create_new_parse(
