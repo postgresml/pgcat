@@ -1189,9 +1189,9 @@ where
                                 };
                             }
                         }
+
                         debug!("Sending query to server");
 
-                        debug!("The other kind");
                         self.send_and_receive_loop(
                             code,
                             Some(&message),
@@ -1245,7 +1245,6 @@ where
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
-                        debug!("Buffering bind transaction");
                         self.buffer_bind(message).await?;
                     }
 
