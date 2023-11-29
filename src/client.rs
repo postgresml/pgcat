@@ -959,6 +959,7 @@ where
                         query_router.infer_shard_from_bind(&message);
                     }
 
+                    debug!("Buffering Bind");
                     self.buffer_bind(message).await?;
 
                     continue;
@@ -1149,7 +1150,7 @@ where
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
                 let code = *message.first().unwrap() as char;
 
-                trace!("Message: {}", code);
+                trace!("Client message: {}", code);
 
                 match code {
                     // Query
@@ -1190,6 +1191,7 @@ where
                         }
                         debug!("Sending query to server");
 
+                        debug!("The other kind");
                         self.send_and_receive_loop(
                             code,
                             Some(&message),
@@ -1243,6 +1245,7 @@ where
                     // Bind
                     // The placeholder's replacements are here, e.g. 'user@email.com' and 'true'
                     'B' => {
+                        debug!("Buffering bind transaction");
                         self.buffer_bind(message).await?;
                     }
 
@@ -1320,6 +1323,7 @@ where
                         {
                             match protocol_data {
                                 ExtendedProtocolData::Parse { data, metadata } => {
+                                    debug!("Have parse in extended buffer");
                                     let (parse, hash) = match metadata {
                                         Some(metadata) => metadata,
                                         None => {
@@ -1363,8 +1367,10 @@ where
                                     }
                                 }
                                 ExtendedProtocolData::Bind { data, metadata } => {
+                                    debug!("Have bind in extended buffer");
                                     // This is using a prepared statement
                                     if let Some(client_given_name) = metadata {
+                                        debug!("Ensuring prepared statement is on server bind");
                                         self.ensure_prepared_statement_is_on_server(
                                             client_given_name,
                                             &pool,
@@ -1377,8 +1383,10 @@ where
                                     self.buffer.put(&data[..]);
                                 }
                                 ExtendedProtocolData::Describe { data, metadata } => {
+                                    debug!("Have describe in extended buffer");
                                     // This is using a prepared statement
                                     if let Some(client_given_name) = metadata {
+                                        debug!("Ensuring prepared statement is on server describe");
                                         self.ensure_prepared_statement_is_on_server(
                                             client_given_name,
                                             &pool,
@@ -1386,14 +1394,18 @@ where
                                             &address,
                                         )
                                         .await?;
+                                    } else {
+                                        debug!("Anonymous describe");
                                     }
 
                                     self.buffer.put(&data[..]);
                                 }
                                 ExtendedProtocolData::Execute { data } => {
+                                    debug!("Have execute in  extended buffer");
                                     self.buffer.put(&data[..])
                                 }
                                 ExtendedProtocolData::Close { data, close } => {
+                                    debug!("Have close in  extended buffer");
                                     // We don't send the close message to the server if prepared statements are enabled
                                     // and it's a close with a prepared statement name provided
                                     if self.prepared_statements_enabled
@@ -1443,6 +1455,7 @@ where
                         }
 
                         if should_send_to_server {
+                            debug!("Should send to server");
                             self.send_and_receive_loop(
                                 code,
                                 None,
@@ -1656,11 +1669,25 @@ where
     ) -> Result<(), Error> {
         match self.prepared_statements.get(&client_name) {
             Some((parse, hash)) => {
-                debug!("Prepared statement `{}` found in cache", parse.name);
+                debug!("Prepared statement `{}` found in cache", client_name);
                 // In this case we want to send the parse message to the server
                 // since pgcat is initiating the prepared statement on this specific server
-                self.register_parse_to_server_cache(true, hash, parse, pool, server, address)
-                    .await?;
+                match self
+                    .register_parse_to_server_cache(true, hash, parse, pool, server, address)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(err) => match err {
+                        Error::PreparedStatementError => {
+                            debug!("Removed {} from client cache", client_name);
+                            self.prepared_statements.remove(&client_name);
+                        }
+
+                        _ => {
+                            return Err(err);
+                        }
+                    },
+                }
             }
 
             None => {
@@ -1689,11 +1716,20 @@ where
         // We want to promote this in the pool's LRU
         pool.promote_prepared_statement_hash(hash);
 
+        debug!("Checking for prepared statement {}", parse.name);
+
         if let Err(err) = server
             .register_prepared_statement(parse, should_send_parse_to_server)
             .await
         {
-            pool.ban(address, BanReason::MessageSendFailed, Some(&self.stats));
+            match err {
+                // Don't ban for this.
+                Error::PreparedStatementError => (),
+                _ => {
+                    pool.ban(address, BanReason::MessageSendFailed, Some(&self.stats));
+                }
+            };
+
             return Err(err);
         }
 
@@ -1882,9 +1918,17 @@ where
         debug!("Sending {} to server", code);
 
         let message = match message {
-            Some(message) => message,
-            None => &self.buffer,
+            Some(message) => {
+                debug!("Lonely message");
+                message
+            }
+            None => {
+                debug!("Buffered message");
+                &self.buffer
+            }
         };
+
+        debug!("Message contents: {:?}", message);
 
         self.send_server_message(server, message, address, pool)
             .await?;
