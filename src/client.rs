@@ -959,7 +959,6 @@ where
                         query_router.infer_shard_from_bind(&message);
                     }
 
-                    debug!("Buffering Bind");
                     self.buffer_bind(message).await?;
 
                     continue;
@@ -1366,10 +1365,8 @@ where
                                     }
                                 }
                                 ExtendedProtocolData::Bind { data, metadata } => {
-                                    debug!("Have bind in extended buffer");
                                     // This is using a prepared statement
                                     if let Some(client_given_name) = metadata {
-                                        debug!("Ensuring prepared statement is on server bind");
                                         self.ensure_prepared_statement_is_on_server(
                                             client_given_name,
                                             &pool,
