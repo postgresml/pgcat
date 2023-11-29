@@ -1383,10 +1383,8 @@ where
                                     self.buffer.put(&data[..]);
                                 }
                                 ExtendedProtocolData::Describe { data, metadata } => {
-                                    debug!("Have describe in extended buffer");
                                     // This is using a prepared statement
                                     if let Some(client_given_name) = metadata {
-                                        debug!("Ensuring prepared statement is on server describe");
                                         self.ensure_prepared_statement_is_on_server(
                                             client_given_name,
                                             &pool,
@@ -1394,18 +1392,14 @@ where
                                             &address,
                                         )
                                         .await?;
-                                    } else {
-                                        debug!("Anonymous describe");
                                     }
 
                                     self.buffer.put(&data[..]);
                                 }
                                 ExtendedProtocolData::Execute { data } => {
-                                    debug!("Have execute in  extended buffer");
                                     self.buffer.put(&data[..])
                                 }
                                 ExtendedProtocolData::Close { data, close } => {
-                                    debug!("Have close in  extended buffer");
                                     // We don't send the close message to the server if prepared statements are enabled
                                     // and it's a close with a prepared statement name provided
                                     if self.prepared_statements_enabled
@@ -1455,7 +1449,6 @@ where
                         }
 
                         if should_send_to_server {
-                            debug!("Should send to server");
                             self.send_and_receive_loop(
                                 code,
                                 None,
@@ -1918,17 +1911,9 @@ where
         debug!("Sending {} to server", code);
 
         let message = match message {
-            Some(message) => {
-                debug!("Lonely message");
-                message
-            }
-            None => {
-                debug!("Buffered message");
-                &self.buffer
-            }
+            Some(message) => message,
+            None => &self.buffer,
         };
-
-        debug!("Message contents: {:?}", message);
 
         self.send_server_message(server, message, address, pool)
             .await?;
