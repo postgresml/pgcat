@@ -7,7 +7,7 @@ use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
@@ -325,6 +325,9 @@ pub struct Server {
 
     /// Prepared statements
     prepared_statement_cache: Option<LruCache<String, ()>>,
+
+    /// Prepared statement being currently registered on the server.
+    registering_prepared_statement: VecDeque<String>,
 }
 
 impl Server {
@@ -827,6 +830,7 @@ impl Server {
                                 NonZeroUsize::new(prepared_statement_cache_size).unwrap(),
                             )),
                         },
+                        registering_prepared_statement: VecDeque::new(),
                     };
 
                     return Ok(server);
@@ -956,7 +960,6 @@ impl Server {
 
                     // There is no more data available from the server.
                     self.data_available = false;
-
                     break;
                 }
 
@@ -964,6 +967,23 @@ impl Server {
                 'E' => {
                     if self.in_copy_mode {
                         self.in_copy_mode = false;
+                    }
+
+                    // Remove the prepared statement from the cache, it has a syntax error or something else bad happened.
+                    if let Some(prepared_stmt_name) =
+                        self.registering_prepared_statement.pop_front()
+                    {
+                        if let Some(ref mut cache) = self.prepared_statement_cache {
+                            if let Some(_removed) = cache.pop(&prepared_stmt_name) {
+                                debug!(
+                                    "Removed {} from prepared statement cache",
+                                    prepared_stmt_name
+                                );
+                            } else {
+                                // Shouldn't happen.
+                                debug!("Prepared statement {} was not cached", prepared_stmt_name);
+                            }
+                        }
                     }
 
                     if self.prepared_statement_cache.is_some() {
@@ -1068,6 +1088,11 @@ impl Server {
                 // Buffer until ReadyForQuery shows up, so don't exit the loop yet.
                 'c' => (),
 
+                // Parse complete successfully
+                '1' => {
+                    self.registering_prepared_statement.pop_front();
+                }
+
                 // Anything else, e.g. errors, notices, etc.
                 // Keep buffering until ReadyForQuery shows up.
                 _ => (),
@@ -1107,7 +1132,7 @@ impl Server {
         has_it
     }
 
-    pub fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
+    fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
         let cache = match &mut self.prepared_statement_cache {
             Some(cache) => cache,
             None => return None,
@@ -1129,7 +1154,7 @@ impl Server {
         None
     }
 
-    pub fn remove_prepared_statement_from_cache(&mut self, name: &str) {
+    fn remove_prepared_statement_from_cache(&mut self, name: &str) {
         let cache = match &mut self.prepared_statement_cache {
             Some(cache) => cache,
             None => return,
@@ -1145,6 +1170,9 @@ impl Server {
         should_send_parse_to_server: bool,
     ) -> Result<(), Error> {
         if !self.has_prepared_statement(&parse.name) {
+            self.registering_prepared_statement
+                .push_back(parse.name.clone());
+
             let mut bytes = BytesMut::new();
 
             if should_send_parse_to_server {
@@ -1176,7 +1204,13 @@ impl Server {
             }
         };
 
-        Ok(())
+        // If it's not there, something went bad, I'm guessing bad syntax or permissions error
+        // on the server.
+        if !self.has_prepared_statement(&parse.name) {
+            Err(Error::PreparedStatementError)
+        } else {
+            Ok(())
+        }
     }
 
     /// If the server is still inside a transaction.
@@ -1186,6 +1220,7 @@ impl Server {
         self.in_transaction
     }
 
+    /// Currently copying data from client to server or vice-versa.
     pub fn in_copy_mode(&self) -> bool {
         self.in_copy_mode
     }

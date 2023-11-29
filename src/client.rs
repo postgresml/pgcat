@@ -1149,7 +1149,7 @@ where
                 // This reads the first byte without advancing the internal pointer and mutating the bytes
                 let code = *message.first().unwrap() as char;
 
-                trace!("Message: {}", code);
+                trace!("Client message: {}", code);
 
                 match code {
                     // Query
@@ -1188,6 +1188,7 @@ where
                                 };
                             }
                         }
+
                         debug!("Sending query to server");
 
                         self.send_and_receive_loop(
@@ -1320,6 +1321,7 @@ where
                         {
                             match protocol_data {
                                 ExtendedProtocolData::Parse { data, metadata } => {
+                                    debug!("Have parse in extended buffer");
                                     let (parse, hash) = match metadata {
                                         Some(metadata) => metadata,
                                         None => {
@@ -1656,11 +1658,25 @@ where
     ) -> Result<(), Error> {
         match self.prepared_statements.get(&client_name) {
             Some((parse, hash)) => {
-                debug!("Prepared statement `{}` found in cache", parse.name);
+                debug!("Prepared statement `{}` found in cache", client_name);
                 // In this case we want to send the parse message to the server
                 // since pgcat is initiating the prepared statement on this specific server
-                self.register_parse_to_server_cache(true, hash, parse, pool, server, address)
-                    .await?;
+                match self
+                    .register_parse_to_server_cache(true, hash, parse, pool, server, address)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(err) => match err {
+                        Error::PreparedStatementError => {
+                            debug!("Removed {} from client cache", client_name);
+                            self.prepared_statements.remove(&client_name);
+                        }
+
+                        _ => {
+                            return Err(err);
+                        }
+                    },
+                }
             }
 
             None => {
@@ -1689,11 +1705,20 @@ where
         // We want to promote this in the pool's LRU
         pool.promote_prepared_statement_hash(hash);
 
+        debug!("Checking for prepared statement {}", parse.name);
+
         if let Err(err) = server
             .register_prepared_statement(parse, should_send_parse_to_server)
             .await
         {
-            pool.ban(address, BanReason::MessageSendFailed, Some(&self.stats));
+            match err {
+                // Don't ban for this.
+                Error::PreparedStatementError => (),
+                _ => {
+                    pool.ban(address, BanReason::MessageSendFailed, Some(&self.stats));
+                }
+            };
+
             return Err(err);
         }
 
