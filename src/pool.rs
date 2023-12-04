@@ -871,7 +871,7 @@ impl ConnectionPool {
         }
 
         // Don't leave a bad connection in the pool.
-        server.mark_bad();
+        server.mark_bad("failed health check");
 
         self.ban(address, BanReason::FailedHealthCheck, Some(client_info));
         false

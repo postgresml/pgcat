@@ -85,8 +85,9 @@ impl MirroredClient {
                         match recv_result {
                             Ok(message) => trace!("Received from mirror: {} {:?}", String::from_utf8_lossy(&message[..]), address.clone()),
                             Err(err) => {
-                                server.mark_bad();
-                                error!("Failed to receive from mirror {:?} {:?}", err, address.clone());
+                                server.mark_bad(
+                                    format!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone()).as_str()
+                                );
                             }
                         }
                     }
@@ -98,8 +99,9 @@ impl MirroredClient {
                                 match server.send(&BytesMut::from(&bytes[..])).await {
                                     Ok(_) => trace!("Sent to mirror: {} {:?}", String::from_utf8_lossy(&bytes[..]), address.clone()),
                                     Err(err) => {
-                                        server.mark_bad();
-                                        error!("Failed to send to mirror, Discarding message {:?}, {:?}", err, address.clone())
+                                        server.mark_bad(
+                                            format!("Failed to receive from mirror {:?} {:?}", err, address.clone()).as_str()
+                                        );
                                     }
                                 }
                             }
