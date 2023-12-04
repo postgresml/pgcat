@@ -57,7 +57,7 @@ PgCat is stable and used in production to serve hundreds of thousands of queries
       </a>
     </td>
     <td>
-      <a href="https://postgresml.org/blog/scaling-postgresml-to-one-million-requests-per-second">
+      <a href="https://postgresml.org/blog/scaling-postgresml-to-1-million-requests-per-second">
         PostgresML
       </a>
     </td>
