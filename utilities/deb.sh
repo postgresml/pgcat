@@ -22,7 +22,7 @@ mkdir -p "$deb_dir/etc/systemd/system"
 cp target/release/pgcat "$deb_dir/usr/bin/pgcat"
 chmod +x "$deb_dir/usr/bin/pgcat"
 
-cp pgcat.toml "$deb_dir/etc/pgcat.toml"
+cp pgcat.toml "$deb_dir/etc/pgcat.example.toml"
 cp pgcat.service "$deb_dir/etc/systemd/system/pgcat.service"
 
 (cat control | envsubst) > "$deb_dir/DEBIAN/control"
