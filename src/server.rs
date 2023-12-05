@@ -1279,8 +1279,8 @@ impl Server {
     }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
-    pub fn mark_bad(&mut self, reason: &str) {
-        error!("Server {:?} marked bad, reason: {}", self.address, reason);
+    pub fn mark_bad(&mut self) {
+        error!("Server {:?} marked bad", self.address);
         self.bad = true;
     }
 

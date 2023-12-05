@@ -1437,7 +1437,7 @@ where
                             .await
                             {
                                 // We might be in some kind of error/in between protocol state
-                                server.mark_bad(err.to_string().as_str());
+                                server.mark_bad();
                                 return Err(err);
                             }
 
@@ -1504,7 +1504,7 @@ where
                         match write_all_flush(&mut self.write, &response).await {
                             Ok(_) => (),
                             Err(err) => {
-                                server.mark_bad(err.to_string().as_str());
+                                server.mark_bad();
                                 return Err(err);
                             }
                         };
@@ -1926,7 +1926,7 @@ where
                 Ok(_) => (),
                 Err(err) => {
                     // We might be in some kind of error/in between protocol state, better to just kill this server
-                    server.mark_bad(err.to_string().as_str());
+                    server.mark_bad();
                     return Err(err);
                 }
             };
@@ -1993,13 +1993,11 @@ where
                 }
             },
             Err(_) => {
-                server.mark_bad(
-                    format!(
-                        "Statement timeout while talking to {:?} with user {}",
-                        address, pool.settings.user.username
-                    )
-                    .as_str(),
+                error!(
+                    "Statement timeout while talking to {:?} with user {}",
+                    address, pool.settings.user.username
                 );
+                server.mark_bad();
                 pool.ban(address, BanReason::StatementTimeout, Some(client_stats));
                 error_response_terminal(&mut self.write, "pool statement timeout").await?;
                 Err(Error::StatementTimeout)
