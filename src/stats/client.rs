@@ -38,10 +38,8 @@ pub struct ClientStats {
     /// Total time spent waiting for a connection from pool, measures in microseconds
     pub total_wait_time: Arc<AtomicU64>,
 
-    /// When this client started waiting.
-    /// Stored as microseconds since connect_time so it can fit in an AtomicU64 instead
-    /// of us using an "AtomicInstant"
-    pub wait_start: Arc<AtomicU64>,
+    /// Maximum time spent waiting for a connection from pool, measures in microseconds
+    pub max_wait_time: Arc<AtomicU64>,
 
     /// Current state of the client
     pub state: Arc<AtomicClientState>,
@@ -65,7 +63,7 @@ impl Default for ClientStats {
             username: String::new(),
             pool_name: String::new(),
             total_wait_time: Arc::new(AtomicU64::new(0)),
-            wait_start: Arc::new(AtomicU64::new(0)),
+            max_wait_time: Arc::new(AtomicU64::new(0)),
             state: Arc::new(AtomicClientState::new(ClientState::Idle)),
             transaction_count: Arc::new(AtomicU64::new(0)),
             query_count: Arc::new(AtomicU64::new(0)),
@@ -109,23 +107,16 @@ impl ClientStats {
     /// Reports a client is done querying the server and is no longer assigned a server connection
     pub fn idle(&self) {
         self.state.store(ClientState::Idle, Ordering::Relaxed);
-        self.wait_start.store(0, Ordering::Relaxed);
     }
 
     /// Reports a client is waiting for a connection
     pub fn waiting(&self) {
-        // safe to truncate, we only lose info if duration is greater than ~585,000 years
-        self.wait_start.store(
-            Instant::now().duration_since(self.connect_time).as_micros() as u64,
-            Ordering::Relaxed,
-        );
         self.state.store(ClientState::Waiting, Ordering::Relaxed);
     }
 
     /// Reports a client is done waiting for a connection and is about to query the server.
     pub fn active(&self) {
         self.state.store(ClientState::Active, Ordering::Relaxed);
-        self.wait_start.store(0, Ordering::Relaxed);
     }
 
     /// Reports a client has failed to obtain a connection from a connection pool
@@ -143,6 +134,8 @@ impl ClientStats {
     pub fn checkout_time(&self, microseconds: u64) {
         self.total_wait_time
             .fetch_add(microseconds, Ordering::Relaxed);
+        self.max_wait_time
+            .fetch_max(microseconds, Ordering::Relaxed);
     }
 
     /// Report a query executed by a client against a server
