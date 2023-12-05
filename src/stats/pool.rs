@@ -4,6 +4,7 @@ use super::{ClientState, ServerState};
 use crate::{config::PoolMode, messages::DataType, pool::PoolIdentifier};
 use std::collections::HashMap;
 use std::sync::atomic::*;
+use tokio::time::Instant;
 
 use crate::pool::get_all_pools;
 
@@ -53,6 +54,7 @@ impl PoolStats {
             );
         }
 
+        let now = Instant::now();
         for client in client_map.values() {
             match map.get_mut(&PoolIdentifier {
                 db: client.pool_name(),
@@ -62,10 +64,16 @@ impl PoolStats {
                     match client.state.load(Ordering::Relaxed) {
                         ClientState::Active => pool_stats.cl_active += 1,
                         ClientState::Idle => pool_stats.cl_idle += 1,
-                        ClientState::Waiting => pool_stats.cl_waiting += 1,
+                        ClientState::Waiting => {
+                            pool_stats.cl_waiting += 1;
+                            // wait_start is measured as microseconds since connect_time
+                            // so compute wait_time as (now() - connect_time) - (wait_start - connect_time)
+                            let duration_since_connect = now.duration_since(client.connect_time());
+                            let wait_time = (duration_since_connect.as_micros() as u64)
+                                - client.wait_start.load(Ordering::Relaxed);
+                            pool_stats.maxwait = std::cmp::max(pool_stats.maxwait, wait_time);
+                        }
                     }
-                    let max_wait = client.max_wait_time.load(Ordering::Relaxed);
-                    pool_stats.maxwait = std::cmp::max(pool_stats.maxwait, max_wait);
                 }
                 None => debug!("Client from an obselete pool"),
             }
