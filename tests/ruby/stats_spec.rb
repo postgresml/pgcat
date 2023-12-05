@@ -233,7 +233,7 @@ describe "Stats" do
         sleep(1.1) # Allow time for stats to update
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
         results = admin_conn.async_exec("SHOW POOLS")[0]
-        %w[cl_idle cl_cancel_req sv_idle sv_used sv_tested sv_login].each do |s|
+        %w[cl_idle cl_cancel_req sv_idle sv_used sv_tested sv_login maxwait].each do |s|
           raise StandardError, "Field #{s} was expected to be 0 but found to be #{results[s]}" if results[s] != "0"
         end
 
@@ -260,20 +260,12 @@ describe "Stats" do
           threads << Thread.new { c.async_exec("SELECT pg_sleep(1.5)") rescue nil }
         end
 
-        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
-
-        # two connections waiting => they report wait time
-        sleep(1.1) # Allow time for stats to update
-        results = admin_conn.async_exec("SHOW POOLS")[0]
-        expect(results["maxwait"]).to eq("1")
-        expect(results["maxwait_us"].to_i).to be_within(200_000).of(100_000)
-
         sleep(2.5) # Allow time for stats to update
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
         results = admin_conn.async_exec("SHOW POOLS")[0]
 
-        # no connections waiting => no reported wait time
-        expect(results["maxwait"]).to eq("0")
-        expect(results["maxwait_us"]).to eq("0")
+        expect(results["maxwait"]).to eq("1")
+        expect(results["maxwait_us"].to_i).to be_within(200_000).of(500_000)
         connections.map(&:close)
 
         sleep(4.5) # Allow time for stats to update
