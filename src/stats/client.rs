@@ -109,7 +109,6 @@ impl ClientStats {
     /// Reports a client is done querying the server and is no longer assigned a server connection
     pub fn idle(&self) {
         self.state.store(ClientState::Idle, Ordering::Relaxed);
-        self.wait_start.store(0, Ordering::Relaxed);
     }
 
     /// Reports a client is waiting for a connection
@@ -125,7 +124,6 @@ impl ClientStats {
     /// Reports a client is done waiting for a connection and is about to query the server.
     pub fn active(&self) {
         self.state.store(ClientState::Active, Ordering::Relaxed);
-        self.wait_start.store(0, Ordering::Relaxed);
     }
 
     /// Reports a client has failed to obtain a connection from a connection pool
