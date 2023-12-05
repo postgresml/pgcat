@@ -699,7 +699,7 @@ where
     res.put(row_description(&columns));
 
     for (_, client) in new_map {
-        let max_wait = client.max_wait_time.load(Ordering::Relaxed);
+        let max_wait = client.wait_start.load(Ordering::Relaxed);
         let row = vec![
             format!("{:#010X}", client.client_id()),
             client.pool_name(),
