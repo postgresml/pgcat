@@ -27,7 +27,7 @@ hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.21"
 stringprep = "0.1"
-tokio-rustls = "0.24"
+tokio-rustls = "0.25"
 rustls-pemfile = "1"
 hyper = { version = "0.14", features = ["full"] }
 phf = { version = "0.11.1", features = ["macros"] }
