@@ -14,7 +14,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
@@ -29,6 +29,7 @@ use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
 use std::io::Write;
+use std::path::Path;
 
 use pin_project::pin_project;
 
@@ -42,6 +43,10 @@ pub enum StreamInner {
         #[pin]
         stream: TlsStream<TcpStream>,
     },
+    UnixSocket {
+        #[pin]
+        stream: UnixStream,
+    },
 }
 
 impl AsyncWrite for StreamInner {
@@ -54,6 +59,7 @@ impl AsyncWrite for StreamInner {
         match this {
             SteamInnerProj::Tls { stream } => stream.poll_write(cx, buf),
             SteamInnerProj::Plain { stream } => stream.poll_write(cx, buf),
+            SteamInnerProj::UnixSocket { stream } => stream.poll_write(cx, buf),
         }
     }
 
@@ -65,6 +71,7 @@ impl AsyncWrite for StreamInner {
         match this {
             SteamInnerProj::Tls { stream } => stream.poll_flush(cx),
             SteamInnerProj::Plain { stream } => stream.poll_flush(cx),
+            SteamInnerProj::UnixSocket { stream } => stream.poll_flush(cx),
         }
     }
 
@@ -76,6 +83,7 @@ impl AsyncWrite for StreamInner {
         match this {
             SteamInnerProj::Tls { stream } => stream.poll_shutdown(cx),
             SteamInnerProj::Plain { stream } => stream.poll_shutdown(cx),
+            SteamInnerProj::UnixSocket { stream } => stream.poll_shutdown(cx),
         }
     }
 }
@@ -90,6 +98,7 @@ impl AsyncRead for StreamInner {
         match this {
             SteamInnerProj::Tls { stream } => stream.poll_read(cx, buf),
             SteamInnerProj::Plain { stream } => stream.poll_read(cx, buf),
+            SteamInnerProj::UnixSocket { stream } => stream.poll_read(cx, buf),
         }
     }
 }
@@ -103,6 +112,7 @@ impl StreamInner {
                 w.write(buf)
             }
             StreamInner::Plain { stream } => stream.try_write(buf),
+            StreamInner::UnixSocket { stream } => stream.try_write(buf),
         }
     }
 }
@@ -363,91 +373,10 @@ impl Server {
             }
         };
 
-        let mut stream =
-            match TcpStream::connect(&format!("{}:{}", &address.host, address.port)).await {
-                Ok(stream) => stream,
-                Err(err) => {
-                    error!("Could not connect to server: {}", err);
-                    return Err(Error::SocketError(format!(
-                        "Could not connect to server: {}",
-                        err
-                    )));
-                }
-            };
-
-        // TCP timeouts.
-        configure_socket(&stream);
-
-        let config = get_config();
-
-        let mut stream = if config.general.server_tls {
-            // Request a TLS connection
-            ssl_request(&mut stream).await?;
-
-            let response = match stream.read_u8().await {
-                Ok(response) => response as char,
-                Err(err) => {
-                    return Err(Error::SocketError(format!(
-                        "Server socket error: {:?}",
-                        err
-                    )))
-                }
-            };
-
-            match response {
-                // Server supports TLS
-                'S' => {
-                    debug!("Connecting to server using TLS");
-
-                    let mut root_store = RootCertStore::empty();
-                    root_store.add_server_trust_anchors(
-                        webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-                            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                                ta.subject,
-                                ta.spki,
-                                ta.name_constraints,
-                            )
-                        }),
-                    );
-
-                    let mut tls_config = rustls::ClientConfig::builder()
-                        .with_safe_defaults()
-                        .with_root_certificates(root_store)
-                        .with_no_client_auth();
-
-                    // Equivalent to sslmode=prefer which is fine most places.
-                    // If you want verify-full, change `verify_server_certificate` to true.
-                    if !config.general.verify_server_certificate {
-                        let mut dangerous = tls_config.dangerous();
-                        dangerous.set_certificate_verifier(Arc::new(
-                            crate::tls::NoCertificateVerification {},
-                        ));
-                    }
-
-                    let connector = TlsConnector::from(Arc::new(tls_config));
-                    let stream = match connector
-                        .connect(address.host.as_str().try_into().unwrap(), stream)
-                        .await
-                    {
-                        Ok(stream) => stream,
-                        Err(err) => {
-                            return Err(Error::SocketError(format!("Server TLS error: {:?}", err)))
-                        }
-                    };
-
-                    StreamInner::Tls { stream }
-                }
-
-                // Server does not support TLS
-                'N' => StreamInner::Plain { stream },
-
-                // Something else?
-                m => {
-                    return Err(Error::SocketError(format!("Unknown message: {}", { m })));
-                }
-            }
+        let mut stream = if address.host.starts_with('/') {
+            connect_unix_stream(address).await?
         } else {
-            StreamInner::Plain { stream }
+            connect_tcp_stream(address).await?
         };
 
         // let (read, write) = split(stream);
@@ -1424,6 +1353,107 @@ impl Server {
 
         parse_query_message(&mut message).await
     }
+}
+
+async fn connect_tcp_stream(address: &Address) -> Result<StreamInner, Error> {
+    let addr = format!("{}:{}", &address.host, address.port);
+    let mut stream = match TcpStream::connect(&addr).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            error!("Could not connect to server: {}", err);
+            return Err(Error::SocketError(format!(
+                "Could not connect to server: {}",
+                err
+            )));
+        }
+    };
+    configure_socket(&stream);
+    let config = get_config();
+    let stream = if config.general.server_tls {
+        // Request a TLS connection
+        ssl_request(&mut stream).await?;
+
+        let response = match stream.read_u8().await {
+            Ok(response) => response as char,
+            Err(err) => {
+                return Err(Error::SocketError(format!(
+                    "Server socket error: {:?}",
+                    err
+                )))
+            }
+        };
+
+        match response {
+            // Server supports TLS
+            'S' => {
+                debug!("Connecting to server using TLS");
+
+                let mut root_store = RootCertStore::empty();
+                root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
+                    |ta| {
+                        OwnedTrustAnchor::from_subject_spki_name_constraints(
+                            ta.subject,
+                            ta.spki,
+                            ta.name_constraints,
+                        )
+                    },
+                ));
+
+                let mut tls_config = rustls::ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth();
+
+                // Equivalent to sslmode=prefer which is fine most places.
+                // If you want verify-full, change `verify_server_certificate` to true.
+                if !config.general.verify_server_certificate {
+                    let mut dangerous = tls_config.dangerous();
+                    dangerous.set_certificate_verifier(Arc::new(
+                        crate::tls::NoCertificateVerification {},
+                    ));
+                }
+
+                let connector = TlsConnector::from(Arc::new(tls_config));
+                let stream = match connector
+                    .connect(address.host.as_str().try_into().unwrap(), stream)
+                    .await
+                {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        return Err(Error::SocketError(format!("Server TLS error: {:?}", err)))
+                    }
+                };
+
+                StreamInner::Tls { stream }
+            }
+
+            // Server does not support TLS
+            'N' => StreamInner::Plain { stream },
+
+            // Something else?
+            m => {
+                return Err(Error::SocketError(format!("Unknown message: {}", { m })));
+            }
+        }
+    } else {
+        StreamInner::Plain { stream }
+    };
+    Ok(stream)
+}
+
+async fn connect_unix_stream(address: &Address) -> Result<StreamInner, Error> {
+    let path = Path::new(&address.host).join(format!(".s.PGSQL.{}", address.port));
+    let stream = match UnixStream::connect(&path).await {
+        Ok(stream) => stream,
+        Err(err) => {
+            error!("Could not connect to server: {}", err);
+            return Err(Error::SocketError(format!(
+                "Could not connect to server: {}",
+                err
+            )));
+        }
+    };
+    Ok(StreamInner::UnixSocket { stream })
 }
 
 async fn parse_query_message(message: &mut BytesMut) -> Result<Vec<String>, Error> {
