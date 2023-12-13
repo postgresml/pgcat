@@ -203,7 +203,7 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         labels.insert("role", address.role.to_string());
         labels.insert("pool", address.pool_name.clone());
         labels.insert("database", address.database.to_string());
-        labels.insert("username",  address.username.clone());
+        labels.insert("username", address.username.clone());
 
         Self::from_name(&format!("databases_{}", name), value, labels)
     }
@@ -219,7 +219,7 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         labels.insert("role", address.role.to_string());
         labels.insert("pool", address.pool_name.clone());
         labels.insert("database", address.database.to_string());
-        labels.insert("username",  address.username.clone());
+        labels.insert("username", address.username.clone());
 
         Self::from_name(&format!("servers_{}", name), value, labels)
     }
@@ -231,7 +231,7 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         labels.insert("pool", address.pool_name.clone());
         labels.insert("role", address.role.to_string());
         labels.insert("database", address.database.to_string());
-        labels.insert("username",  address.username.clone());
+        labels.insert("username", address.username.clone());
 
         Self::from_name(&format!("stats_{}", name), value, labels)
     }
