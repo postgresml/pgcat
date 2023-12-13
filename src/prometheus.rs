@@ -297,7 +297,7 @@ fn push_address_stats(lines: &mut Vec<String>) {
         }
     }
     for (_key, metrics) in grouped_metrics {
-        if metrics.len() > 0 {
+        if !metrics.is_empty() {
             lines.push(metrics[0].get_header());
             for metric in metrics {
                 lines.push(metric.to_string());
@@ -325,7 +325,7 @@ fn push_pool_stats(lines: &mut Vec<String>) {
         }
     }
     for (_key, metrics) in grouped_metrics {
-        if metrics.len() > 0 {
+        if !metrics.is_empty() {
             lines.push(metrics[0].get_header());
             for metric in metrics {
                 lines.push(metric.to_string());
@@ -363,7 +363,7 @@ fn push_database_stats(lines: &mut Vec<String>) {
         }
     }
     for (_key, metrics) in grouped_metrics {
-        if metrics.len() > 0 {
+        if !metrics.is_empty() {
             lines.push(metrics[0].get_header());
             for metric in metrics {
                 lines.push(metric.to_string());
@@ -421,7 +421,7 @@ fn push_server_stats(lines: &mut Vec<String>) {
         }
     }
     for (_key, metrics) in grouped_metrics {
-        if metrics.len() > 0 {
+        if !metrics.is_empty() {
             lines.push(metrics[0].get_header());
             for metric in metrics {
                 lines.push(metric.to_string());
