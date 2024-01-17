@@ -769,7 +769,6 @@ impl ConnectionPool {
                     );
                     self.ban(address, BanReason::FailedCheckout, Some(client_stats));
                     address.stats.error();
-                    client_stats.idle();
                     client_stats.checkout_error();
                     continue;
                 }
@@ -788,7 +787,7 @@ impl ConnectionPool {
             // Health checks are pretty expensive.
             if !require_healthcheck {
                 let checkout_time = now.elapsed().as_micros() as u64;
-                client_stats.checkout_time(checkout_time);
+                client_stats.checkout_success();
                 server
                     .stats()
                     .checkout_time(checkout_time, client_stats.application_name());
@@ -802,7 +801,7 @@ impl ConnectionPool {
                 .await
             {
                 let checkout_time = now.elapsed().as_micros() as u64;
-                client_stats.checkout_time(checkout_time);
+                client_stats.checkout_success();
                 server
                     .stats()
                     .checkout_time(checkout_time, client_stats.application_name());
@@ -814,10 +813,7 @@ impl ConnectionPool {
             }
         }
 
-        client_stats.idle();
-
-        let checkout_time = now.elapsed().as_micros() as u64;
-        client_stats.checkout_time(checkout_time);
+        client_stats.checkout_success();
 
         Err(Error::AllServersDown)
     }
@@ -843,7 +839,7 @@ impl ConnectionPool {
             Ok(res) => match res {
                 Ok(_) => {
                     let checkout_time: u64 = start.elapsed().as_micros() as u64;
-                    client_info.checkout_time(checkout_time);
+                    client_info.checkout_success();
                     server
                         .stats()
                         .checkout_time(checkout_time, client_info.application_name());
