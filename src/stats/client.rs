@@ -150,13 +150,22 @@ impl ClientStats {
         if self.wait_start_us.load(Ordering::Relaxed) == 0 {
             return;
         }
-        let wait_total = self.connect_time.elapsed().as_micros() as u64
-            - self.wait_start_us.load(Ordering::Relaxed);
 
+        let wait_time_us = self.get_current_wait_time_us();
         self.total_wait_time
-            .fetch_add(wait_total, Ordering::Relaxed);
-        self.max_wait_time.fetch_max(wait_total, Ordering::Relaxed);
+            .fetch_add(wait_time_us, Ordering::Relaxed);
+        self.max_wait_time
+            .fetch_max(wait_time_us, Ordering::Relaxed);
         self.wait_start_us.store(0, Ordering::Relaxed);
+    }
+
+    pub fn get_current_wait_time_us(&self) -> u64 {
+        let wait_start_us = self.wait_start_us.load(Ordering::Relaxed);
+        let microseconds_since_connection_epoch = self.connect_time.elapsed().as_micros() as u64;
+        if wait_start_us == 0 || microseconds_since_connection_epoch < wait_start_us {
+            return 0;
+        }
+        microseconds_since_connection_epoch - wait_start_us
     }
 
     /// Report a query executed by a client against a server
