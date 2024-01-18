@@ -43,7 +43,7 @@ pub struct ClientStats {
 
     // Time when the client started waiting for a connection from pool, measures in microseconds
     // We use connect_time as the reference point for this value
-    // U64 can represent ~60 centuries in microseconds, so we should be fine
+    // U64 can represent ~5850 centuries in microseconds, so we should be fine
     pub wait_start_us: Arc<AtomicU64>,
 
     /// Current state of the client
