@@ -156,7 +156,7 @@ impl ClientStats {
         self.total_wait_time
             .fetch_add(wait_total, Ordering::Relaxed);
         self.max_wait_time.fetch_max(wait_total, Ordering::Relaxed);
-        self.wait_start_us.fetch_max(0, Ordering::Relaxed);
+        self.wait_start_us.store(0, Ordering::Relaxed);
     }
 
     /// Report a query executed by a client against a server
