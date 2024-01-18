@@ -41,6 +41,11 @@ pub struct ClientStats {
     /// Maximum time spent waiting for a connection from pool, measures in microseconds
     pub max_wait_time: Arc<AtomicU64>,
 
+    // Time when the client started waiting for a connection from pool, measures in microseconds
+    // We use connect_time as the reference point for this value
+    // U64 can represent ~5850 centuries in microseconds, so we should be fine
+    pub wait_start_us: Arc<AtomicU64>,
+
     /// Current state of the client
     pub state: Arc<AtomicClientState>,
 
@@ -64,6 +69,7 @@ impl Default for ClientStats {
             pool_name: String::new(),
             total_wait_time: Arc::new(AtomicU64::new(0)),
             max_wait_time: Arc::new(AtomicU64::new(0)),
+            wait_start_us: Arc::new(AtomicU64::new(0)),
             state: Arc::new(AtomicClientState::new(ClientState::Idle)),
             transaction_count: Arc::new(AtomicU64::new(0)),
             query_count: Arc::new(AtomicU64::new(0)),
@@ -111,6 +117,9 @@ impl ClientStats {
 
     /// Reports a client is waiting for a connection
     pub fn waiting(&self) {
+        let wait_start = self.connect_time.elapsed().as_micros() as u64;
+
+        self.wait_start_us.store(wait_start, Ordering::Relaxed);
         self.state.store(ClientState::Waiting, Ordering::Relaxed);
     }
 
@@ -122,6 +131,13 @@ impl ClientStats {
     /// Reports a client has failed to obtain a connection from a connection pool
     pub fn checkout_error(&self) {
         self.state.store(ClientState::Idle, Ordering::Relaxed);
+        self.update_wait_times();
+    }
+
+    /// Reports a client has succeeded in obtaining a connection from a connection pool
+    pub fn checkout_success(&self) {
+        self.state.store(ClientState::Active, Ordering::Relaxed);
+        self.update_wait_times();
     }
 
     /// Reports a client has had the server assigned to it be banned
@@ -130,12 +146,26 @@ impl ClientStats {
         self.error_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Reporters the time spent by a client waiting to get a healthy connection from the pool
-    pub fn checkout_time(&self, microseconds: u64) {
+    fn update_wait_times(&self) {
+        if self.wait_start_us.load(Ordering::Relaxed) == 0 {
+            return;
+        }
+
+        let wait_time_us = self.get_current_wait_time_us();
         self.total_wait_time
-            .fetch_add(microseconds, Ordering::Relaxed);
+            .fetch_add(wait_time_us, Ordering::Relaxed);
         self.max_wait_time
-            .fetch_max(microseconds, Ordering::Relaxed);
+            .fetch_max(wait_time_us, Ordering::Relaxed);
+        self.wait_start_us.store(0, Ordering::Relaxed);
+    }
+
+    pub fn get_current_wait_time_us(&self) -> u64 {
+        let wait_start_us = self.wait_start_us.load(Ordering::Relaxed);
+        let microseconds_since_connection_epoch = self.connect_time.elapsed().as_micros() as u64;
+        if wait_start_us == 0 || microseconds_since_connection_epoch < wait_start_us {
+            return 0;
+        }
+        microseconds_since_connection_epoch - wait_start_us
     }
 
     /// Report a query executed by a client against a server

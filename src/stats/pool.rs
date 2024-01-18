@@ -64,8 +64,11 @@ impl PoolStats {
                         ClientState::Idle => pool_stats.cl_idle += 1,
                         ClientState::Waiting => pool_stats.cl_waiting += 1,
                     }
-                    let max_wait = client.max_wait_time.load(Ordering::Relaxed);
-                    pool_stats.maxwait = std::cmp::max(pool_stats.maxwait, max_wait);
+                    let wait_start_us = client.wait_start_us.load(Ordering::Relaxed);
+                    if wait_start_us > 0 {
+                        let wait_time_us = client.get_current_wait_time_us();
+                        pool_stats.maxwait = std::cmp::max(pool_stats.maxwait, wait_time_us);
+                    }
                 }
                 None => debug!("Client from an obselete pool"),
             }
