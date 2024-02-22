@@ -1,0 +1,361 @@
+## String to partially override aspnet-core.fullname template (will maintain the release name)
+## @param nameOverride String to partially override common.names.fullname
+##
+nameOverride: ""
+
+## String to fully override aspnet-core.fullname template
+## @param fullnameOverride String to fully override common.names.fullname
+##
+fullnameOverride: ""
+
+## Number of PgCat replicas to deploy
+## @param replicaCount Number of PgCat replicas to deploy
+replicaCount: 1
+
+## Bitnami PgCat image version
+## ref: https://hub.docker.com/r/bitnami/kubewatch/tags/
+##
+## @param image.registry PgCat image registry
+## @param image.repository PgCat image name
+## @param image.tag PgCat image tag
+## @param image.pullPolicy PgCat image tag
+## @param image.pullSecrets Specify docker-registry secret names as an array
+image:
+  repository: ghcr.io/postgresml/pgcat
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "main"
+  ## Specify a imagePullPolicy
+  ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
+  ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
+  ##
+  pullPolicy: IfNotPresent
+  ## Optionally specify an array of imagePullSecrets.
+  ## Secrets must be manually created in the namespace.
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  ## Example:
+  ## pullSecrets:
+  ##   - myRegistryKeySecretName
+  ##
+  pullSecrets: []
+
+## Specifies whether a ServiceAccount should be created
+##
+## @param serviceAccount.create Enable the creation of a ServiceAccount for PgCat pods
+## @param serviceAccount.name Name of the created ServiceAccount
+##
+serviceAccount:
+  ## Specifies whether a service account should be created
+  create: true
+  ## Annotations to add to the service account
+  annotations: {}
+  ## The name of the service account to use.
+  ## If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+## Annotations for server pods.
+## ref: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+##
+## @param podAnnotations  Annotations for PgCat pods
+##
+podAnnotations: {}
+
+## PgCat containers' SecurityContext
+## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod
+##
+## @param podSecurityContext.enabled Enabled PgCat pods' Security Context
+## @param podSecurityContext.fsGroup Set PgCat pod's Security Context fsGroup
+##
+podSecurityContext: {}
+  # fsGroup: 2000
+
+## PgCat pods' Security Context
+## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container
+##
+## @param containerSecurityContext.enabled Enabled PgCat containers' Security Context
+## @param containerSecurityContext.runAsUser Set PgCat container's Security Context runAsUser
+## @param containerSecurityContext.runAsNonRoot Set PgCat container's Security Context runAsNonRoot
+##
+containerSecurityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+## PgCat service
+##
+## @param service.type PgCat service type
+## @param service.port PgCat service port
+service:
+  type: ClusterIP
+  port: 6432
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+## PgCat resource requests and limits
+## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+##
+## @skip resources Optional description
+## @disabled-param resources.limits  The resources limits for the PgCat container
+## @disabled-param resources.requests  The requested resources for the PgCat container
+##
+resources:
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  limits: {}
+  #   cpu: 100m
+  #   memory: 128Mi
+  requests: {}
+  #   cpu: 100m
+  #   memory: 128Mi
+
+## Node labels for pod assignment. Evaluated as a template.
+## ref: https://kubernetes.io/docs/user-guide/node-selection/
+##
+## @param nodeSelector  Node labels for pod assignment
+##
+nodeSelector: {}
+
+## Tolerations for pod assignment. Evaluated as a template.
+## ref: https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+##
+## @param tolerations  Tolerations for pod assignment
+##
+tolerations: []
+
+## Affinity for pod assignment. Evaluated as a template.
+## ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity
+## Note: podAffinityPreset, podAntiAffinityPreset, and nodeAffinityPreset will be ignored when it's set
+##
+## @param affinity  Affinity for pod assignment
+##
+affinity: {}
+
+## PgCat configuration
+## @param configuration [object]
+configuration:
+  ## General pooler settings
+  ## @param [object]
+  general:
+    ## @param configuration.general.host What IP to run on, 0.0.0.0 means accessible from everywhere.
+    host: "0.0.0.0"
+
+    ## @param configuration.general.port Port to run on, same as PgBouncer used in this example.
+    port: 6432
+
+    ## @param configuration.general.enable_prometheus_exporter Whether to enable prometheus exporter or not.
+    enable_prometheus_exporter: false
+
+    ## @param configuration.general.prometheus_exporter_port Port at which prometheus exporter listens on.
+    prometheus_exporter_port: 9930
+
+    # @param configuration.general.connect_timeout How long to wait before aborting a server connection (ms).
+    connect_timeout: 5000
+
+    # How long an idle connection with a server is left open (ms).
+    idle_timeout: 30000 # milliseconds
+
+    # Max connection lifetime before it's closed, even if actively used.
+    server_lifetime: 86400000 # 24 hours
+
+    # How long a client is allowed to be idle while in a transaction (ms).
+    idle_client_in_transaction_timeout: 0 # milliseconds
+
+    # @param configuration.general.healthcheck_timeout How much time to give `SELECT 1` health check query to return with a result (ms).
+    healthcheck_timeout: 1000
+
+    # @param configuration.general.healthcheck_delay How long to keep connection available for immediate re-use, without running a healthcheck query on it
+    healthcheck_delay: 30000
+
+    # @param configuration.general.shutdown_timeout How much time to give clients during shutdown before forcibly killing client connections (ms).
+    shutdown_timeout: 60000
+
+    # @param configuration.general.ban_time For how long to ban a server if it fails a health check (seconds).
+    ban_time: 60    # seconds
+
+    # @param configuration.general.log_client_connections If we should log client connections
+    log_client_connections: false
+
+    # @param configuration.general.log_client_disconnections If we should log client disconnections
+    log_client_disconnections: false
+
+    # TLS
+    # tls_certificate: "server.cert"
+    # tls_private_key: "server.key"
+    tls_certificate: "-"
+    tls_private_key: "-"
+
+    # Credentials to access the virtual administrative database (pgbouncer or pgcat)
+    # Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DATABASES`, etc..
+    admin_username: "postgres"
+    admin_password: "postgres"
+
+    # Query to be sent to servers to obtain the hash used for md5 authentication. The connection will be
+    # established using the database configured in the pool. This parameter is inherited by every pool and
+    # can be redefined in pool configuration.
+    auth_query: null
+
+    # User to be used for connecting to servers to obtain the hash used for md5 authentication by sending
+    # the query specified in auth_query_user. The connection will be established using the database configured
+    # in the pool. This parameter is inherited by every pool and can be redefined in pool configuration.
+    #
+    # @param configuration.general.auth_query_user
+    auth_query_user: null
+
+    # Password to be used for connecting to servers to obtain the hash used for md5 authentication by sending
+    # the query specified in auth_query_user. The connection will be established using the database configured
+    # in the pool. This parameter is inherited by every pool and can be redefined in pool configuration.
+    #
+    # @param configuration.general.auth_query_password
+    auth_query_password: null
+
+    # Number of seconds of connection idleness to wait before sending a keepalive packet to the server.
+    tcp_keepalives_idle: 5
+
+    # Number of unacknowledged keepalive packets allowed before giving up and closing the connection.
+    tcp_keepalives_count: 5
+
+    # Number of seconds between keepalive packets.
+    tcp_keepalives_interval: 5
+
+  ## pool
+  ## configs are structured as pool.<pool_name>
+  ## the pool_name is what clients use as database name when connecting
+  ## For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded"
+  ## @param [object]
+  pools: []
+    # - ## default values
+    #   ##
+    #   ##
+    #   ##
+    #   name: "db"
+
+    #  ## Pool mode (see PgBouncer docs for more).
+    #  ## session: one server connection per connected client
+    #  ## transaction: one server connection per client transaction
+    #  ## @param configuration.poolsPostgres.pool_mode
+    #  pool_mode: "transaction"
+
+    #  ## Load balancing mode
+    #  ## `random` selects the server at random
+    #  ## `loc` selects the server with the least outstanding busy connections
+    #  ##
+    #  ## @param configuration.poolsPostgres.load_balancing_mode
+    #  load_balancing_mode: "random"
+
+    #  ## Prepared statements cache size.
+    #  ## TODO: update documentation
+    #  ##
+    #  ## @param configuration.poolsPostgres.prepared_statements_cache_size
+    #  prepared_statements_cache_size: 500
+
+    #  ## If the client doesn't specify, route traffic to
+    #  ## this role by default.
+    #  ##
+    #  ## any: round-robin between primary and replicas,
+    #  ## replica: round-robin between replicas only without touching the primary,
+    #  ## primary: all queries go to the primary unless otherwise specified.
+    #  ## @param configuration.poolsPostgres.default_role
+    #  default_role: "any"
+
+    #  ## Query parser. If enabled, we'll attempt to parse
+    #  ## every incoming query to determine if it's a read or a write.
+    #  ## If it's a read query, we'll direct it to a replica. Otherwise, if it's a write,
+    #  ## we'll direct it to the primary.
+    #  ## @param configuration.poolsPostgres.query_parser_enabled
+    #  query_parser_enabled: true
+
+    #  ## If the query parser is enabled and this setting is enabled, we'll attempt to
+    #  ## infer the role from the query itself.
+    #  ## @param configuration.poolsPostgres.query_parser_read_write_splitting
+    #  query_parser_read_write_splitting: true
+
+    #  ## If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
+    #  ## load balancing of read queries. Otherwise, the primary will only be used for write
+    #  ## queries. The primary can always be explicitly selected with our custom protocol.
+    #  ## @param configuration.poolsPostgres.primary_reads_enabled
+    #  primary_reads_enabled: true
+
+    #  ## So what if you wanted to implement a different hashing function,
+    #  ## or you've already built one and you want this pooler to use it?
+    #  ##
+    #  ## Current options:
+    #  ##
+    #  ## pg_bigint_hash: PARTITION BY HASH (Postgres hashing function)
+    #  ## sha1: A hashing function based on SHA1
+    #  ##
+    #  ## @param configuration.poolsPostgres.sharding_function
+    #  sharding_function: "pg_bigint_hash"
+
+    #  ## Credentials for users that may connect to this cluster
+    #  ## @param users [array]
+    #  ## @param users[0].username Name of the env var (required)
+    #  ## @param users[0].password Value for the env var (required)
+    #  ## @param users[0].pool_size Maximum number of server connections that can be established for this user
+    #  ## @param users[0].statement_timeout Maximum query duration. Dangerous, but protects against DBs that died in a non-obvious way.
+    #  users: []
+    #    # - username: "user"
+    #    #   password: "pass"
+    #    #
+    #    #  # The maximum number of connection from a single Pgcat process to any database in the cluster
+    #    #  # is the sum of pool_size across all users.
+    #    #  pool_size: 9
+    #    #
+    #    #  # Maximum query duration. Dangerous, but protects against DBs that died in a non-obvious way.
+    #    #  statement_timeout: 0
+    #    #
+    #    #  # PostgreSQL username used to connect to the server.
+    #    #  server_username: "postgres
+    #    #
+    #    #  # PostgreSQL password used to connect to the server.
+    #    #  server_password: "postgres
+
+    #  ## @param shards [array]
+    #  ## @param shards[0].server[0].host Host for this shard
+    #  ## @param shards[0].server[0].port Port for this shard
+    #  ## @param shards[0].server[0].role Role for this shard
+    #  shards: []
+    #      # [ host, port, role ]
+    #    # - servers:
+    #    #     - host: "postgres"
+    #    #       port: 5432
+    #    #       role: "primary"
+    #    #     - host: "postgres"
+    #    #       port: 5432
+    #    #       role: "replica"
+    #    #   database: "postgres"
+    #    #   # [ host, port, role ]
+    #    # - servers:
+    #    #     - host: "postgres"
+    #    #       port: 5432
+    #    #       role: "primary"
+    #    #     - host: "postgres"
+    #    #       port: 5432
+    #    #       role: "replica"
+    #    #   database: "postgres"
+    #    #   # [ host, port, role ]
+    #    # - servers:
+    #    #     - host: "postgres"
+    #    #       port: 5432
+    #    #       role: "primary"
+    #    #     - host: "postgres"
+    #    #       port: 5432
+    #    #       role: "replica"
+    #    #   database: "postgres"
