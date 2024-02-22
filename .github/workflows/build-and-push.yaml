@@ -30,7 +30,7 @@ jobs:
 
       - name: Determine tags
         id: metadata
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: ${{ env.registry }}/${{ env.image-name }}
           tags: |
