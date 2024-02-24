@@ -16,7 +16,7 @@ use crate::errors::Error;
 
 /// Normalize a password string. Postgres
 /// passwords don't have to be UTF-8.
-fn normalize(pass: &[u8]) -> Vec<u8> {
+pub fn normalize(pass: &[u8]) -> Vec<u8> {
     let pass = match std::str::from_utf8(pass) {
         Ok(pass) => pass,
         Err(_) => return pass.to_vec(),
@@ -191,7 +191,7 @@ impl ScramSha256 {
     }
 
     /// Hash the password with the salt i-times.
-    fn hi(str: &[u8], salt: &[u8], i: u32) -> [u8; 32] {
+    pub fn hi(str: &[u8], salt: &[u8], i: u32) -> [u8; 32] {
         let mut hmac =
             Hmac::<Sha256>::new_from_slice(str).expect("HMAC is able to accept all key sizes");
         hmac.update(salt);
