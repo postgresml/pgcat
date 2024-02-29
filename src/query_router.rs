@@ -499,6 +499,7 @@ impl QueryRouter {
                 table: _,
                 on: _,
                 returning: _,
+                ignore: _,
             } => {
                 // Not supported in postgres.
                 assert!(or.is_none());
@@ -506,7 +507,9 @@ impl QueryRouter {
                 assert!(after_columns.is_empty());
 
                 Self::process_table(table_name, &mut table_names);
-                Self::process_query(source, &mut exprs, &mut table_names, &Some(columns));
+                if let Some(source) = source {
+                    Self::process_query(source, &mut exprs, &mut table_names, &Some(columns));
+                }
             }
             Delete {
                 tables,
@@ -514,6 +517,8 @@ impl QueryRouter {
                 using,
                 selection,
                 returning: _,
+                order_by: _,
+                limit: _,
             } => {
                 if let Some(expr) = selection {
                     exprs.push(expr.clone());
