@@ -85,9 +85,11 @@ containerSecurityContext: {}
 
 ## PgCat service
 ##
+## @param service.annotations annotations to add to the service
 ## @param service.type PgCat service type
 ## @param service.port PgCat service port
 service:
+  annotations: {}
   type: ClusterIP
   port: 6432
 
