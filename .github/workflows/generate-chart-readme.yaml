@@ -32,7 +32,7 @@ jobs:
           curl -Lkso $TEMP_FILE $DIFF_URL
           files_changed="$(sed -nr 's/[\-\+]{3} [ab]\/(.*)/\1/p' $TEMP_FILE | sort | uniq)"
           # Adding || true to avoid "Process exited with code 1" errors
-          charts_dirs_changed="$(echo "$files_changed" | xargs dirname | grep -o "pgcat/[^/]*" | sort | uniq || true)"
+          charts_dirs_changed="$(echo "$files_changed" | xargs dirname | grep -o "pgcat/[^/]*" | grep -v '/templates' | sort | uniq || true)"
           for chart in ${charts_dirs_changed}; do
             echo "Updating README.md for ${chart}"
             readme-generator --values "charts/${chart}/values.yaml" --readme "charts/${chart}/README.md" --schema "/tmp/schema.json"
