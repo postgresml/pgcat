@@ -85,7 +85,7 @@ containerSecurityContext: {}
 
 ## PgCat service
 ##
-## @param service.annotations annotations to add to the service
+## @param service.annotations PgCat service annotations
 ## @param service.type PgCat service type
 ## @param service.port PgCat service port
 service:
