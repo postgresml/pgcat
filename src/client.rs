@@ -122,6 +122,7 @@ pub async fn client_entrypoint(
     admin_only: bool,
     tls_certificate: Option<String>,
     log_client_connections: bool,
+    client_tls: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = match stream.peer_addr() {
@@ -133,6 +134,11 @@ pub async fn client_entrypoint(
             )));
         }
     };
+
+    if client_tls && tls_certificate.is_none() {
+        error!("Client tls is required but no certificate passed");
+        return Err(Error::TlsError);
+    }
 
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
@@ -175,6 +181,13 @@ pub async fn client_entrypoint(
             }
             // TLS is not configured, we cannot offer it.
             else {
+                
+                // Check if Client TLS is compulsory
+                if client_tls {
+                    error!("Client tls is required but no certificate passed");
+                    return Err(Error::TlsError);
+                }
+
                 // Rejecting client request for TLS.
                 let mut no = BytesMut::new();
                 no.put_u8(b'N');

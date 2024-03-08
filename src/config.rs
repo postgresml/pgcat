@@ -331,6 +331,9 @@ pub struct General {
     #[serde(default)] // false
     pub verify_server_certificate: bool,
 
+    #[serde(default)] //false
+    pub client_tls: bool,
+ 
     pub admin_username: String,
     pub admin_password: String,
 
