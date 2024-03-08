@@ -6,6 +6,7 @@ pub enum Error {
     SocketError(String),
     ClientSocketError(String, ClientIdentifier),
     ClientGeneralError(String, ClientIdentifier),
+    ClientSSLError(String),
     ClientAuthImpossible(String),
     ClientAuthPassthroughError(String, ClientIdentifier),
     ClientBadStartup,

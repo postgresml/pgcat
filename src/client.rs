@@ -137,7 +137,7 @@ pub async fn client_entrypoint(
 
     if client_tls && tls_certificate.is_none() {
         error!("Client tls is required but no certificate passed");
-        return Err(Error::TlsError);
+        return Err(Error::ClientSSLError("Client tls is required but no certificate passed".into()));
     }
 
     match get_startup::<TcpStream>(&mut stream).await {
