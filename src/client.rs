@@ -181,12 +181,6 @@ pub async fn client_entrypoint(
             }
             // TLS is not configured, we cannot offer it.
             else {
-                
-                // Check if Client TLS is compulsory
-                if client_tls {
-                    error!("Client tls is required but no certificate passed");
-                    return Err(Error::TlsError);
-                }
 
                 // Rejecting client request for TLS.
                 let mut no = BytesMut::new();
@@ -252,6 +246,12 @@ pub async fn client_entrypoint(
 
         // Client wants to use plain connection without encryption.
         Ok((ClientConnectionType::Startup, bytes)) => {
+            // Check if Client TLS is compulsory
+            if client_tls {
+                error!("TLS is required for client connections.");
+                return Err(Error::TlsError);
+            }
+
             let (read, write) = split(stream);
 
             // Continue with regular startup.

@@ -16,9 +16,74 @@ import (
 //go:embed pgcat.toml
 var pgcatCfg string
 
-var port = rand.Intn(32760-20000) + 20000
+//go:embed pgcat_ssl.toml
+var pgcatTlsCfg string
 
-func setup(t *testing.T) func() {
+var port = rand.Intn(32760-20000) + 20000
+var ssl_port = port + 1
+
+func setupTls(t *testing.T) func() {
+	cfg, err := os.CreateTemp("/tmp", "pgcat_ssl_cfg_*.toml")
+	if err != nil {
+		t.Fatalf("could not create temp file: %+v", err)
+	}
+	pgcatTlsCfg = strings.Replace(pgcatTlsCfg, "\"${PORT}\"", fmt.Sprintf("%d", ssl_port), 1)
+
+	_, err = cfg.Write([]byte(pgcatTlsCfg))
+	if err != nil {
+		t.Fatalf("could not write temp file: %+v", err)
+	}
+
+	commandPath := "../../target/debug/pgcat"
+	if os.Getenv("CARGO_TARGET_DIR") != "" {
+		commandPath = os.Getenv("CARGO_TARGET_DIR") + "/debug/pgcat"
+	}
+
+	cmd := exec.Command(commandPath, cfg.Name())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	go func() {
+		err = cmd.Run()
+		if err != nil {
+			t.Errorf("could not run pgcat: %+v", err)
+		}
+	}()
+
+	deadline, cancelFunc := context.WithDeadline(context.Background(), time.Now().Add(5*time.Second))
+	defer cancelFunc()
+	for {
+		select {
+		case <-deadline.Done():
+			break
+		case <-time.After(50 * time.Millisecond):
+			db, err := sql.Open("postgres", fmt.Sprintf("host=localhost port=%d database=pgcat user=admin_user password=admin_pass sslmode=require sslcert=../../.circleci/server.cert sslkey=../../.circleci/server.key", ssl_port))
+			if err != nil {
+				continue
+			}
+			rows, err := db.QueryContext(deadline, "SHOW STATS")
+			if err != nil {
+				continue
+			}
+			_ = rows.Close()
+			_ = db.Close()
+			break
+		}
+		break
+	}
+
+	return func() {
+		err := cmd.Process.Signal(os.Interrupt)
+		if err != nil {
+			t.Fatalf("could not interrupt pgcat: %+v", err)
+		}
+		err = os.Remove(cfg.Name())
+		if err != nil {
+			t.Fatalf("could not remove temp file: %+v", err)
+		}
+	}
+}
+
+func setupNonTls(t *testing.T) func() {
 	cfg, err := os.CreateTemp("/tmp", "pgcat_cfg_*.toml")
 	if err != nil {
 		t.Fatalf("could not create temp file: %+v", err)
