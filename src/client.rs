@@ -114,6 +114,7 @@ pub struct Client<S, T> {
 }
 
 /// Client entrypoint.
+#[allow(clippy::too_many_arguments)]
 pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
