@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	_ "github.com/lib/pq"
 	"testing"
+
+	_ "github.com/lib/pq"
 )
 
 func Test(t *testing.T) {
-	t.Cleanup(setup(t))
+	t.Cleanup(setupNonTls(t))
 	t.Run("Named parameterized prepared statement works", namedParameterizedPreparedStatement)
 	t.Run("Unnamed parameterized prepared statement works", unnamedParameterizedPreparedStatement)
 }
