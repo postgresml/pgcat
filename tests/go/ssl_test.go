@@ -43,10 +43,9 @@ func connectionWithoutSSLParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not open connection: %+v", err)
 	}
-
-	_, err = db.Prepare("SELECT $1")
-
+	err = db.Ping()
 	if err == nil {
-		t.Fatalf("Client connection established without TLS")
+		t.Fatalf("Non TLS Client connection established on a server that requires TLS")
 	}
+
 }
