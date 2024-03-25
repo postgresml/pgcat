@@ -1078,8 +1078,6 @@ where
             server.sync_parameters(&self.server_parameters).await?;
             // TODO: investigate other parameters and set them too.
 
-            // Set application_name.
-            // server.set_name(&self.application_name).await?;
             server.switch_async(false);
 
             let mut initial_message = Some(message);
