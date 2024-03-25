@@ -803,7 +803,6 @@ impl Server {
                         buffer: BytesMut::with_capacity(8196),
                         server_parameters,
                         is_async: false,
-                        server_info,
                         process_id,
                         secret_key,
                         in_transaction: false,

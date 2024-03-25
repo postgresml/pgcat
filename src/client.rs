@@ -1079,7 +1079,7 @@ where
             // TODO: investigate other parameters and set them too.
 
             // Set application_name.
-            server.set_name(&self.application_name).await?;
+            // server.set_name(&self.application_name).await?;
             server.switch_async(false);
 
             let mut initial_message = Some(message);
@@ -1106,14 +1106,14 @@ where
                                 read_message(&mut self.read),
                             ) => message,
 
-                            server_message = server.recv() => {
+                            server_message = server.recv(Some(&mut self.server_parameters)) => {
                                 debug!("Got async message");
 
                                 let server_message = match server_message {
                                     Ok(message) => message,
                                     Err(err) => {
                                         pool.ban(&address, BanReason::MessageReceiveFailed, Some(&self.stats));
-                                        server.mark_bad();
+                                        server.mark_bad(&format!("Failed to receive message from server: {:?}", err));
                                         return Err(err);
                                     }
                                 };
@@ -1121,7 +1121,7 @@ where
                                 match write_all_half(&mut self.write, &server_message).await {
                                     Ok(_) => (),
                                     Err(err) => {
-                                        server.mark_bad();
+                                        server.mark_bad(&format!("Failed to write message to client: {:?}", err));
                                         return Err(err);
                                     }
                                 };
@@ -1312,8 +1312,6 @@ where
                                 continue;
                             }
 
-                        self.buffer.put(&message[..]);
-
                             Some(PluginOutput::Intercept(result)) => {
                                 write_all(&mut self.write, result).await?;
                                 plugin_output = None;
@@ -1322,7 +1320,7 @@ where
                             }
 
                             _ => (),
-                        };
+                        }
 
                         // Prepared statements can arrive like this
                         // 1. Without named describe

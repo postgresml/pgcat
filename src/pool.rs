@@ -1046,9 +1046,6 @@ impl ConnectionPool {
 
     /// Get the number of checked out connection for an address
     /// Get server settings retrieved at connection setup.
-    pub fn server_info(&self) -> BytesMut {
-        self.server_info.read().clone()
-    }
 
     /// Calculate how many used connections in the pool
     /// for the given server.
