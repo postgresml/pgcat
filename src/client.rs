@@ -1031,7 +1031,7 @@ where
 
                     error_response(
                         &mut self.write,
-                        "Your database ran out of GPU concurrency capacity. Please upgrade by logging into your account on https://postgresml.org and increasing your GPU concurrency limit.",
+                        &format!("could not get connection from the pool -- {err}"),
                     )
                     .await?;
 
