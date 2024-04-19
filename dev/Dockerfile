@@ -1,4 +1,4 @@
-FROM rust:1.70-bullseye
+FROM rust:bullseye
 
 # Dependencies
 COPY --from=sclevine/yj /bin/yj /bin/yj
