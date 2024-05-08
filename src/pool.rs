@@ -813,7 +813,7 @@ impl ConnectionPool {
             }
         }
 
-        client_stats.checkout_success();
+        client_stats.checkout_error();
 
         Err(Error::AllServersDown)
     }
