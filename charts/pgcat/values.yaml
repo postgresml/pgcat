@@ -359,3 +359,13 @@ configuration:
     #    #       port: 5432
     #    #       role: "replica"
     #    #   database: "postgres"
+
+lifecycle:
+  enabled: false
+  postStart:
+    enabled: false
+  preStop:
+    enabled: false
+  postStartCommands: []
+  preStopCommands: []
+
