@@ -51,7 +51,7 @@ spec:
               exec:
                 command:
                   {{- range .Values.lifecycle.postStartCommands }}
-                    {{.}}
+                    - {{.}}
                   {{- end }}
           {{- end }}
           {{ if .Values.lifecycle.preStop.enabled }}
@@ -59,7 +59,7 @@ spec:
               exec:
                 command:
                   {{- range .Values.lifecycle.preStopCommands }}
-                    {{.}}
+                    - {{.}}
                   {{- end }}
           {{- end }}
           {{- end }}
