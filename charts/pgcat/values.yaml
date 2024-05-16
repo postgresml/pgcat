@@ -369,3 +369,4 @@ lifecycle:
   postStartCommands: []
   preStopCommands: []
 
+terminationGracePeriodSeconds: 60

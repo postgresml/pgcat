@@ -83,3 +83,4 @@ spec:
           defaultMode: 420
           secretName: {{ include "pgcat.fullname" . }}
         name: config
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
