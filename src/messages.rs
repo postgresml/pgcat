@@ -733,6 +733,10 @@ pub fn configure_socket(stream: &TcpStream) {
         }
         Err(err) => error!("Could not configure socket: {}", err),
     }
+    match sock_ref.set_nodelay(true) {
+        Ok(_) => (),
+        Err(err) => error!("Could not configure TCP_NODELAY for socket: {}", err),
+    }
 }
 
 pub trait BytesMutReader {
