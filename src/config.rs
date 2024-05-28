@@ -208,6 +208,9 @@ impl Address {
 pub struct User {
     pub username: String,
     pub password: Option<String>,
+    pub auth_type: String,
+    pub auth_ldapsuffix: Option<String>,
+    pub auth_ldapurl: Option<String>,
     pub server_username: Option<String>,
     pub server_password: Option<String>,
     pub pool_size: u32,
@@ -225,6 +228,9 @@ impl Default for User {
         User {
             username: String::from("postgres"),
             password: None,
+            auth_type: "md5".to_string(),
+            auth_ldapsuffix: None,
+            auth_ldapurl: None,
             server_username: None,
             server_password: None,
             pool_size: 15,
@@ -333,6 +339,9 @@ pub struct General {
 
     pub admin_username: String,
     pub admin_password: String,
+    pub admin_auth_type: String,
+    pub admin_auth_ldapurl: Option<String>,
+    pub admin_auth_ldapsuffix: Option<String>,
 
     #[serde(default = "General::default_validate_config")]
     pub validate_config: bool,
@@ -456,6 +465,9 @@ impl Default for General {
             verify_server_certificate: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
+            admin_auth_type: String::from("md5"),
+            admin_auth_ldapurl: None,
+            admin_auth_ldapsuffix: None,
             validate_config: true,
             auth_query: None,
             auth_query_user: None,

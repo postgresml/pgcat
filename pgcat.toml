@@ -76,6 +76,7 @@ verify_server_certificate = false
 admin_username = "admin_user"
 # Password to access the virtual administrative database
 admin_password = "admin_pass"
+admin_auth_type = "md5"
 
 # Default plugins that are configured on all pools.
 [plugins]
@@ -274,6 +275,8 @@ result = [
 # if `server_username` is not set.
 username = "sharding_user"
 
+auth_type = "md5"
+
 # PostgreSQL password used to authenticate the user and connect to the server
 # if `server_password` is not set.
 password = "sharding_user"
@@ -299,6 +302,7 @@ statement_timeout = 0
 [pools.sharded_db.users.1]
 username = "other_user"
 password = "other_user"
+auth_type = "md5"
 pool_size = 21
 statement_timeout = 15000
 connect_timeout = 1000
@@ -337,6 +341,7 @@ sharding_function = "pg_bigint_hash"
 [pools.simple_db.users.0]
 username = "simple_user"
 password = "simple_user"
+auth_type = "md5"
 pool_size = 5
 min_pool_size = 3
 server_lifetime = 60000

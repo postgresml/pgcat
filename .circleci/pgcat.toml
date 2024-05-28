@@ -97,6 +97,7 @@ sharding_function = "pg_bigint_hash"
 [pools.sharded_db.users.0]
 username = "sharding_user"
 password = "sharding_user"
+auth_type = "md5"
 # Maximum number of server connections that can be established for this user
 # The maximum number of connection from a single Pgcat process to any database in the cluster
 # is the sum of pool_size across all users.
@@ -106,6 +107,7 @@ statement_timeout = 0
 [pools.sharded_db.users.1]
 username = "other_user"
 password = "other_user"
+auth_type = "md5"
 pool_size = 21
 statement_timeout = 30000
 
@@ -145,6 +147,7 @@ sharding_function = "pg_bigint_hash"
 [pools.simple_db.users.0]
 username = "simple_user"
 password = "simple_user"
+auth_type = "md5"
 pool_size = 5
 statement_timeout = 30000
 

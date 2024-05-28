@@ -71,6 +71,9 @@ impl AuthPassthrough {
     pub async fn fetch_hash(&self, address: &crate::config::Address) -> Result<String, Error> {
         let auth_user = crate::config::User {
             username: self.user.clone(),
+            auth_type: "".to_string(),
+            auth_ldapsuffix: None,
+            auth_ldapurl: None,
             password: Some(self.password.clone()),
             server_username: None,
             server_password: None,
