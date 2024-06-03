@@ -68,6 +68,7 @@ use pgcat::messages::configure_socket;
 use pgcat::pool::{ClientServerMap, ConnectionPool};
 use pgcat::prometheus::start_metric_server;
 use pgcat::stats::{Collector, Reporter, REPORTER};
+use pgcat::tls::reload_root_cert_store;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = cmd_args::parse();
@@ -80,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(exitcode::CONFIG);
     }
 
-    // Create a transient runtime for loading the config for the first time.
+    // Create a transient runtime for loading the config and root cert store for the first time.
     {
         let runtime = Builder::new_multi_thread().worker_threads(1).build()?;
 
@@ -92,6 +93,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(exitcode::CONFIG);
                 }
             };
+
+            if get_config().general.verify_server_certificate.is_enabled() {
+                match reload_root_cert_store().await {
+                    Ok(_) => (),
+                    Err(_) => {
+                        // no need for the error! macro, because the reload_root_cert_store()
+                        // function already uses the error! macro.
+                        std::process::exit(exitcode::OSFILE);
+                    }
+                }
+            }
         });
     }
 
@@ -178,16 +190,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     autoreload_interval.tick().await;
                     debug!("Automatically reloading config");
 
-                    if let Ok(changed) = reload_config(autoreload_client_server_map.clone()).await {
-                        if changed {
-                            get_config().show()
-                        }
+                    if let Ok(true) = reload_config(autoreload_client_server_map.clone()).await {
+                        get_config().show();
                     };
                 }
             });
         };
-
-
 
         #[cfg(windows)]
         let mut term_signal = win_signal::ctrl_close().unwrap();
@@ -212,7 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             tokio::select! {
-                // Reload config:
+                // Reload config, root certificates & connection pools:
                 // kill -SIGHUP $(pgrep pgcat)
                 _ = sighup_signal.recv() => {
                     info!("Reloading config");
