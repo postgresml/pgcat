@@ -531,23 +531,31 @@ where
         let (transaction_mode, mut server_parameters) = if admin {
             let config = get_config();
 
-            // Compare server and client hashes.
-            let password_hash = md5_hash_password(
+            match (
                 &config.general.admin_username,
                 &config.general.admin_password,
-                &salt,
-            );
+            ) {
+                (Some(username), Some(password)) => {
+                    let password_hash = md5_hash_password(username, password, &salt);
+                    if password_hash != password_response {
+                        let error =
+                            Error::ClientGeneralError("Invalid password".into(), client_identifier);
 
-            if password_hash != password_response {
-                let error = Error::ClientGeneralError("Invalid password".into(), client_identifier);
+                        warn!("{}", error);
+                        wrong_password(&mut write, username).await?;
 
-                warn!("{}", error);
-                wrong_password(&mut write, username).await?;
-
-                return Err(error);
+                        return Err(error);
+                    }
+                    (false, generate_server_parameters_for_admin())
+                }
+                _ => {
+                    let error = Error::ClientGeneralError(
+                        "Admin username and password not configured".into(),
+                        client_identifier,
+                    );
+                    return Err(error);
+                }
             }
-
-            (false, generate_server_parameters_for_admin())
         }
         // Authenticate normal user.
         else {
