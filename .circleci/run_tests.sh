@@ -10,7 +10,7 @@ set -o xtrace
 # for inspection.
 function start_pgcat() {
     kill -s SIGINT $(pgrep pgcat) || true
-    RUST_LOG=${1} ./target/debug/pgcat .circleci/pgcat.toml &
+    ./target/debug/pgcat .circleci/pgcat.toml --log-level ${1} &
     sleep 1
 }
 
@@ -28,6 +28,9 @@ PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard2 -i
 # Start Toxiproxy
 LOG_LEVEL=error toxiproxy-server &
 sleep 1
+
+# Remove toxiproxy if it exists.
+toxiproxy-cli delete postgres_replica || true
 
 # Create a database at port 5433, forward it to Postgres
 toxiproxy-cli create -l 127.0.0.1:5433 -u 127.0.0.1:5432 postgres_replica
