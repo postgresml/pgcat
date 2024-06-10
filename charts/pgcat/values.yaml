@@ -310,7 +310,9 @@ configuration:
     #  ## Credentials for users that may connect to this cluster
     #  ## @param users [array]
     #  ## @param users[0].username Name of the env var (required)
-    #  ## @param users[0].password Value for the env var (required)
+    #  ## @param users[0].password Value for the env var (required) leave empty to use existing secret see passwordSecret.name and passwordSecret.key
+    #  ## @param users[0].passwordSecret.name Name of the secret containing the password
+    #  ## @param users[0].passwordSecret.key Key in the secret containing the password
     #  ## @param users[0].pool_size Maximum number of server connections that can be established for this user
     #  ## @param users[0].statement_timeout Maximum query duration. Dangerous, but protects against DBs that died in a non-obvious way.
     #  users: []
