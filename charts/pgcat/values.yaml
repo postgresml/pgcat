@@ -175,6 +175,9 @@ configuration:
     # Max connection lifetime before it's closed, even if actively used.
     server_lifetime: 86400000 # 24 hours
 
+    # Whether to use TLS for server connections or not.
+    server_tls: false
+
     # How long a client is allowed to be idle while in a transaction (ms).
     idle_client_in_transaction_timeout: 0 # milliseconds
 
