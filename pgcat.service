@@ -11,6 +11,7 @@ RestartSec=1
 Environment=RUST_LOG=info
 LimitNOFILE=65536
 ExecStart=/usr/bin/pgcat /etc/pgcat.toml
+ExecReload=/bin/kill -SIGHUP $MAINPID
 
 [Install]
 WantedBy=multi-user.target
