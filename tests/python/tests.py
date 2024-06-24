@@ -365,7 +365,7 @@ def test_shutdown_logic():
     # - - - - - - - - - - - - - - - - - -
 
 
-# test_normal_db_access()
+test_normal_db_access()
 test_psycopg()
-# test_admin_db_access()
-# test_shutdown_logic()
+test_admin_db_access()
+test_shutdown_logic()
