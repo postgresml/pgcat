@@ -1269,6 +1269,12 @@ where
                             .push_back(ExtendedProtocolData::create_new_close(message, close));
                     }
 
+                    // Flush
+                    'H' => {
+                        debug!("Sending flush to server");
+                        server.send(&flush()).await?;
+                    }
+
                     // Sync
                     // Frontend (client) is asking for the query result now.
                     'S' => {

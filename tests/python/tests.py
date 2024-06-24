@@ -1,9 +1,12 @@
 from typing import Tuple
+import psycopg
 import psycopg2
 import psutil
 import os
 import signal
 import time
+
+from psycopg_pool import ConnectionPool
 
 SHUTDOWN_TIMEOUT = 5
 
@@ -69,6 +72,54 @@ def test_normal_db_access():
     res = cur.fetchall()
     print(res)
     cleanup_conn(conn, cur)
+
+
+def test_psycopg() -> None:
+    """Test using psycopg aka psycopg3."""
+    pgcat_start()
+    dsn = f"postgres://sharding_user:sharding_user@{PGCAT_HOST}:{PGCAT_PORT}/sharded_db?application_name=testing_pgcat"
+
+    # test pipeline operation
+    # see https://www.psycopg.org/psycopg3/docs/advanced/pipeline.html#pipeline-mode
+    with ConnectionPool(dsn, timeout=2, kwargs={'autocommit': True, 'prepare_threshold': None}, max_size=1, min_size=1) as pool:
+        with pool.connection() as conn:
+            conn.execute("DROP TABLE IF EXISTS mytable")
+            conn.execute("CREATE TABLE mytable (data TEXT)")
+            with conn.pipeline() as p, conn.cursor() as cur:
+                try:
+                    cur.execute("INSERT INTO mytable (data) VALUES (%s)", ["one"])
+                    cur.execute("INSERT INTO no_such_table (data) VALUES (%s)", ["two"])
+                    conn.execute("INSERT INTO mytable (data) VALUES (%s)", ["three"])
+                    p.sync()
+                except psycopg.errors.UndefinedTable:
+                    pass
+                cur.execute("INSERT INTO mytable (data) VALUES (%s)", ["four"])
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM mytable")
+                res = cur.fetchall()
+                assert res == [("four",)]
+    
+    # test prepared statements
+    with ConnectionPool(dsn, timeout=2, kwargs={'autocommit': True, 'prepare_threshold': 0}, max_size=1, min_size=1) as pool:
+        # run the query multiple times to exercise prepared statements
+        with pool.connection() as conn:
+            for _ in range(10):
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    res = cur.fetchall()
+                    assert res == [(1,)]
+
+    # test copy operation
+    with ConnectionPool(dsn, timeout=2, kwargs={'autocommit': True, 'prepare_threshold': None}, max_size=1, min_size=1) as pool:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                with cur.copy('COPY (SELECT 1) TO STDOUT') as copy:
+                    x = -1
+                    for (x, row) in enumerate(copy.rows()):
+                        assert row == ('1',), row
+                    assert x == 0
+
+    pg_cat_send_signal(signal.SIGTERM)
 
 
 def test_admin_db_access():
@@ -314,6 +365,7 @@ def test_shutdown_logic():
     # - - - - - - - - - - - - - - - - - -
 
 
-test_normal_db_access()
-test_admin_db_access()
-test_shutdown_logic()
+# test_normal_db_access()
+test_psycopg()
+# test_admin_db_access()
+# test_shutdown_logic()
