@@ -2,12 +2,8 @@ name: Build and Push
 
 on:
   push:
-    paths:
-      - '!charts/**.md'
     branches:
-      - main
-    tags:
-      - v*
+      - "**"
 
 env:
   registry: ghcr.io
