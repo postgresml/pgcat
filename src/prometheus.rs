@@ -1,5 +1,11 @@
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use http_body_util::Full;
+use hyper::body;
+use hyper::body::Bytes;
+
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
 use phf::phf_map;
 use std::collections::HashMap;
@@ -7,6 +13,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 
 use crate::config::Address;
 use crate::pool::{get_all_pools, PoolIdentifier};
@@ -243,7 +250,9 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
     }
 }
 
-async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
+async fn prometheus_stats(
+    request: Request<body::Incoming>,
+) -> Result<Response<Full<Bytes>>, hyper::http::Error> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/metrics") => {
             let mut lines = Vec::new();
@@ -374,14 +383,35 @@ fn push_server_stats(lines: &mut Vec<String>) {
 }
 
 pub async fn start_metric_server(http_addr: SocketAddr) {
-    let http_service_factory =
-        make_service_fn(|_conn| async { Ok::<_, hyper::Error>(service_fn(prometheus_stats)) });
-    let server = Server::bind(&http_addr).serve(http_service_factory);
+    let listener = TcpListener::bind(http_addr);
+    let listener = match listener.await {
+        Ok(listener) => listener,
+        Err(e) => {
+            error!("Failed to bind prometheus server to HTTP address: {}.", e);
+            return;
+        }
+    };
     info!(
         "Exposing prometheus metrics on http://{}/metrics.",
         http_addr
     );
-    if let Err(e) = server.await {
-        error!("Failed to run HTTP server: {}.", e);
+    loop {
+        let stream = match listener.accept().await {
+            Ok((stream, _)) => stream,
+            Err(e) => {
+                error!("Error accepting connection: {}", e);
+                continue;
+            }
+        };
+        let io = TokioIo::new(stream);
+
+        tokio::task::spawn(async move {
+            if let Err(err) = http1::Builder::new()
+                .serve_connection(io, service_fn(prometheus_stats))
+                .await
+            {
+                eprintln!("Error serving HTTP connection for metrics: {:?}", err);
+            }
+        });
     }
 }
