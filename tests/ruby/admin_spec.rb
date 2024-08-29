@@ -91,21 +91,24 @@ describe "Admin" do
     end
   end
 
-  describe "SHOW " do
-    it "does not panic" do
-      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
-      expect { admin_conn.async_exec("SHOW ") }.to raise_error(PG::SystemError).with_message(/FATAL:  Unsupported SHOW query against the admin database/)
-      admin_conn.close
-    end
-  end
-
-  describe "SHOW <WRONG COMMAND>" do
-    it "does not panic" do
-      admin_conn = PG::connect(processes.pgcat.admin_connection_string)
-      ["ME THE MONEY", "ME THE WAY", "UP", "TIME"].each do |cmd|
-        expect { admin_conn.async_exec("SHOW #{cmd}") }.to raise_error(PG::SystemError).with_message(/FATAL:  Unsupported SHOW query against the admin database/)
+  [
+    "SHOW ME THE MONEY", 
+    "SHOW ME THE WAY", 
+    "SHOW UP", 
+    "SHOWTIME",
+    "HAMMER TIME",
+    "SHOWN TO BE TRUE",
+    "SHOW ",
+    "SHOW     ",
+    "SHOW 1",
+    ";;;;;"
+  ].each do |cmd|
+    describe "Bad command #{cmd}" do
+      it "does not panic and responds with PG::SystemError" do
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        expect { admin_conn.async_exec(cmd) }.to raise_error(PG::SystemError).with_message(/Unsupported/)
+        admin_conn.close
       end
-      admin_conn.close
     end
   end
 

@@ -55,7 +55,12 @@ where
 
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
-    match query_parts[0].to_ascii_uppercase().as_str() {
+    match query_parts
+        .get(0)
+        .unwrap_or(&"")
+        .to_ascii_uppercase()
+        .as_str()
+    {
         "BAN" => {
             trace!("BAN");
             ban(stream, query_parts).await
