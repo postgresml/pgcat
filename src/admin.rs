@@ -84,7 +84,12 @@ where
             trace!("SHUTDOWN");
             shutdown(stream).await
         }
-        "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
+        "SHOW" => match query_parts
+            .get(1)
+            .unwrap_or(&"")
+            .to_ascii_uppercase()
+            .as_str()
+        {
             "HELP" => {
                 trace!("SHOW HELP");
                 show_help(stream).await
