@@ -56,7 +56,7 @@ where
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
     match query_parts
-        .get(0)
+        .first()
         .unwrap_or(&"")
         .to_ascii_uppercase()
         .as_str()
