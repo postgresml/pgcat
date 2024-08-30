@@ -38,12 +38,12 @@ pub enum Role {
     Mirror,
 }
 
-impl ToString for Role {
-    fn to_string(&self) -> String {
-        match *self {
-            Role::Primary => "primary".to_string(),
-            Role::Replica => "replica".to_string(),
-            Role::Mirror => "mirror".to_string(),
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::Primary => write!(f, "primary"),
+            Role::Replica => write!(f, "replica"),
+            Role::Mirror => write!(f, "mirror"),
         }
     }
 }
@@ -476,11 +476,11 @@ pub enum PoolMode {
     Session,
 }
 
-impl ToString for PoolMode {
-    fn to_string(&self) -> String {
-        match *self {
-            PoolMode::Transaction => "transaction".to_string(),
-            PoolMode::Session => "session".to_string(),
+impl std::fmt::Display for PoolMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PoolMode::Transaction => write!(f, "transaction"),
+            PoolMode::Session => write!(f, "session"),
         }
     }
 }
@@ -493,12 +493,13 @@ pub enum LoadBalancingMode {
     #[serde(alias = "loc", alias = "LOC", alias = "least_outstanding_connections")]
     LeastOutstandingConnections,
 }
-impl ToString for LoadBalancingMode {
-    fn to_string(&self) -> String {
-        match *self {
-            LoadBalancingMode::Random => "random".to_string(),
+
+impl std::fmt::Display for LoadBalancingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadBalancingMode::Random => write!(f, "random"),
             LoadBalancingMode::LeastOutstandingConnections => {
-                "least_outstanding_connections".to_string()
+                write!(f, "least_outstanding_connections")
             }
         }
     }
@@ -999,15 +1000,17 @@ impl Config {
     pub fn fill_up_auth_query_config(&mut self) {
         for (_name, pool) in self.pools.iter_mut() {
             if pool.auth_query.is_none() {
-                pool.auth_query = self.general.auth_query.clone();
+                pool.auth_query.clone_from(&self.general.auth_query);
             }
 
             if pool.auth_query_user.is_none() {
-                pool.auth_query_user = self.general.auth_query_user.clone();
+                pool.auth_query_user
+                    .clone_from(&self.general.auth_query_user);
             }
 
             if pool.auth_query_password.is_none() {
-                pool.auth_query_password = self.general.auth_query_password.clone();
+                pool.auth_query_password
+                    .clone_from(&self.general.auth_query_password);
             }
         }
     }
@@ -1155,7 +1158,7 @@ impl Config {
             "Default max server lifetime: {}ms",
             self.general.server_lifetime
         );
-        info!("Sever round robin: {}", self.general.server_round_robin);
+        info!("Server round robin: {}", self.general.server_round_robin);
         match self.general.tls_certificate.clone() {
             Some(tls_certificate) => {
                 info!("TLS certificate: {}", tls_certificate);

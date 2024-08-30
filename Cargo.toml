@@ -29,7 +29,9 @@ base64 = "0.21"
 stringprep = "0.1"
 tokio-rustls = "0.24"
 rustls-pemfile = "1"
-hyper = { version = "0.14", features = ["full"] }
+http-body-util = "0.1.2"
+hyper = { version = "1.4.1", features = ["full"] }
+hyper-util = { version = "0.1.7", features = ["tokio"] }
 phf = { version = "0.11.1", features = ["macros"] }
 exitcode = "1.1.2"
 futures = "0.3"

@@ -91,6 +91,27 @@ describe "Admin" do
     end
   end
 
+  [
+    "SHOW ME THE MONEY", 
+    "SHOW ME THE WAY", 
+    "SHOW UP", 
+    "SHOWTIME",
+    "HAMMER TIME",
+    "SHOWN TO BE TRUE",
+    "SHOW ",
+    "SHOW     ",
+    "SHOW 1",
+    ";;;;;"
+  ].each do |cmd|
+    describe "Bad command #{cmd}" do
+      it "does not panic and responds with PG::SystemError" do
+        admin_conn = PG::connect(processes.pgcat.admin_connection_string)
+        expect { admin_conn.async_exec(cmd) }.to raise_error(PG::SystemError).with_message(/Unsupported/)
+        admin_conn.close
+      end
+    end
+  end
+
   describe "PAUSE" do
     it "pauses all pools" do
       admin_conn = PG::connect(processes.pgcat.admin_connection_string)
