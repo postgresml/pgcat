@@ -48,6 +48,8 @@ services:
   main:
     build: .
     command: ["bash", "/app/tests/docker/run.sh"]
+    environment:
+      - INTERACTIVE_TEST_ENVIRONMENT=true
     volumes:
       - ../../:/app/
       - /app/target/
