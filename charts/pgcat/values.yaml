@@ -240,7 +240,15 @@ configuration:
   ## the pool_name is what clients use as database name when connecting
   ## For the example below a client can connect using "postgres://sharding_user:sharding_user@pgcat_host:pgcat_port/sharded"
   ## @param [object]
-  pools: []
+  pools:
+    [{
+      name: "simple", pool_mode: "transaction",
+      users: [{username: "user", password: "pass", pool_size: 5, statement_timeout: 0}],
+      shards: [{
+        servers: [{host: "postgres", port: 5432, role: "primary"}],
+        database: "postgres"
+      }]
+    }]
     # - ## default values
     #   ##
     #   ##
