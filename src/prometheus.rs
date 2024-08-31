@@ -8,11 +8,11 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
 use phf::phf_map;
-use tokio::net::TcpListener;
 use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
+use tokio::net::TcpListener;
 
 use crate::config::Address;
 use crate::pool::{get_all_pools, PoolIdentifier};
