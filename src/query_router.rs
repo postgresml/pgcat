@@ -1399,7 +1399,6 @@ mod test {
         assert!(!qr.query_parser_enabled());
     }
 
-
     #[test]
     fn test_query_parser() {
         QueryRouter::setup();
