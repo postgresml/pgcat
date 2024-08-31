@@ -1399,6 +1399,20 @@ mod test {
         assert!(!qr.query_parser_enabled());
     }
 
+
+    #[test]
+    fn test_query_parser() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new();
+        qr.pool_settings.query_parser_read_write_splitting = true;
+
+        let query = simple_query("SELECT req_tab_0.*  FROM validation req_tab_0  WHERE  array['http://www.w3.org/ns/shacl#ValidationResult'] && req_tab_0.type::text[] AND ( (  (req_tab_0.focusnode = 'DataSource_Credilogic_DataSourceAddress_144959227') )  )");
+        assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
+
+        let query = simple_query("WITH EmployeeSalaries AS (SELECT Department, Salary FROM Employees) SELECT Department, AVG(Salary) AS AverageSalary FROM EmployeeSalaries GROUP BY Department;");
+        assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
+    }
+
     #[test]
     fn test_update_from_pool_settings() {
         QueryRouter::setup();
