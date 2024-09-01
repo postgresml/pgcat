@@ -952,7 +952,7 @@ pub struct Bind {
     num_param_values: u16,
     param_values: Vec<(i32, BytesMut)>,
     num_result_column_format_codes: u16,
-    result_columns_format_codes: Vec<u16>,
+    result_columns_format_codes: Vec<i16>,
 }
 
 impl TryFrom<&BytesMut> for Bind {
@@ -968,14 +968,14 @@ impl TryFrom<&BytesMut> for Bind {
         let mut param_format_codes = Vec::new();
 
         for _ in 0..num_param_format_codes {
-            param_format_codes.push(cursor.get_u16());
+            param_format_codes.push(cursor.get_i16());
         }
 
         let num_param_values = cursor.get_u16();
         let mut param_values = Vec::new();
 
         for _ in 0..num_param_values {
-            let param_len = cursor.get_u32();
+            let param_len = cursor.get_i32();
             // There is special occasion when the parameter is NULL
             // In that case, param length is defined as -1
             // So if the passed parameter len is over 0
@@ -997,7 +997,7 @@ impl TryFrom<&BytesMut> for Bind {
         let mut result_columns_format_codes = Vec::new();
 
         for _ in 0..num_result_column_format_codes {
-            result_columns_format_codes.push(cursor.get_u16());
+            result_columns_format_codes.push(cursor.get_i16());
         }
 
         Ok(Bind {
@@ -1046,16 +1046,16 @@ impl TryFrom<Bind> for BytesMut {
         bytes.put_slice(prepared_statement);
         bytes.put_u16(bind.num_param_format_codes);
         for param_format_code in bind.param_format_codes {
-            bytes.put_u16(param_format_code);
+            bytes.put_i16(param_format_code);
         }
         bytes.put_u16(bind.num_param_values);
         for (param_len, param) in bind.param_values {
-            bytes.put_u32(param_len);
+            bytes.put_i32(param_len);
             bytes.put_slice(&param);
         }
         bytes.put_u16(bind.num_result_column_format_codes);
         for result_column_format_code in bind.result_columns_format_codes {
-            bytes.put_u16(result_column_format_code);
+            bytes.put_i16(result_column_format_code);
         }
 
         Ok(bytes)

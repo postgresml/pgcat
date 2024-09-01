@@ -1730,7 +1730,7 @@ where
     fn buffer_parse(&mut self, message: BytesMut, pool: &ConnectionPool) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
         let client_given_name = Parse::get_name(&message)?;
-        if !self.prepared_statements_enabled || client_given_name.len() == 0 {
+        if !self.prepared_statements_enabled || client_given_name.is_empty() {
             debug!("Anonymous parse message");
             self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_parse(message, None));
@@ -1774,7 +1774,7 @@ where
     async fn buffer_bind(&mut self, message: BytesMut) -> Result<(), Error> {
         // Avoid parsing if prepared statements not enabled
         let client_given_name = Bind::get_name(&message)?;
-        if !self.prepared_statements_enabled || client_given_name.len() == 0 {
+        if !self.prepared_statements_enabled || client_given_name.is_empty() {
             debug!("Anonymous bind message");
             self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_bind(message, None));
@@ -1833,7 +1833,7 @@ where
 
         let describe: Describe = (&message).try_into()?;
         let client_given_name = describe.statement_name.clone();
-        if describe.target == 'P' || client_given_name.len() == 0 {
+        if describe.target == 'P' || client_given_name.is_empty() {
             debug!("Portal describe message");
             self.extended_protocol_data_buffer
                 .push_back(ExtendedProtocolData::create_new_describe(message, None));
