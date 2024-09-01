@@ -242,7 +242,7 @@ describe "Portocol handling" do
         end
       
         20.times do |i|
-          socket.send_message(BindMessage.new("", "my_query_#{i}", [0,0,0], [0,0,0].map(&:to_s), [0,0,0,0,0,0]))
+          socket.send_message(BindMessage.new("", "my_query_#{i}", [0,0,0], [0,0,0].map(&:to_s), [0,0]))
         end 
       
         socket.send_message(SyncMessage.new)
@@ -253,7 +253,7 @@ describe "Portocol handling" do
         responses = []
         4.times do |i|
           socket.send_message(ParseMessage.new("my_query_#{i}", "SELECT * FROM employees WHERE employee_id in ($1,$2,$3)", [0,0,0]))
-          socket.send_message(BindMessage.new("", "my_query_#{i}", [0,0,0], [0,0,0].map(&:to_s), [0,0,0,0,0,0]))
+          socket.send_message(BindMessage.new("", "my_query_#{i}", [0,0,0], [0,0,0].map(&:to_s), [0,0]))
           socket.send_message(SyncMessage.new)
 
           responses += socket.read_from_server
