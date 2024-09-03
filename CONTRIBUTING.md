@@ -7,7 +7,7 @@ Thank you for contributing! Just a few tips here:
 3. Performance is important, make sure there are no regressions in your branch vs. `main`.
 
 ## How to run the integration tests locally and iterate on them
-We have integration tests written in Ruby, Python, Go and Rust. 
+We have integration tests written in Ruby, Python, Go and Rust.
 Below are the steps to run them in a developer-friendly way that allows iterating and quick turnaround.
 Hear me out, this should be easy, it will involve opening a shell into a container with all the necessary dependancies available for you and you can modify the test code and immediately rerun your test in the interactive shell.
 
@@ -21,7 +21,7 @@ Within this test environment you can modify the file in your favorite IDE and re
 
 Once the environment is ready, you can run the tests by running
 Ruby:   `cd /app/tests/ruby && bundle exec ruby <test_name>.rb --format documentation`
-Python: `cd /app && python3 tests/python/tests.py`
+Python: `cd /app/ && pytest`
 Rust:   `cd /app/tests/rust && cargo run`
 Go:     `cd /app/tests/go && /usr/local/go/bin/go test`
 
