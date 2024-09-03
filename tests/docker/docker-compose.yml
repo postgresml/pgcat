@@ -1,4 +1,3 @@
-version: "3"
 services:
   pg1:
     image: postgres:14

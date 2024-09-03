@@ -8,20 +8,31 @@ rm -rf /app/cov || true
 # Prepares the interactive test environment
 # 
 if [ -n "$INTERACTIVE_TEST_ENVIRONMENT" ]; then
-    cargo build
-    LOG_LEVEL=error toxiproxy-server &
-    cd /app/tests/ruby
-    sudo bundle install
-    cd /app/tests/python
-    pip3 install -r tests/python/requirements.txt
-    echo "Interactive test environment ready"
-    echo "Run the following commands to start the tests:"
-    echo "  docker compose exec main bash"
-    echo "  cd /app/tests/ruby && sudo bundle exec ruby tests.rb --format documentation # Ruby tests"
-    echo "  cd /app/tests/python && python3 tests.py # Python tests"
-    echo "You can rebuild PgCat from within the container by running" 
-    echo "  cargo build --release in /app"
-    echo "and then run the tests again"
+    ports=(5432 7432 8432 9432 10432)
+    for port in "${ports[@]}"; do
+        is_it_up=0
+        attempts=0
+        while [ $is_it_up -eq 0 ]; do
+            PGPASSWORD=postgres psql -h 127.0.0.1 -p $port -U postgres -c '\q' > /dev/null 2>&1
+            if [ $? -eq 0 ]; then
+                echo "PostgreSQL on port $port is up."
+                is_it_up=1
+            else
+                attempts=$((attempts+1))
+                if [ $attempts -gt 10 ]; then
+                    echo "PostgreSQL on port $port is down, giving up."
+                    exit 1
+                fi
+                echo "PostgreSQL on port $port is down, waiting for it to start."
+                sleep 1
+            fi
+        done
+    done
+    PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 5432  -U postgres -f /app/tests/sharding/query_routing_setup.sql
+    PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 7432  -U postgres -f /app/tests/sharding/query_routing_setup.sql
+    PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 8432  -U postgres -f /app/tests/sharding/query_routing_setup.sql
+    PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 9432  -U postgres -f /app/tests/sharding/query_routing_setup.sql
+    PGPASSWORD=postgres psql -e -h 127.0.0.1 -p 10432 -U postgres -f /app/tests/sharding/query_routing_setup.sql
     sleep 100000000000000000
     exit 0
 fi
