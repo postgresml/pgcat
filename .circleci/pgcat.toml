@@ -59,6 +59,7 @@ admin_password = "admin_pass"
 # session: one server connection per connected client
 # transaction: one server connection per client transaction
 pool_mode = "transaction"
+prepared_statements_cache_size = 500
 
 # If the client doesn't specify, route traffic to
 # this role by default.
@@ -141,6 +142,7 @@ query_parser_enabled = true
 query_parser_read_write_splitting = true
 primary_reads_enabled = true
 sharding_function = "pg_bigint_hash"
+prepared_statements_cache_size = 500
 
 [pools.simple_db.users.0]
 username = "simple_user"
