@@ -28,6 +28,10 @@ Go:     `cd /app/tests/go && /usr/local/go/bin/go test`
 You can also rebuild PgCat directly within the environment and the tests will run against the newly built binary
 To rebuild PgCat, just run `cargo build` within the container under `/app`
 
+![Animated gif showing how to run tests](https://github.com/user-attachments/assets/2258fde3-2aed-4efb-bdc5-e4f12dcd4d33)
+
+
+
 Happy hacking!
 
 ## TODOs
