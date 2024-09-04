@@ -1009,7 +1009,7 @@ where
             }
 
             // Grab a server from the pool.
-            let connection = match pool
+            let mut connection = match pool
                 .get(query_router.shard(), query_router.role(), &self.stats)
                 .await
             {
@@ -1055,9 +1055,8 @@ where
                 }
             };
 
-            let mut reference = connection.0;
+            let server = &mut *connection.0;
             let address = connection.1;
-            let server = &mut *reference;
 
             // Server is assigned to the client in case the client wants to
             // cancel a query later.
@@ -1077,6 +1076,9 @@ where
             );
 
             server.sync_parameters(&self.server_parameters).await?;
+            // TODO: investigate other parameters and set them too.
+
+            server.switch_async(false);
 
             let mut initial_message = Some(message);
 
@@ -1096,15 +1098,37 @@ where
                     None => {
                         trace!("Waiting for message inside transaction or in session mode");
 
-                        // This is not an initial message so discard the initial_parsed_ast
-                        initial_parsed_ast.take();
+                        let message = tokio::select! {
+                            message = tokio::time::timeout(
+                                idle_client_timeout_duration,
+                                read_message(&mut self.read),
+                            ) => message,
 
-                        match tokio::time::timeout(
-                            idle_client_timeout_duration,
-                            read_message(&mut self.read),
-                        )
-                        .await
-                        {
+                            server_message = server.recv(Some(&mut self.server_parameters)) => {
+                                debug!("Got async message");
+
+                                let server_message = match server_message {
+                                    Ok(message) => message,
+                                    Err(err) => {
+                                        pool.ban(&address, BanReason::MessageReceiveFailed, Some(&self.stats));
+                                        server.mark_bad(&format!("Failed to receive message from server: {:?}", err));
+                                        return Err(err);
+                                    }
+                                };
+
+                                match write_all_half(&mut self.write, &server_message).await {
+                                    Ok(_) => (),
+                                    Err(err) => {
+                                        server.mark_bad(&format!("Failed to write message to client: {:?}", err));
+                                        return Err(err);
+                                    }
+                                };
+
+                                continue;
+                            }
+                        };
+
+                        match message {
                             Ok(Ok(message)) => message,
                             Ok(Err(err)) => {
                                 // Client disconnected inside a transaction.
@@ -1271,9 +1295,13 @@ where
 
                     // Sync
                     // Frontend (client) is asking for the query result now.
-                    'S' => {
+                    'S' | 'H' => {
                         debug!("Sending query to server");
 
+                        if code == 'H' {
+                            server.switch_async(true);
+                            debug!("Client requested flush, going async");
+                        }
                         match plugin_output {
                             Some(PluginOutput::Deny(error)) => {
                                 error_response(&mut self.write, &error).await?;
@@ -1290,7 +1318,7 @@ where
                             }
 
                             _ => (),
-                        };
+                        }
 
                         // Prepared statements can arrive like this
                         // 1. Without named describe
