@@ -14,11 +14,11 @@ pub enum ShardingFunction {
     Sha1,
 }
 
-impl ToString for ShardingFunction {
-    fn to_string(&self) -> String {
-        match *self {
-            ShardingFunction::PgBigintHash => "pg_bigint_hash".to_string(),
-            ShardingFunction::Sha1 => "sha1".to_string(),
+impl std::fmt::Display for ShardingFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShardingFunction::PgBigintHash => write!(f, "pg_bigint_hash"),
+            ShardingFunction::Sha1 => write!(f, "sha1"),
         }
     }
 }

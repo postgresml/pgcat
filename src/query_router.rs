@@ -427,8 +427,12 @@ impl QueryRouter {
                         None => (),
                     };
 
-                    // If we already visited a write statement, we should be going to the primary.
-                    if !visited_write_statement {
+                    let has_locks = !query.locks.is_empty();
+
+                    if has_locks {
+                        self.active_role = Some(Role::Primary);
+                    } else if !visited_write_statement {
+                        // If we already visited a write statement, we should be going to the primary.
                         self.active_role = match self.primary_reads_enabled() {
                             false => Some(Role::Replica), // If primary should not be receiving reads, use a replica.
                             true => None,                 // Any server role is fine in this case.
@@ -1159,6 +1163,29 @@ mod test {
     }
 
     #[test]
+    fn test_select_for_update() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new();
+        qr.pool_settings.query_parser_read_write_splitting = true;
+
+        let queries_in_primary_role = vec![
+            simple_query("BEGIN"), // Transaction start
+            simple_query("SELECT * FROM items WHERE id = 5 FOR UPDATE"),
+            simple_query("UPDATE items SET name = 'pumpkin' WHERE id = 5"),
+        ];
+
+        for query in queries_in_primary_role {
+            assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
+            assert_eq!(qr.role(), Some(Role::Primary));
+        }
+
+        // query without lock do not change role
+        let query = simple_query("SELECT * FROM items WHERE id = 5");
+        assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
+        assert_eq!(qr.role(), None);
+    }
+
+    #[test]
     fn test_infer_primary_reads_enabled() {
         QueryRouter::setup();
         let mut qr = QueryRouter::new();
@@ -1370,6 +1397,19 @@ mod test {
         let query = simple_query("SET SERVER ROLE TO 'default'");
         assert!(qr.try_execute_command(&query).is_some());
         assert!(!qr.query_parser_enabled());
+    }
+
+    #[test]
+    fn test_query_parser() {
+        QueryRouter::setup();
+        let mut qr = QueryRouter::new();
+        qr.pool_settings.query_parser_read_write_splitting = true;
+
+        let query = simple_query("SELECT req_tab_0.*  FROM validation req_tab_0  WHERE  array['http://www.w3.org/ns/shacl#ValidationResult'] && req_tab_0.type::text[] AND ( (  (req_tab_0.focusnode = 'DataSource_Credilogic_DataSourceAddress_144959227') )  )");
+        assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
+
+        let query = simple_query("WITH EmployeeSalaries AS (SELECT Department, Salary FROM Employees) SELECT Department, AVG(Salary) AS AverageSalary FROM EmployeeSalaries GROUP BY Department;");
+        assert!(qr.infer(&qr.parse(&query).unwrap()).is_ok());
     }
 
     #[test]

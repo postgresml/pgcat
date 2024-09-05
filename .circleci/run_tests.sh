@@ -26,6 +26,7 @@ PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard1 -i
 PGPASSWORD=sharding_user pgbench -h 127.0.0.1 -U sharding_user shard2 -i
 
 # Start Toxiproxy
+kill -9 $(pgrep toxiproxy) || true
 LOG_LEVEL=error toxiproxy-server &
 sleep 1
 
@@ -176,4 +177,7 @@ pgbench -U sharding_user -h 127.0.0.1 -p 6432 -t 500 -c 2 --protocol prepared
 killall pgcat -s SIGINT
 
 # Allow for graceful shutdown
+sleep 1
+
+kill -9 $(pgrep toxiproxy)
 sleep 1
