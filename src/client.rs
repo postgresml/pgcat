@@ -346,6 +346,14 @@ where
         // Client is requesting to cancel a running query (plain text connection).
         CANCEL_REQUEST_CODE => Ok((ClientConnectionType::CancelQuery, bytes)),
 
+        // Client is requesting a GSS encoded connection
+        GSSENC_REQUEST_CODE => {
+            error_response_terminal(stream, "").await?;
+            Err(Error::ProtocolSyncError(
+                "PGCat does not support GSSAPI encoding".into(),
+            ))
+        },
+
         // Something else, probably something is wrong and it's not our fault,
         // e.g. badly implemented Postgres client.
         _ => Err(Error::ProtocolSyncError(format!(
