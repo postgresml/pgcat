@@ -1,12 +1,34 @@
-import os
+
 import signal
 import time
 
 import psycopg2
-
 import utils
 
 SHUTDOWN_TIMEOUT = 5
+
+def _test_admin_trust_auth():
+    conn, cur = utils.connect_db_trust(admin=True)
+    cur.execute("SHOW POOLS")
+    res = cur.fetchall()
+    print(res)
+    utils.cleanup_conn(conn, cur)
+
+
+def _test_normal_trust_auth():
+    conn, cur = utils.connect_db_trust(autocommit=False)
+    cur.execute("SELECT 1")
+    res = cur.fetchall()
+    print(res)
+    utils.cleanup_conn(conn, cur)
+
+
+def test_trust():
+    utils.pgcat_trust_start()
+    _test_admin_trust_auth()
+    _test_normal_trust_auth()
+    utils.pg_cat_send_signal(signal.SIGTERM)
+
 
 def test_normal_db_access():
     utils.pgcat_start()
@@ -256,3 +278,5 @@ def test_shutdown_logic():
 
     utils.cleanup_conn(conn, cur)
     utils.pg_cat_send_signal(signal.SIGTERM)
+
+    # - - - - - - - - - - - - - - - - - -
