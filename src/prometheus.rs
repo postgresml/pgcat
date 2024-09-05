@@ -334,7 +334,7 @@ fn push_address_stats(lines: &mut Vec<String>) {
                     {
                         grouped_metrics
                             .entry(key)
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(prometheus_metric);
                     } else {
                         debug!("Metric {} not implemented for {}", key, address.name());
@@ -364,7 +364,7 @@ fn push_pool_stats(lines: &mut Vec<String>) {
             {
                 grouped_metrics
                     .entry(name)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(prometheus_metric);
             } else {
                 debug!("Metric {} not implemented for ({})", name, *pool_id);
@@ -400,7 +400,7 @@ fn push_database_stats(lines: &mut Vec<String>) {
                     {
                         grouped_metrics
                             .entry(key.to_string())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(prometheus_metric);
                     } else {
                         debug!("Metric {} not implemented for {}", key, address.name());
@@ -474,7 +474,7 @@ fn push_server_stats(lines: &mut Vec<String>) {
                         {
                             grouped_metrics
                                 .entry(key.to_string())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(prometheus_metric);
                         } else {
                             debug!("Metric {} not implemented for {}", key, address.name());
