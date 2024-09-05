@@ -16,7 +16,7 @@ describe "Stats" do
       it "updates *_query_time and *_wait_time" do
         connections = Array.new(3) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
         connections.each do |c|
-          Thread.new { c.async_exec("SELECT pg_sleep(0.25)") }
+          Thread.new { c.async_exec("BEGIN; SELECT pg_sleep(0.25); COMMIT;") }
         end
         sleep(1)
         connections.map(&:close)
@@ -25,9 +25,31 @@ describe "Stats" do
         sleep(15.5)
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
         results = admin_conn.async_exec("SHOW STATS")[0]
-        admin_conn.close
         expect(results["total_query_time"].to_i).to be_within(200).of(750)
         expect(results["avg_query_time"].to_i).to be_within(50).of(250)
+
+        expect(results["total_xact_time"].to_i).to be_within(200).of(750)
+        expect(results["avg_xact_time"].to_i).to be_within(50).of(250)
+
+        expect(results["total_wait_time"].to_i).to_not eq(0)
+        expect(results["avg_wait_time"].to_i).to_not eq(0)
+
+        connections = Array.new(3) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          Thread.new { c.async_exec("SELECT pg_sleep(0.25);") }
+        end
+        sleep(1)
+        connections.map(&:close)
+
+        results = admin_conn.async_exec("SHOW STATS")[0]
+        admin_conn.close
+        # This should increase with more queries
+        expect(results["total_query_time"].to_i).to be_within(400).of(1500)
+        expect(results["avg_query_time"].to_i).to be_within(50).of(250)
+
+        # This should not increase as we did not run any additional transactions
+        expect(results["total_xact_time"].to_i).to be_within(200).of(750)
+        expect(results["avg_xact_time"].to_i).to be_within(50).of(250)
 
         expect(results["total_wait_time"].to_i).to_not eq(0)
         expect(results["avg_wait_time"].to_i).to_not eq(0)

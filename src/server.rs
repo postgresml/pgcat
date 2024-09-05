@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
+use tokio::time::Instant;
 use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
@@ -284,6 +285,9 @@ pub struct Server {
 
     /// Is the server inside a transaction or idle.
     in_transaction: bool,
+
+    /// The time the most recent transaction started.
+    transaction_start: Instant,
 
     /// Is there more data for the client to read.
     data_available: bool,
@@ -804,6 +808,7 @@ impl Server {
                         process_id,
                         secret_key,
                         in_transaction: false,
+                        transaction_start: Instant::now(),
                         in_copy_mode: false,
                         data_available: false,
                         bad: false,
@@ -936,6 +941,7 @@ impl Server {
                         // In transaction.
                         'T' => {
                             self.in_transaction = true;
+                            self.transaction_start = Instant::now();
                         }
 
                         // Idle, transaction over.
@@ -1218,6 +1224,12 @@ impl Server {
     pub fn in_transaction(&self) -> bool {
         debug!("Server in transaction: {}", self.in_transaction);
         self.in_transaction
+    }
+
+    /// The start time of the most recent transaction.
+    /// Will be stale if not in a transaction.
+    pub fn transaction_start(&self) -> Instant {
+        self.transaction_start
     }
 
     /// Currently copying data from client to server or vice-versa.
