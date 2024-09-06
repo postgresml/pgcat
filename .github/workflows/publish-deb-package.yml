@@ -1,6 +1,9 @@
 name: pgcat package (deb)
 
 on:
+  push:
+    tags:
+      - v*
   workflow_dispatch:
     inputs:
       packageVersion:
@@ -16,6 +19,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
+    - name: Set package version
+      if: github.event_name == 'push'  # For push event
+      run: |
+        TAG=${{ github.ref_name }}
+        echo "packageVersion=${TAG#v}" >> "$GITHUB_ENV"
+    - name: Set package version (manual dispatch)
+      if: github.event_name == 'workflow_dispatch'  # For manual dispatch
+      run: echo "packageVersion=${{ github.event.inputs.packageVersion }}" >> "$GITHUB_ENV"
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
@@ -39,10 +50,10 @@ jobs:
           export ARCH=arm64
         fi
 
-        bash utilities/deb.sh ${{ inputs.packageVersion }}
+        bash utilities/deb.sh ${{ env.packageVersion }}
 
         deb-s3 upload \
           --lock \
           --bucket apt.postgresml.org \
-          pgcat-${{ inputs.packageVersion }}-ubuntu22.04-${ARCH}.deb \
+          pgcat-${{ env.packageVersion }}-ubuntu22.04-${ARCH}.deb \
           --codename $(lsb_release -cs)
