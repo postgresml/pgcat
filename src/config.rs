@@ -212,6 +212,7 @@ pub struct User {
     pub server_password: Option<String>,
     pub pool_size: u32,
     pub min_pool_size: Option<u32>,
+    pub max_clients: Option<u64>,
     pub pool_mode: Option<PoolMode>,
     pub server_lifetime: Option<u64>,
     #[serde(default)] // 0
@@ -229,6 +230,7 @@ impl Default for User {
             server_password: None,
             pool_size: 15,
             min_pool_size: None,
+            max_clients: None,
             statement_timeout: 0,
             pool_mode: None,
             server_lifetime: None,
@@ -288,6 +290,8 @@ pub struct General {
 
     #[serde(default)] // False
     pub log_client_disconnections: bool,
+
+    pub max_clients: Option<u64>,
 
     #[serde(default)] // False
     pub dns_cache_enabled: bool,
@@ -437,6 +441,7 @@ impl Default for General {
             tcp_keepalives_count: Self::default_tcp_keepalives_count(),
             tcp_keepalives_interval: Self::default_tcp_keepalives_interval(),
             tcp_user_timeout: Self::default_tcp_user_timeout(),
+            max_clients: None,
             log_client_connections: false,
             log_client_disconnections: false,
             dns_cache_enabled: false,

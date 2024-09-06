@@ -74,6 +74,7 @@ impl AuthPassthrough {
             password: Some(self.password.clone()),
             server_username: None,
             server_password: None,
+            max_clients: None,
             pool_size: 1,
             statement_timeout: 0,
             pool_mode: None,

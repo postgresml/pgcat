@@ -18,9 +18,10 @@ use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address,
 use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
-use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
+use crate::pool::{get_pool, ClientServerMap, ConnectionPool, PoolIdentifier};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::{Server, ServerParameters};
+use crate::stats::pool::PoolStats;
 use crate::stats::{ClientStats, ServerStats};
 use crate::tls::Tls;
 
@@ -565,6 +566,42 @@ where
 
                     return Err(Error::ClientGeneralError(
                         "Invalid pool name".into(),
+                        client_identifier,
+                    ));
+                }
+            };
+
+            let config = get_config();
+            if config.general.max_clients.is_some() {
+                let max_clients = config.general.max_clients.unwrap();
+                let mut pgcat_client_connections = 0;
+                let all_pool_stats = PoolStats::construct_pool_lookup();
+                for (_, pool_stats) in all_pool_stats.into_iter() {
+                    pgcat_client_connections += pool_stats.total_client_connection();
+                }
+                if max_clients <= pgcat_client_connections {
+                    error_response_terminal(&mut write, "pgcat client connection limit exceeded")
+                        .await?;
+                    return Err(Error::ClientGeneralError(
+                        "Max Clients exceeded".into(),
+                        client_identifier,
+                    ));
+                }
+            };
+
+            if pool.settings.user.max_clients.is_some() {
+                let max_clients = pool.settings.user.max_clients.unwrap();
+                // get pool stats
+                let pool_stats = PoolStats::construct_pool_lookup()
+                    .get(&PoolIdentifier::new(pool_name, username))
+                    .cloned()
+                    .unwrap();
+                let current_pool_connections = pool_stats.total_client_connection();
+                if max_clients <= current_pool_connections {
+                    error_response_terminal(&mut write, "pool client connection limit exceeded")
+                        .await?;
+                    return Err(Error::ClientGeneralError(
+                        "Max Clients exceeded".into(),
                         client_identifier,
                     ));
                 }
