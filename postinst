@@ -7,3 +7,7 @@ systemctl enable pgcat
 if ! id pgcat 2> /dev/null; then
 	useradd -s /usr/bin/false pgcat
 fi
+
+if [ -f /etc/pgcat.toml ]; then
+	systemctl start pgcat
+fi
