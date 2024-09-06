@@ -352,7 +352,7 @@ where
             Err(Error::ProtocolSyncError(
                 "PGCat does not support GSSAPI encoding".into(),
             ))
-        },
+        }
 
         // Something else, probably something is wrong and it's not our fault,
         // e.g. badly implemented Postgres client.
