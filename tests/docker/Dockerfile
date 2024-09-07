@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install llvm-11 psmisc postgresql-contrib postgres
 RUN cargo install cargo-binutils rustfilt
 RUN rustup component add llvm-tools-preview
 RUN sudo gem install bundler
+RUN wget -O /usr/bin/glauth https://github.com/glauth/glauth/releases/download/v2.3.2/glauth-linux-amd64
+RUN chmod +x /usr/bin/glauth
 RUN wget -O toxiproxy-2.4.0.deb https://github.com/Shopify/toxiproxy/releases/download/v2.4.0/toxiproxy_2.4.0_linux_$(dpkg --print-architecture).deb && \
 	sudo dpkg -i toxiproxy-2.4.0.deb
 RUN wget -O go1.21.3.linux-$(dpkg --print-architecture).tar.gz https://go.dev/dl/go1.21.3.linux-$(dpkg --print-architecture).tar.gz && \

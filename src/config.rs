@@ -208,6 +208,11 @@ impl Address {
 pub struct User {
     pub username: String,
     pub password: Option<String>,
+
+    #[serde(default = "User::default_auth_type")]
+    pub auth_type: AuthType,
+    pub auth_ldapsuffix: Option<String>,
+    pub auth_ldapurl: Option<String>,
     pub server_username: Option<String>,
     pub server_password: Option<String>,
     pub pool_size: u32,
@@ -225,6 +230,9 @@ impl Default for User {
         User {
             username: String::from("postgres"),
             password: None,
+            auth_type: AuthType::MD5,
+            auth_ldapsuffix: None,
+            auth_ldapurl: None,
             server_username: None,
             server_password: None,
             pool_size: 15,
@@ -239,6 +247,10 @@ impl Default for User {
 }
 
 impl User {
+    pub fn default_auth_type() -> AuthType {
+        AuthType::MD5
+    }
+
     fn validate(&self) -> Result<(), Error> {
         if let Some(min_pool_size) = self.min_pool_size {
             if min_pool_size > self.pool_size {
@@ -334,6 +346,12 @@ pub struct General {
     pub admin_username: String,
     pub admin_password: String,
 
+    #[serde(default = "General::default_admin_auth_type")]
+    pub admin_auth_type: AuthType,
+
+    pub admin_auth_ldapurl: Option<String>,
+    pub admin_auth_ldapsuffix: Option<String>,
+
     #[serde(default = "General::default_validate_config")]
     pub validate_config: bool,
 
@@ -346,6 +364,10 @@ pub struct General {
 impl General {
     pub fn default_host() -> String {
         "0.0.0.0".into()
+    }
+
+    pub fn default_admin_auth_type() -> AuthType {
+        AuthType::MD5
     }
 
     pub fn default_port() -> u16 {
@@ -456,6 +478,9 @@ impl Default for General {
             verify_server_certificate: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
+            admin_auth_type: AuthType::MD5,
+            admin_auth_ldapurl: None,
+            admin_auth_ldapsuffix: None,
             validate_config: true,
             auth_query: None,
             auth_query_user: None,
@@ -474,6 +499,15 @@ pub enum PoolMode {
 
     #[serde(alias = "session", alias = "Session")]
     Session,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub enum AuthType {
+    #[serde(alias = "LDAP", alias = "ldap")]
+    LDAP,
+
+    #[serde(alias = "md5", alias = "MD5")]
+    MD5,
 }
 
 impl std::fmt::Display for PoolMode {
