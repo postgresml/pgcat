@@ -1,7 +1,7 @@
+use crate::config::AuthType;
 use crate::errors::Error;
 use crate::pool::ConnectionPool;
 use crate::server::Server;
-use crate::config::AuthType;
 use log::debug;
 
 #[derive(Clone, Debug)]

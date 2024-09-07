@@ -508,8 +508,6 @@ pub enum AuthType {
 
     #[serde(alias = "md5", alias = "MD5")]
     MD5,
-
-
 }
 
 impl std::fmt::Display for PoolMode {

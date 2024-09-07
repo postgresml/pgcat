@@ -15,7 +15,9 @@ use tokio::sync::mpsc::Sender;
 
 use crate::admin::{generate_server_parameters_for_admin, handle_admin};
 use crate::auth_passthrough::refetch_auth_hash;
-use crate::config::{get_config, get_idle_client_in_transaction_timeout, Address, PoolMode, AuthType};
+use crate::config::{
+    get_config, get_idle_client_in_transaction_timeout, Address, AuthType, PoolMode,
+};
 use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
@@ -435,17 +437,14 @@ async fn authenticate_ldap(
     // Attempts a simple bind using the passed in values of username and Password
     println!("{:?}", password);
     let result = ldap
-        .simple_bind(email.as_str(), &password)
+        .simple_bind(email.as_str(), password)
         .await
         .unwrap()
         .success();
     ldap.unbind().await.unwrap();
 
     // If the authentication is successful return true, else return false.
-    match result {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    result.is_ok()
 }
 
 impl<S, T> Client<S, T>
@@ -629,7 +628,7 @@ where
                     let str_password = str_password.trim_matches(char::from(0));
                     let unsuccessful_auth = !authenticate_ldap(
                         &config.general.admin_username,
-                        &str_password,
+                        str_password,
                         &config.general.admin_auth_ldapurl.unwrap(),
                         &config.general.admin_auth_ldapsuffix.unwrap(),
                     )
@@ -643,7 +642,7 @@ where
                         ));
                     }
                 }
-                }
+            }
             (false, generate_server_parameters_for_admin())
         }
         // Authenticate normal user.
@@ -736,7 +735,10 @@ where
 
                             match refetch_auth_hash(&pool).await {
                                 Ok(fetched_hash) => {
-                                    warn!("Password for {}, obtained. Updating.", client_identifier);
+                                    warn!(
+                                        "Password for {}, obtained. Updating.",
+                                        client_identifier
+                                    );
 
                                     {
                                         let mut pool_auth_hash = pool.auth_hash.write();
@@ -803,7 +805,7 @@ where
                     }
                 }
                 AuthType::LDAP => {
-                   clear_text_challenge(&mut write).await?;
+                    clear_text_challenge(&mut write).await?;
                     let code = match read.read_u8().await {
                         Ok(p) => p,
                         Err(_) => {
@@ -846,8 +848,8 @@ where
                     let str_password = String::from_utf8(password_response).unwrap();
                     let str_password = str_password.trim_matches(char::from(0));
                     let unsuccessful_auth = !authenticate_ldap(
-                        &pool.settings.user.username.as_str(),
-                        &str_password,
+                        pool.settings.user.username.as_str(),
+                        str_password,
                         &pool.settings.user.auth_ldapurl.clone().unwrap(),
                         &pool.settings.user.auth_ldapsuffix.clone().unwrap(),
                     )
