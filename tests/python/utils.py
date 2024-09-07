@@ -8,7 +8,6 @@ import psycopg2
 
 PGCAT_HOST = "127.0.0.1"
 PGCAT_PORT = "6432"
-SHUTDOWN_TIMEOUT = 5
 
 
 def _pgcat_start(config_path: str):
@@ -19,10 +18,6 @@ def _pgcat_start(config_path: str):
 
 def pgcat_start():
     _pgcat_start(config_path='.circleci/pgcat.toml')
-
-
-def pgcat_trust_start():
-    _pgcat_start(config_path='.circleci/pgcat_trust.toml')
 
 
 def pgcat_ldap_start():
@@ -83,27 +78,6 @@ def connect_db(
 
     conn = psycopg2.connect(
         f"postgres://{user}:{password}@{PGCAT_HOST}:{PGCAT_PORT}/{db}?application_name=testing_pgcat",
-        connect_timeout=2,
-    )
-    conn.autocommit = autocommit
-    cur = conn.cursor()
-
-    return (conn, cur)
-
-def connect_db_trust(
-    autocommit: bool = True,
-    admin: bool = False,
-) -> Tuple[psycopg2.extensions.connection, psycopg2.extensions.cursor]:
-
-    if admin:
-        user = "admin_user"
-        db = "pgcat"
-    else:
-        user = "sharding_user"
-        db = "sharded_db"
-
-    conn = psycopg2.connect(
-        f"postgres://{user}@{PGCAT_HOST}:{PGCAT_PORT}/{db}?application_name=testing_pgcat",
         connect_timeout=2,
     )
     conn.autocommit = autocommit

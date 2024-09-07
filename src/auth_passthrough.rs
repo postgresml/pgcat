@@ -1,6 +1,7 @@
 use crate::errors::Error;
 use crate::pool::ConnectionPool;
 use crate::server::Server;
+use crate::config::AuthType;
 use log::debug;
 
 #[derive(Clone, Debug)]
@@ -71,7 +72,7 @@ impl AuthPassthrough {
     pub async fn fetch_hash(&self, address: &crate::config::Address) -> Result<String, Error> {
         let auth_user = crate::config::User {
             username: self.user.clone(),
-            auth_type: "".to_string(),
+            auth_type: AuthType::MD5,
             auth_ldapsuffix: None,
             auth_ldapurl: None,
             password: Some(self.password.clone()),

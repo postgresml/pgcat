@@ -210,7 +210,7 @@ pub struct User {
     pub password: Option<String>,
 
     #[serde(default = "User::default_auth_type")]
-    pub auth_type: String,
+    pub auth_type: AuthType,
     pub auth_ldapsuffix: Option<String>,
     pub auth_ldapurl: Option<String>,
     pub server_username: Option<String>,
@@ -230,7 +230,7 @@ impl Default for User {
         User {
             username: String::from("postgres"),
             password: None,
-            auth_type: "md5".to_string(),
+            auth_type: AuthType::MD5,
             auth_ldapsuffix: None,
             auth_ldapurl: None,
             server_username: None,
@@ -247,8 +247,8 @@ impl Default for User {
 }
 
 impl User {
-    pub fn default_auth_type() -> String {
-        "md5".into()
+    pub fn default_auth_type() -> AuthType {
+        AuthType::MD5
     }
 
     fn validate(&self) -> Result<(), Error> {
@@ -347,7 +347,7 @@ pub struct General {
     pub admin_password: String,
 
     #[serde(default = "General::default_admin_auth_type")]
-    pub admin_auth_type: String,
+    pub admin_auth_type: AuthType,
 
     pub admin_auth_ldapurl: Option<String>,
     pub admin_auth_ldapsuffix: Option<String>,
@@ -366,8 +366,8 @@ impl General {
         "0.0.0.0".into()
     }
 
-    pub fn default_admin_auth_type() -> String {
-        "md5".into()
+    pub fn default_admin_auth_type() -> AuthType {
+        AuthType::MD5
     }
 
     pub fn default_port() -> u16 {
@@ -478,7 +478,7 @@ impl Default for General {
             verify_server_certificate: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
-            admin_auth_type: String::from("md5"),
+            admin_auth_type: AuthType::MD5,
             admin_auth_ldapurl: None,
             admin_auth_ldapsuffix: None,
             validate_config: true,
@@ -499,6 +499,17 @@ pub enum PoolMode {
 
     #[serde(alias = "session", alias = "Session")]
     Session,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub enum AuthType {
+    #[serde(alias = "LDAP", alias = "ldap")]
+    LDAP,
+
+    #[serde(alias = "md5", alias = "MD5")]
+    MD5,
+
+
 }
 
 impl std::fmt::Display for PoolMode {
