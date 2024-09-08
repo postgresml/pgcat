@@ -205,6 +205,7 @@ impl Address {
 
 /// PostgreSQL user.
 #[derive(Clone, PartialEq, Hash, Eq, Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct User {
     pub username: String,
     pub password: Option<String>,
@@ -256,6 +257,7 @@ impl User {
 
 /// General configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct General {
     #[serde(default = "General::default_host")]
     pub host: String,
@@ -506,6 +508,7 @@ impl std::fmt::Display for LoadBalancingMode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[serde(deny_unknown_fields)]
 pub struct Pool {
     #[serde(default = "Pool::default_pool_mode")]
     pub pool_mode: PoolMode,
@@ -795,6 +798,7 @@ pub struct MirrorServerConfig {
 
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Shard {
     pub database: String,
     pub mirrors: Option<Vec<MirrorServerConfig>>,
@@ -854,6 +858,7 @@ impl Default for Shard {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Plugins {
     pub intercept: Option<Intercept>,
     pub table_access: Option<TableAccess>,
@@ -886,6 +891,7 @@ impl std::fmt::Display for Plugins {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Intercept {
     pub enabled: bool,
     pub queries: BTreeMap<String, Query>,
@@ -898,6 +904,7 @@ impl Plugin for Intercept {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct TableAccess {
     pub enabled: bool,
     pub tables: Vec<String>,
@@ -910,6 +917,7 @@ impl Plugin for TableAccess {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct QueryLogger {
     pub enabled: bool,
 }
@@ -921,6 +929,7 @@ impl Plugin for QueryLogger {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Prewarmer {
     pub enabled: bool,
     pub queries: Vec<String>,
@@ -942,6 +951,7 @@ impl Intercept {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct Query {
     pub query: String,
     pub schema: Vec<Vec<String>>,
@@ -961,6 +971,7 @@ impl Query {
 
 /// Configuration wrapper.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     // Serializer maintains the order of fields in the struct
     // so we should always put simple fields before nested fields
