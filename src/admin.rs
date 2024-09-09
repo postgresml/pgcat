@@ -568,12 +568,17 @@ where
     T: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     info!("Reloading config");
+    let mut res = BytesMut::new();
 
-    reload_config(client_server_map).await?;
+    // TODO If error print what the error was
+    match reload_config(client_server_map).await {
+        Ok(_) => (),
+        Err(_) => {
+            res.put(notify("ERROR", "Error found in config, please see pgcat log for details".to_string()));
+        },
+    };
 
     get_config().show();
-
-    let mut res = BytesMut::new();
 
     res.put(command_complete("RELOAD"));
 
