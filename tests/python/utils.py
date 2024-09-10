@@ -1,10 +1,10 @@
+from typing import Tuple
 import os
+import pathlib
 import signal
 import subprocess
 import tempfile
 import time
-from typing import Tuple
-import tempfile
 
 import psutil
 import psycopg2
@@ -13,17 +13,9 @@ PGCAT_HOST = "127.0.0.1"
 PGCAT_PORT = "6432"
 
 
-def _pgcat_start(config_path: str):
+def pgcat_start_from_file_path(config_path: str):
     pg_cat_send_signal(signal.SIGTERM)
-    os.system(f"./target/debug/pgcat {config_path} &")
-    time.sleep(2)
-
-
-def pgcat_start_with_config(config: str):
-    config_file = tempfile.NamedTemporaryFile(delete=False)
-    config_file.write(str.encode(config))
-    config_file.close()
-    process = subprocess.Popen(["./target/debug/pgcat", config_file.name], shell=False)
+    process = subprocess.Popen(["./target/debug/pgcat", config_path], shell=False)
     time.sleep(2)
     return process
 
@@ -39,17 +31,18 @@ def connect_db_generic(
     conn.autocommit = autocommit
     cur = conn.cursor()
     return (conn, cur)
-  
-  
-def pgcat_start():
-    _pgcat_start(config_path='.circleci/pgcat.toml')
 
 
-def pgcat_generic_start(config: str):
+def pgcat_start_background():
+    os.system("./target/debug/pgcat .circleci/pgcat.toml &") 
+    time.sleep(2)
+
+
+def pgcat_generic_start_from_string(config: str):
     tmp = tempfile.NamedTemporaryFile()
-    with open(tmp.name, 'w') as f:
+    with pathlib.Path(tmp.name).open("w") as f:
         f.write(config)
-    _pgcat_start(config_path=tmp.name)
+    return pgcat_start_from_file_path(config_path=tmp.name)
 
 
 def glauth_send_signal(signal: signal.Signals):
@@ -71,7 +64,7 @@ def glauth_send_signal(signal: signal.Signals):
 def pg_cat_send_signal(signal: signal.Signals):
     try:
         for proc in psutil.process_iter(["pid", "name"]):
-            if proc.name() == "pgcat":
+            if "pgcat" == proc.name():
                 os.kill(proc.pid, signal)
     except Exception as e:
         # The process can be gone when we send this signal

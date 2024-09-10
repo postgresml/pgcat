@@ -37,7 +37,7 @@ def setup_module(module) -> None:
     ]
     database = "some_db"
     """
-    module.pgcat_process = utils.pgcat_start_with_config(pgcat_conf)
+    module.pgcat_process = utils.pgcat_generic_start_from_string(pgcat_conf)
     time.sleep(2)
 
 
