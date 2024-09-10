@@ -64,20 +64,6 @@ where
     write_all(stream, auth_ok).await
 }
 
-/// Tell the client to use clearr text auth
-pub async fn clear_text_challenge<S>(stream: &mut S) -> Result<(), Error>
-where
-    S: tokio::io::AsyncWrite + std::marker::Unpin,
-{
-    let mut auth_clear_text = BytesMut::with_capacity(9);
-
-    auth_clear_text.put_u8(b'R');
-    auth_clear_text.put_i32(8);
-    auth_clear_text.put_i32(3);
-
-    write_all(stream, auth_clear_text).await
-}
-
 /// Generate md5 password challenge.
 pub async fn md5_challenge<S>(stream: &mut S) -> Result<[u8; 4], Error>
 where
