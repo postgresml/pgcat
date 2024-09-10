@@ -81,7 +81,6 @@ def pg_cat_send_signal(signal: signal.Signals):
         # Returns 0 if pgcat process exists
         time.sleep(2)
         if not os.system('pgrep pgcat'):
-            breakpoint()
             raise Exception("pgcat not closed after SIGTERM")
 
 
