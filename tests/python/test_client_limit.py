@@ -10,9 +10,11 @@ def setup_module(module) -> None:
 
     host = "0.0.0.0"
     port = 6433
+    max_clients = 4
+
     admin_username = "pgcat"
     admin_password = "pgcat"
-    max_clients = 4
+    admin_max_clients = 2
 
     [pools.pgml.users.0]
     username = "limited_user"
@@ -69,6 +71,26 @@ def test_pgcat_limit() -> None:
 
     utils.connect_db_generic(
         username='unlimited_user', password='unlimited_user', host='127.0.0.1', database='pgml', port=6433)
+
+
+def test_admin_user_limit():
+  # Open 2 connections for limited User
+    limited_conns = [
+        utils.connect_db_generic(
+          username='pgcat', password='pgcat', host='127.0.0.1', database='pgcat', port=6433)
+        for _ in range(2)]
+
+  # Validate 3rd connection does not work
+    with pytest.raises(psycopg2.OperationalError):
+        utils.connect_db_generic(
+            username='pgcat', password='pgcat', host='127.0.0.1', database='pgcat', port=6433)
+
+  # Close 2nd Connection
+    (conn, curr) = limited_conns.pop(-1)
+    utils.cleanup_conn(conn, curr)
+
+    utils.connect_db_generic(
+        username='pgcat', password='pgcat', host='127.0.0.1', database='pgcat', port=6433)
 
 
 def test_user_limit() -> None:

@@ -345,6 +345,7 @@ pub struct General {
 
     pub admin_username: String,
     pub admin_password: String,
+    pub admin_max_clients: Option<u64>,
 
     #[serde(default = "General::default_admin_auth_type")]
     pub admin_auth_type: AuthType,
@@ -476,6 +477,7 @@ impl Default for General {
             verify_server_certificate: false,
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
+            admin_max_clients: None,
             admin_auth_type: AuthType::MD5,
             validate_config: true,
             auth_query: None,

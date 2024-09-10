@@ -24,7 +24,7 @@ use crate::pool::{get_pool, ClientServerMap, ConnectionPool, PoolIdentifier};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::{Server, ServerParameters};
 use crate::stats::pool::PoolStats;
-use crate::stats::{ClientStats, ServerStats};
+use crate::stats::{get_client_stats, ClientStats, ServerStats};
 use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
@@ -460,6 +460,24 @@ where
 
         let client_identifier = ClientIdentifier::new(application_name, username, pool_name);
 
+        let config = get_config();
+        if config.general.max_clients.is_some() {
+            let max_clients = config.general.max_clients.unwrap();
+            let mut pgcat_client_connections = 0;
+            let client_map = get_client_stats();
+            for (_, _) in client_map.into_iter() {
+                pgcat_client_connections += 1;
+            }
+            if max_clients <= pgcat_client_connections {
+                error_response_terminal(&mut write, "pgcat client connection limit exceeded")
+                    .await?;
+                return Err(Error::ClientGeneralError(
+                    "Max Clients exceeded".into(),
+                    client_identifier,
+                ));
+            }
+        };
+
         let admin = ["pgcat", "pgbouncer"]
             .iter()
             .filter(|db| *db == pool_name)
@@ -489,6 +507,28 @@ where
         // Authenticate admin user.
         let (transaction_mode, mut server_parameters) = if admin {
             let config = get_config();
+
+            if config.general.admin_max_clients.is_some() {
+                let max_clients = config.general.admin_max_clients.unwrap();
+                let mut pgcat_client_connections = 0;
+                let client_map = get_client_stats();
+                for (_, client) in client_map.into_iter() {
+                    if client.username() == config.general.admin_username
+                        && ["pgcat", "pgbouncer"].contains(&client.pool_name().as_str())
+                    {
+                        pgcat_client_connections += 1;
+                    }
+                }
+                if max_clients <= pgcat_client_connections {
+                    error_response_terminal(&mut write, "pgcat client connection limit exceeded")
+                        .await?;
+                    return Err(Error::ClientGeneralError(
+                        "Max Clients exceeded".into(),
+                        client_identifier,
+                    ));
+                }
+            };
+
             // TODO: Add SASL support.
             // Perform MD5 authentication.
             match config.general.admin_auth_type {
@@ -572,24 +612,6 @@ where
 
                     return Err(Error::ClientGeneralError(
                         "Invalid pool name".into(),
-                        client_identifier,
-                    ));
-                }
-            };
-
-            let config = get_config();
-            if config.general.max_clients.is_some() {
-                let max_clients = config.general.max_clients.unwrap();
-                let mut pgcat_client_connections = 0;
-                let all_pool_stats = PoolStats::construct_pool_lookup();
-                for (_, pool_stats) in all_pool_stats.into_iter() {
-                    pgcat_client_connections += pool_stats.total_client_connection();
-                }
-                if max_clients <= pgcat_client_connections {
-                    error_response_terminal(&mut write, "pgcat client connection limit exceeded")
-                        .await?;
-                    return Err(Error::ClientGeneralError(
-                        "Max Clients exceeded".into(),
                         client_identifier,
                     ));
                 }
