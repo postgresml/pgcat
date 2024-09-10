@@ -2,6 +2,7 @@ import os
 import signal
 import time
 from typing import Tuple
+import tempfile
 
 import psutil
 import psycopg2
@@ -20,8 +21,11 @@ def pgcat_start():
     _pgcat_start(config_path='.circleci/pgcat.toml')
 
 
-def pgcat_trust_start():
-    _pgcat_start(config_path='.circleci/pgcat_trust.toml')
+def pgcat_generic_start(config: str):
+    tmp = tempfile.NamedTemporaryFile()
+    with open(tmp.name, 'w') as f:
+        f.write(config)
+    _pgcat_start(config_path=tmp.name)
 
 
 def glauth_send_signal(signal: signal.Signals):
@@ -43,7 +47,7 @@ def glauth_send_signal(signal: signal.Signals):
 def pg_cat_send_signal(signal: signal.Signals):
     try:
         for proc in psutil.process_iter(["pid", "name"]):
-            if proc.name() == "pgcat":
+            if "pgcat" == proc.name():
                 os.kill(proc.pid, signal)
     except Exception as e:
         # The process can be gone when we send this signal
