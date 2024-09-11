@@ -1,6 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 /// Implements various sharding functions.
 use sha1::{Digest, Sha1};
+use std::collections::HashMap;
 
 /// See: <https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/catalog/partition.h#L20>.
 const PARTITION_HASH_SEED: u64 = 0x7A5B22367996DCFD;
@@ -12,6 +13,8 @@ pub enum ShardingFunction {
     PgBigintHash,
     #[serde(alias = "sha1", alias = "Sha1")]
     Sha1,
+    #[serde(alias = "lookup", alias = "Lookup")]
+    Lookup,
 }
 
 impl std::fmt::Display for ShardingFunction {
@@ -19,6 +22,7 @@ impl std::fmt::Display for ShardingFunction {
         match self {
             ShardingFunction::PgBigintHash => write!(f, "pg_bigint_hash"),
             ShardingFunction::Sha1 => write!(f, "sha1"),
+            ShardingFunction::Lookup => write!(f, "lookup"),
         }
     }
 }
@@ -46,7 +50,19 @@ impl Sharder {
         match self.sharding_function {
             ShardingFunction::PgBigintHash => self.pg_bigint_hash(key),
             ShardingFunction::Sha1 => self.sha1(key),
+            ShardingFunction::Lookup => self.lookup(key)
         }
+    }
+
+    /// Lookup shard based on a hardcoded HashMap
+    fn lookup(&self, key: i64) -> usize {
+        let mut lookup_map = HashMap::new();
+        // sharding_key 1000 always maps to shard 1
+        lookup_map.insert(1000, 1);
+        // default shard is 0
+        let default: usize = 0;
+        // find key in map or default
+        *lookup_map.get(&key).unwrap_or(&default)
     }
 
     /// Hash function used by Postgres to determine which partition
