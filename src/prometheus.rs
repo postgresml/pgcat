@@ -1,21 +1,39 @@
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use http_body_util::Full;
+use hyper::body;
+use hyper::body::Bytes;
+
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
 use phf::phf_map;
 use std::collections::HashMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use tokio::net::TcpListener;
 
 use crate::config::Address;
 use crate::pool::{get_all_pools, PoolIdentifier};
+use crate::stats::get_server_stats;
 use crate::stats::pool::PoolStats;
-use crate::stats::{get_server_stats, ServerStats};
 
 struct MetricHelpType {
     help: &'static str,
     ty: &'static str,
+}
+
+struct ServerPrometheusStats {
+    bytes_received: u64,
+    bytes_sent: u64,
+    transaction_count: u64,
+    query_count: u64,
+    error_count: u64,
+    active_count: u64,
+    idle_count: u64,
+    login_count: u64,
+    tested_count: u64,
 }
 
 // reference for metric types: https://prometheus.io/docs/concepts/metric_types/
@@ -120,22 +138,46 @@ static METRIC_HELP_AND_TYPES_LOOKUP: phf::Map<&'static str, MetricHelpType> = ph
     },
     "servers_bytes_received" => MetricHelpType {
         help: "Volume in bytes of network traffic received by server",
-        ty: "gauge",
+        ty: "counter",
     },
     "servers_bytes_sent" => MetricHelpType {
         help: "Volume in bytes of network traffic sent by server",
-        ty: "gauge",
+        ty: "counter",
     },
     "servers_transaction_count" => MetricHelpType {
         help: "Number of transactions executed by server",
-        ty: "gauge",
+        ty: "counter",
     },
     "servers_query_count" => MetricHelpType {
         help: "Number of queries executed by server",
-        ty: "gauge",
+        ty: "counter",
     },
     "servers_error_count" => MetricHelpType {
         help: "Number of errors",
+        ty: "counter",
+    },
+    "servers_idle_count" => MetricHelpType {
+        help: "Number of server connection in idle state",
+        ty: "gauge",
+    },
+    "servers_active_count" => MetricHelpType {
+        help: "Number of server connection in active state",
+        ty: "gauge",
+    },
+    "servers_tested_count" => MetricHelpType {
+        help: "Number of server connection in tested state",
+        ty: "gauge",
+    },
+    "servers_login_count" => MetricHelpType {
+        help: "Number of server connection in login state",
+        ty: "gauge",
+    },
+    "servers_is_banned" => MetricHelpType {
+        help: "0 if server is not banned, 1 if server is banned",
+        ty: "gauge",
+    },
+    "servers_is_paused" => MetricHelpType {
+        help: "0 if server is not paused, 1 if server is paused",
         ty: "gauge",
     },
     "databases_pool_size" => MetricHelpType {
@@ -158,18 +200,17 @@ struct PrometheusMetric<Value: fmt::Display> {
 
 impl<Value: fmt::Display> fmt::Display for PrometheusMetric<Value> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let formatted_labels = self
-            .labels
+        let mut sorted_labels: Vec<_> = self.labels.iter().collect();
+        sorted_labels.sort_by_key(|&(key, _)| key);
+        let formatted_labels = sorted_labels
             .iter()
             .map(|(key, value)| format!("{}=\"{}\"", key, value))
             .collect::<Vec<_>>()
             .join(",");
         write!(
             f,
-            "# HELP {name} {help}\n# TYPE {name} {ty}\n{name}{{{formatted_labels}}} {value}\n",
+            "{name}{{{formatted_labels}}} {value}",
             name = format_args!("pgcat_{}", self.name),
-            help = self.help,
-            ty = self.ty,
             formatted_labels = formatted_labels,
             value = self.value
         )
@@ -203,7 +244,9 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         labels.insert("shard", address.shard.to_string());
         labels.insert("role", address.role.to_string());
         labels.insert("pool", address.pool_name.clone());
+        labels.insert("index", address.address_index.to_string());
         labels.insert("database", address.database.to_string());
+        labels.insert("username", address.username.clone());
 
         Self::from_name(&format!("databases_{}", name), value, labels)
     }
@@ -218,7 +261,9 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         labels.insert("shard", address.shard.to_string());
         labels.insert("role", address.role.to_string());
         labels.insert("pool", address.pool_name.clone());
+        labels.insert("index", address.address_index.to_string());
         labels.insert("database", address.database.to_string());
+        labels.insert("username", address.username.clone());
 
         Self::from_name(&format!("servers_{}", name), value, labels)
     }
@@ -229,7 +274,9 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
         labels.insert("shard", address.shard.to_string());
         labels.insert("pool", address.pool_name.clone());
         labels.insert("role", address.role.to_string());
+        labels.insert("index", address.address_index.to_string());
         labels.insert("database", address.database.to_string());
+        labels.insert("username", address.username.clone());
 
         Self::from_name(&format!("stats_{}", name), value, labels)
     }
@@ -241,9 +288,20 @@ impl<Value: fmt::Display> PrometheusMetric<Value> {
 
         Self::from_name(&format!("pools_{}", name), value, labels)
     }
+
+    fn get_header(&self) -> String {
+        format!(
+            "\n# HELP {name} {help}\n# TYPE {name} {ty}",
+            name = format_args!("pgcat_{}", self.name),
+            help = self.help,
+            ty = self.ty,
+        )
+    }
 }
 
-async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
+async fn prometheus_stats(
+    request: Request<body::Incoming>,
+) -> Result<Response<Full<Bytes>>, hyper::http::Error> {
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/metrics") => {
             let mut lines = Vec::new();
@@ -264,6 +322,7 @@ async fn prometheus_stats(request: Request<Body>) -> Result<Response<Body>, hype
 
 // Adds metrics shown in a SHOW STATS admin command.
 fn push_address_stats(lines: &mut Vec<String>) {
+    let mut grouped_metrics: HashMap<String, Vec<PrometheusMetric<u64>>> = HashMap::new();
     for (_, pool) in get_all_pools() {
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
@@ -273,7 +332,10 @@ fn push_address_stats(lines: &mut Vec<String>) {
                     if let Some(prometheus_metric) =
                         PrometheusMetric::<u64>::from_address(address, &key, value)
                     {
-                        lines.push(prometheus_metric.to_string());
+                        grouped_metrics
+                            .entry(key)
+                            .or_default()
+                            .push(prometheus_metric);
                     } else {
                         debug!("Metric {} not implemented for {}", key, address.name());
                     }
@@ -281,19 +343,39 @@ fn push_address_stats(lines: &mut Vec<String>) {
             }
         }
     }
+    for (_key, metrics) in grouped_metrics {
+        if !metrics.is_empty() {
+            lines.push(metrics[0].get_header());
+            for metric in metrics {
+                lines.push(metric.to_string());
+            }
+        }
+    }
 }
 
 // Adds relevant metrics shown in a SHOW POOLS admin command.
 fn push_pool_stats(lines: &mut Vec<String>) {
+    let mut grouped_metrics: HashMap<String, Vec<PrometheusMetric<u64>>> = HashMap::new();
     let pool_stats = PoolStats::construct_pool_lookup();
     for (pool_id, stats) in pool_stats.iter() {
         for (name, value) in stats.clone() {
             if let Some(prometheus_metric) =
                 PrometheusMetric::<u64>::from_pool(pool_id.clone(), &name, value)
             {
-                lines.push(prometheus_metric.to_string());
+                grouped_metrics
+                    .entry(name)
+                    .or_default()
+                    .push(prometheus_metric);
             } else {
                 debug!("Metric {} not implemented for ({})", name, *pool_id);
+            }
+        }
+    }
+    for (_key, metrics) in grouped_metrics {
+        if !metrics.is_empty() {
+            lines.push(metrics[0].get_header());
+            for metric in metrics {
+                lines.push(metric.to_string());
             }
         }
     }
@@ -301,13 +383,13 @@ fn push_pool_stats(lines: &mut Vec<String>) {
 
 // Adds relevant metrics shown in a SHOW DATABASES admin command.
 fn push_database_stats(lines: &mut Vec<String>) {
+    let mut grouped_metrics: HashMap<String, Vec<PrometheusMetric<u32>>> = HashMap::new();
     for (_, pool) in get_all_pools() {
         let pool_config = pool.settings.clone();
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
                 let pool_state = pool.pool_state(shard, server);
-
                 let metrics = vec![
                     ("pool_size", pool_config.user.pool_size),
                     ("current_connections", pool_state.connections),
@@ -316,11 +398,22 @@ fn push_database_stats(lines: &mut Vec<String>) {
                     if let Some(prometheus_metric) =
                         PrometheusMetric::<u32>::from_database_info(address, key, value)
                     {
-                        lines.push(prometheus_metric.to_string());
+                        grouped_metrics
+                            .entry(key.to_string())
+                            .or_default()
+                            .push(prometheus_metric);
                     } else {
                         debug!("Metric {} not implemented for {}", key, address.name());
                     }
                 }
+            }
+        }
+    }
+    for (_key, metrics) in grouped_metrics {
+        if !metrics.is_empty() {
+            lines.push(metrics[0].get_header());
+            for metric in metrics {
+                lines.push(metric.to_string());
             }
         }
     }
@@ -329,40 +422,60 @@ fn push_database_stats(lines: &mut Vec<String>) {
 // Adds relevant metrics shown in a SHOW SERVERS admin command.
 fn push_server_stats(lines: &mut Vec<String>) {
     let server_stats = get_server_stats();
-    let mut server_stats_by_addresses = HashMap::<String, Arc<ServerStats>>::new();
+    let mut prom_stats = HashMap::<String, ServerPrometheusStats>::new();
     for (_, stats) in server_stats {
-        server_stats_by_addresses.insert(stats.address_name(), stats);
+        let entry = prom_stats
+            .entry(stats.address_name())
+            .or_insert(ServerPrometheusStats {
+                bytes_received: 0,
+                bytes_sent: 0,
+                transaction_count: 0,
+                query_count: 0,
+                error_count: 0,
+                active_count: 0,
+                idle_count: 0,
+                login_count: 0,
+                tested_count: 0,
+            });
+        entry.bytes_received += stats.bytes_received.load(Ordering::Relaxed);
+        entry.bytes_sent += stats.bytes_sent.load(Ordering::Relaxed);
+        entry.transaction_count += stats.transaction_count.load(Ordering::Relaxed);
+        entry.query_count += stats.query_count.load(Ordering::Relaxed);
+        entry.error_count += stats.error_count.load(Ordering::Relaxed);
+        match stats.state.load(Ordering::Relaxed) {
+            crate::stats::ServerState::Login => entry.login_count += 1,
+            crate::stats::ServerState::Active => entry.active_count += 1,
+            crate::stats::ServerState::Tested => entry.tested_count += 1,
+            crate::stats::ServerState::Idle => entry.idle_count += 1,
+        }
     }
-
+    let mut grouped_metrics: HashMap<String, Vec<PrometheusMetric<u64>>> = HashMap::new();
     for (_, pool) in get_all_pools() {
         for shard in 0..pool.shards() {
             for server in 0..pool.servers(shard) {
                 let address = pool.address(shard, server);
-                if let Some(server_info) = server_stats_by_addresses.get(&address.name()) {
+                if let Some(server_info) = prom_stats.get(&address.name()) {
                     let metrics = [
-                        (
-                            "bytes_received",
-                            server_info.bytes_received.load(Ordering::Relaxed),
-                        ),
-                        ("bytes_sent", server_info.bytes_sent.load(Ordering::Relaxed)),
-                        (
-                            "transaction_count",
-                            server_info.transaction_count.load(Ordering::Relaxed),
-                        ),
-                        (
-                            "query_count",
-                            server_info.query_count.load(Ordering::Relaxed),
-                        ),
-                        (
-                            "error_count",
-                            server_info.error_count.load(Ordering::Relaxed),
-                        ),
+                        ("bytes_received", server_info.bytes_received),
+                        ("bytes_sent", server_info.bytes_sent),
+                        ("transaction_count", server_info.transaction_count),
+                        ("query_count", server_info.query_count),
+                        ("error_count", server_info.error_count),
+                        ("idle_count", server_info.idle_count),
+                        ("active_count", server_info.active_count),
+                        ("login_count", server_info.login_count),
+                        ("tested_count", server_info.tested_count),
+                        ("is_banned", if pool.is_banned(address) { 1 } else { 0 }),
+                        ("is_paused", if pool.paused() { 1 } else { 0 }),
                     ];
                     for (key, value) in metrics {
                         if let Some(prometheus_metric) =
                             PrometheusMetric::<u64>::from_server_info(address, key, value)
                         {
-                            lines.push(prometheus_metric.to_string());
+                            grouped_metrics
+                                .entry(key.to_string())
+                                .or_default()
+                                .push(prometheus_metric);
                         } else {
                             debug!("Metric {} not implemented for {}", key, address.name());
                         }
@@ -371,17 +484,46 @@ fn push_server_stats(lines: &mut Vec<String>) {
             }
         }
     }
+    for (_key, metrics) in grouped_metrics {
+        if !metrics.is_empty() {
+            lines.push(metrics[0].get_header());
+            for metric in metrics {
+                lines.push(metric.to_string());
+            }
+        }
+    }
 }
 
 pub async fn start_metric_server(http_addr: SocketAddr) {
-    let http_service_factory =
-        make_service_fn(|_conn| async { Ok::<_, hyper::Error>(service_fn(prometheus_stats)) });
-    let server = Server::bind(&http_addr).serve(http_service_factory);
+    let listener = TcpListener::bind(http_addr);
+    let listener = match listener.await {
+        Ok(listener) => listener,
+        Err(e) => {
+            error!("Failed to bind prometheus server to HTTP address: {}.", e);
+            return;
+        }
+    };
     info!(
         "Exposing prometheus metrics on http://{}/metrics.",
         http_addr
     );
-    if let Err(e) = server.await {
-        error!("Failed to run HTTP server: {}.", e);
+    loop {
+        let stream = match listener.accept().await {
+            Ok((stream, _)) => stream,
+            Err(e) => {
+                error!("Error accepting connection: {}", e);
+                continue;
+            }
+        };
+        let io = TokioIo::new(stream);
+
+        tokio::task::spawn(async move {
+            if let Err(err) = http1::Builder::new()
+                .serve_connection(io, service_fn(prometheus_stats))
+                .await
+            {
+                eprintln!("Error serving HTTP connection for metrics: {:?}", err);
+            }
+        });
     }
 }

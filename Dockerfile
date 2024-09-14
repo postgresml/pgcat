@@ -1,4 +1,4 @@
-FROM rust:1-slim-bookworm AS builder
+FROM rust:1.79.0-slim-bookworm AS builder
 
 RUN apt-get update && \
     apt-get install -y build-essential
@@ -19,3 +19,4 @@ COPY --from=builder /app/pgcat.toml /etc/pgcat/pgcat.toml
 WORKDIR /etc/pgcat
 ENV RUST_LOG=info
 CMD ["pgcat"]
+STOPSIGNAL SIGINT

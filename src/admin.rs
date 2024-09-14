@@ -55,7 +55,12 @@ where
 
     let query_parts: Vec<&str> = query.trim_end_matches(';').split_whitespace().collect();
 
-    match query_parts[0].to_ascii_uppercase().as_str() {
+    match query_parts
+        .first()
+        .unwrap_or(&"")
+        .to_ascii_uppercase()
+        .as_str()
+    {
         "BAN" => {
             trace!("BAN");
             ban(stream, query_parts).await
@@ -84,7 +89,12 @@ where
             trace!("SHUTDOWN");
             shutdown(stream).await
         }
-        "SHOW" => match query_parts[1].to_ascii_uppercase().as_str() {
+        "SHOW" => match query_parts
+            .get(1)
+            .unwrap_or(&"")
+            .to_ascii_uppercase()
+            .as_str()
+        {
             "HELP" => {
                 trace!("SHOW HELP");
                 show_help(stream).await

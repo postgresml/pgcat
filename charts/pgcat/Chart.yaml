@@ -4,5 +4,5 @@ description: A Helm chart for PgCat a PostgreSQL pooler and proxy (like PgBounce
 maintainers:
   - name: Wildcard
     email: support@w6d.io
-appVersion: "1.1.1"
-version: 0.1.1
+appVersion: "1.2.0"
+version: 0.2.1
