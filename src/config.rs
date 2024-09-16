@@ -811,6 +811,16 @@ impl<'de> serde::Deserialize<'de> for DefaultShard {
     }
 }
 
+impl ToString for DefaultShard {
+    fn to_string(&self) -> String {
+        match *self {
+            DefaultShard::Shard(shard) => format!("shard_{}", shard),
+            DefaultShard::Random => "random".to_string(),
+            DefaultShard::RandomHealthy => "random_healthy".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Hash, Eq)]
 pub struct MirrorServerConfig {
     pub host: String,
