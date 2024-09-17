@@ -36,10 +36,11 @@ Port at which prometheus exporter listens on.
 ### connect_timeout
 ```
 path: general.connect_timeout
-default: 5000 # milliseconds
+default: 1000 # milliseconds
 ```
 
-How long to wait before aborting a server connection (ms).
+How long the client waits to obtain a server connection before aborting (ms).
+This is similar to PgBouncer's `query_wait_timeout`.
 
 ### idle_timeout
 ```
@@ -462,9 +463,17 @@ path: pools.<pool_name>.users.<user_index>.pool_size
 default: 9
 ```
 
-Maximum number of server connections that can be established for this user
+Maximum number of server connections that can be established for this user.
 The maximum number of connection from a single Pgcat process to any database in the cluster
 is the sum of pool_size across all users.
+
+### min_pool_size
+```
+path: pools.<pool_name>.users.<user_index>.min_pool_size
+default: 0
+```
+
+Minimum number of idle server connections to retain for this pool.
 
 ### statement_timeout
 ```
@@ -474,6 +483,16 @@ default: 0
 
 Maximum query duration. Dangerous, but protects against DBs that died in a non-obvious way.
 0 means it is disabled.
+
+### connect_timeout
+```
+path: pools.<pool_name>.users.<user_index>.connect_timeout
+default: <UNSET> # milliseconds
+```
+
+How long the client waits to obtain a server connection before aborting (ms).
+This is similar to PgBouncer's `query_wait_timeout`.
+If unset, uses the `connect_timeout` defined globally.
 
 ## `pools.<pool_name>.shards.<shard_index>` Section
 
@@ -502,4 +521,3 @@ default: "shard0"
 ```
 
 Database name (e.g. "postgres")
-
