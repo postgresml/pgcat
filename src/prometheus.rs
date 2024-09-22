@@ -309,6 +309,7 @@ async fn prometheus_stats(
             push_pool_stats(&mut lines);
             push_server_stats(&mut lines);
             push_database_stats(&mut lines);
+            lines.push("".to_string()); // Ensure to end the stats with a line terminator as required by the specification.
 
             Response::builder()
                 .header("content-type", "text/plain; version=0.0.4")
