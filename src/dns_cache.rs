@@ -21,7 +21,7 @@ pub static CACHED_RESOLVER: Lazy<ArcSwap<CachedResolver>> =
 // so we can compare.
 #[derive(Clone, PartialEq, Debug)]
 pub struct AddrSet {
-    set: HashSet<IpAddr>,
+    pub set: HashSet<IpAddr>,
 }
 
 impl AddrSet {

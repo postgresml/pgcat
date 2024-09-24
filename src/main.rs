@@ -24,6 +24,7 @@ extern crate async_trait;
 extern crate bb8;
 extern crate bytes;
 extern crate exitcode;
+extern crate ipnet;
 extern crate log;
 extern crate md5;
 extern crate num_cpus;

@@ -1,8 +1,10 @@
+from typing import Tuple
+import tempfile
 import os
 import signal
 import time
-from typing import Tuple
 import tempfile
+import subprocess
 
 import psutil
 import psycopg2
@@ -44,10 +46,24 @@ def glauth_send_signal(signal: signal.Signals):
             raise Exception("glauth not closed after SIGTERM")
 
 
+def pgcat_start_address_whitelist():
+    pg_cat_send_signal(signal.SIGTERM)
+    process = subprocess.Popen("./target/debug/pgcat .circleci/pgcat.address_whitelist.toml", shell=True)
+
+
+def pgcat_start_with_config(config: str):
+    config_file = tempfile.NamedTemporaryFile(delete=False)
+    config_file.write(str.encode(config))
+    config_file.close()
+    process = subprocess.Popen(f"./target/debug/pgcat {config_file.name}", shell=True)
+    time.sleep(2)
+    return process
+
+
 def pg_cat_send_signal(signal: signal.Signals):
     try:
         for proc in psutil.process_iter(["pid", "name"]):
-            if "pgcat" == proc.name():
+            if proc.name() == "pgcat":
                 os.kill(proc.pid, signal)
     except Exception as e:
         # The process can be gone when we send this signal
@@ -58,6 +74,19 @@ def pg_cat_send_signal(signal: signal.Signals):
         time.sleep(2)
         if not os.system('pgrep pgcat'):
             raise Exception("pgcat not closed after SIGTERM")
+
+
+def connect_db_generic(
+    username: str, password: str, host: str, database: str, autocommit: bool = True) -> Tuple[psycopg2.extensions.connection, psycopg2.extensions.cursor]:
+
+    conn = psycopg2.connect(
+        f"postgres://{username}:{password}@{host}:{PGCAT_PORT}/{database}?application_name=testing_pgcat",
+        connect_timeout=2,
+    )
+    conn.autocommit = autocommit
+    cur = conn.cursor()
+
+    return (conn, cur)
 
 
 def connect_db(
