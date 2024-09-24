@@ -821,10 +821,10 @@ impl ExtendedProtocolData {
 pub struct Parse {
     code: char,
     #[allow(dead_code)]
-    len: i32,
+    len: u32,
     pub name: String,
     query: String,
-    num_params: i16,
+    num_params: u16,
     param_types: Vec<i32>,
 }
 
@@ -834,12 +834,11 @@ impl TryFrom<&BytesMut> for Parse {
     fn try_from(buf: &BytesMut) -> Result<Parse, Error> {
         let mut cursor = Cursor::new(buf);
         let code = cursor.get_u8() as char;
-        let len = cursor.get_i32();
+        let len = cursor.get_u32();
         let name = cursor.read_string()?;
         let query = cursor.read_string()?;
-        let num_params = cursor.get_i16();
+        let num_params = cursor.get_u16();
         let mut param_types = Vec::new();
-
         for _ in 0..num_params {
             param_types.push(cursor.get_i32());
         }
@@ -875,10 +874,10 @@ impl TryFrom<Parse> for BytesMut {
             + 4 * parse.num_params as usize;
 
         bytes.put_u8(parse.code as u8);
-        bytes.put_i32(len as i32);
+        bytes.put_u32(len as u32);
         bytes.put_slice(name);
         bytes.put_slice(query);
-        bytes.put_i16(parse.num_params);
+        bytes.put_u16(parse.num_params);
         for param in parse.param_types {
             bytes.put_i32(param);
         }
@@ -945,14 +944,14 @@ impl Parse {
 pub struct Bind {
     code: char,
     #[allow(dead_code)]
-    len: i64,
+    len: u64,
     portal: String,
     pub prepared_statement: String,
-    num_param_format_codes: i16,
+    num_param_format_codes: u16,
     param_format_codes: Vec<i16>,
-    num_param_values: i16,
+    num_param_values: u16,
     param_values: Vec<(i32, BytesMut)>,
-    num_result_column_format_codes: i16,
+    num_result_column_format_codes: u16,
     result_columns_format_codes: Vec<i16>,
 }
 
@@ -962,17 +961,17 @@ impl TryFrom<&BytesMut> for Bind {
     fn try_from(buf: &BytesMut) -> Result<Bind, Error> {
         let mut cursor = Cursor::new(buf);
         let code = cursor.get_u8() as char;
-        let len = cursor.get_i32();
+        let len = cursor.get_u32();
         let portal = cursor.read_string()?;
         let prepared_statement = cursor.read_string()?;
-        let num_param_format_codes = cursor.get_i16();
+        let num_param_format_codes = cursor.get_u16();
         let mut param_format_codes = Vec::new();
 
         for _ in 0..num_param_format_codes {
             param_format_codes.push(cursor.get_i16());
         }
 
-        let num_param_values = cursor.get_i16();
+        let num_param_values = cursor.get_u16();
         let mut param_values = Vec::new();
 
         for _ in 0..num_param_values {
@@ -994,7 +993,7 @@ impl TryFrom<&BytesMut> for Bind {
             }
         }
 
-        let num_result_column_format_codes = cursor.get_i16();
+        let num_result_column_format_codes = cursor.get_u16();
         let mut result_columns_format_codes = Vec::new();
 
         for _ in 0..num_result_column_format_codes {
@@ -1003,7 +1002,7 @@ impl TryFrom<&BytesMut> for Bind {
 
         Ok(Bind {
             code,
-            len: len as i64,
+            len: len as u64,
             portal,
             prepared_statement,
             num_param_format_codes,
@@ -1042,19 +1041,19 @@ impl TryFrom<Bind> for BytesMut {
         len += 2 * bind.num_result_column_format_codes as usize;
 
         bytes.put_u8(bind.code as u8);
-        bytes.put_i32(len as i32);
+        bytes.put_u32(len as u32);
         bytes.put_slice(portal);
         bytes.put_slice(prepared_statement);
-        bytes.put_i16(bind.num_param_format_codes);
+        bytes.put_u16(bind.num_param_format_codes);
         for param_format_code in bind.param_format_codes {
             bytes.put_i16(param_format_code);
         }
-        bytes.put_i16(bind.num_param_values);
+        bytes.put_u16(bind.num_param_values);
         for (param_len, param) in bind.param_values {
             bytes.put_i32(param_len);
             bytes.put_slice(&param);
         }
-        bytes.put_i16(bind.num_result_column_format_codes);
+        bytes.put_u16(bind.num_result_column_format_codes);
         for result_column_format_code in bind.result_columns_format_codes {
             bytes.put_i16(result_column_format_code);
         }
@@ -1068,7 +1067,7 @@ impl Bind {
     pub fn get_name(buf: &BytesMut) -> Result<String, Error> {
         let mut cursor = Cursor::new(buf);
         // Skip the code and length
-        cursor.advance(mem::size_of::<u8>() + mem::size_of::<i32>());
+        cursor.advance(mem::size_of::<u8>() + mem::size_of::<u32>());
         cursor.read_string()?;
         cursor.read_string()
     }
@@ -1078,17 +1077,17 @@ impl Bind {
         let mut cursor = Cursor::new(&buf);
         // Read basic data from the cursor
         let code = cursor.get_u8();
-        let current_len = cursor.get_i32();
+        let current_len = cursor.get_u32();
         let portal = cursor.read_string()?;
         let prepared_statement = cursor.read_string()?;
 
         // Calculate new length
-        let new_len = current_len + new_name.len() as i32 - prepared_statement.len() as i32;
+        let new_len = current_len + new_name.len() as u32 - prepared_statement.len() as u32;
 
         // Begin building the response buffer
         let mut response_buf = BytesMut::with_capacity(new_len as usize + 1);
         response_buf.put_u8(code);
-        response_buf.put_i32(new_len);
+        response_buf.put_u32(new_len);
 
         // Put the portal and new name into the buffer
         // Note: panic if the provided string contains null byte
@@ -1112,7 +1111,7 @@ pub struct Describe {
     code: char,
 
     #[allow(dead_code)]
-    len: i32,
+    len: u32,
     pub target: char,
     pub statement_name: String,
 }
@@ -1123,7 +1122,7 @@ impl TryFrom<&BytesMut> for Describe {
     fn try_from(bytes: &BytesMut) -> Result<Describe, Error> {
         let mut cursor = Cursor::new(bytes);
         let code = cursor.get_u8() as char;
-        let len = cursor.get_i32();
+        let len = cursor.get_u32();
         let target = cursor.get_u8() as char;
         let statement_name = cursor.read_string()?;
 
@@ -1146,7 +1145,7 @@ impl TryFrom<Describe> for BytesMut {
         let len = 4 + 1 + statement_name.len();
 
         bytes.put_u8(describe.code as u8);
-        bytes.put_i32(len as i32);
+        bytes.put_u32(len as u32);
         bytes.put_u8(describe.target as u8);
         bytes.put_slice(statement_name);
 
