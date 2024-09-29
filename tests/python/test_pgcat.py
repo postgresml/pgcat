@@ -14,7 +14,7 @@ def test_shutdown_logic():
     # NO ACTIVE QUERIES SIGINT HANDLING
 
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and send query (not in transaction)
     conn, cur = utils.connect_db()
@@ -43,7 +43,7 @@ def test_shutdown_logic():
     # NO ACTIVE QUERIES ADMIN SHUTDOWN COMMAND
 
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction
     conn, cur = utils.connect_db()
@@ -74,7 +74,7 @@ def test_shutdown_logic():
     # HANDLE TRANSACTION WITH SIGINT
 
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction
     conn, cur = utils.connect_db()
@@ -100,7 +100,7 @@ def test_shutdown_logic():
     # HANDLE TRANSACTION WITH ADMIN SHUTDOWN COMMAND
 
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction
     conn, cur = utils.connect_db()
@@ -129,7 +129,7 @@ def test_shutdown_logic():
     # - - - - - - - - - - - - - - - - - -
     # NO NEW NON-ADMIN CONNECTIONS DURING SHUTDOWN
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction
     transaction_conn, transaction_cur = utils.connect_db()
@@ -161,7 +161,7 @@ def test_shutdown_logic():
     # - - - - - - - - - - - - - - - - - -
     # ALLOW NEW ADMIN CONNECTIONS DURING SHUTDOWN
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction
     transaction_conn, transaction_cur = utils.connect_db()
@@ -186,7 +186,7 @@ def test_shutdown_logic():
     # - - - - - - - - - - - - - - - - - -
     # ADMIN CONNECTIONS CONTINUING TO WORK AFTER SHUTDOWN
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction
     transaction_conn, transaction_cur = utils.connect_db()
@@ -213,7 +213,7 @@ def test_shutdown_logic():
     # HANDLE SHUTDOWN TIMEOUT WITH SIGINT
 
     # Start pgcat
-    utils.pgcat_start()
+    utils.pgcat_start_background()
 
     # Create client connection and begin transaction, which should prevent server shutdown unless shutdown timeout is reached
     conn, cur = utils.connect_db()
