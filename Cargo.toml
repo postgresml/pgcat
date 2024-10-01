@@ -41,7 +41,6 @@ atomic_enum = "0.2.0"
 postgres-protocol = "0.6.5"
 fallible-iterator = "0.2"
 pin-project = "1"
-webpki-roots = "0.23"
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
 trust-dns-resolver = "0.22.0"
 tokio-test = "0.4.2"
@@ -55,6 +54,7 @@ tracing-subscriber = { version = "0.3.17", features = [
     "std",
 ] }
 lru = "0.12.0"
+rustls-native-certs = "0.6.3"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.5.0"

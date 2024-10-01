@@ -571,7 +571,8 @@ where
 
     reload_config(client_server_map).await?;
 
-    get_config().show();
+    let cfg = get_config();
+    cfg.show();
 
     let mut res = BytesMut::new();
 
