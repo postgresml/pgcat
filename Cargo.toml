@@ -27,8 +27,8 @@ hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.21"
 stringprep = "0.1"
-tokio-rustls = "0.24"
-rustls-pemfile = "1"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
 http-body-util = "0.1.2"
 hyper = { version = "1.4.1", features = ["full"] }
 hyper-util = { version = "0.1.7", features = ["tokio"] }
@@ -42,7 +42,8 @@ postgres-protocol = "0.6.5"
 fallible-iterator = "0.2"
 pin-project = "1"
 webpki-roots = "0.23"
-rustls = { version = "0.21", features = ["dangerous_configuration"] }
+rustls = { version = "0.23.12", features=["ring", "tls12"]}
+rustls-pki-types = "1.8.0"
 trust-dns-resolver = "0.22.0"
 tokio-test = "0.4.2"
 serde_json = "1"

@@ -7,6 +7,7 @@ use lru::LruCache;
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use postgres_protocol::message;
+use rustls::pki_types::TrustAnchor;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
 use std::net::IpAddr;
@@ -15,7 +16,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
-use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use crate::config::{get_config, Address, User};
@@ -399,19 +399,18 @@ impl Server {
                 'S' => {
                     debug!("Connecting to server using TLS");
 
-                    let mut root_store = RootCertStore::empty();
-                    root_store.add_server_trust_anchors(
-                        webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-                            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                                ta.subject,
-                                ta.spki,
-                                ta.name_constraints,
-                            )
-                        }),
+                    let root_store = rustls::RootCertStore::from_iter(
+                        webpki_roots::TLS_SERVER_ROOTS
+                            .0
+                            .iter()
+                            .map(|ta| TrustAnchor {
+                                subject: ta.subject.into(),
+                                subject_public_key_info: ta.spki.into(),
+                                name_constraints: ta.name_constraints.map(|nc| nc.into()),
+                            }),
                     );
 
                     let mut tls_config = rustls::ClientConfig::builder()
-                        .with_safe_defaults()
                         .with_root_certificates(root_store)
                         .with_no_client_auth();
 
@@ -426,7 +425,7 @@ impl Server {
 
                     let connector = TlsConnector::from(Arc::new(tls_config));
                     let stream = match connector
-                        .connect(address.host.as_str().try_into().unwrap(), stream)
+                        .connect(address.host.clone().try_into().unwrap(), stream)
                         .await
                     {
                         Ok(stream) => stream,
