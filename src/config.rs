@@ -352,6 +352,9 @@ pub struct General {
     pub auth_query: Option<String>,
     pub auth_query_user: Option<String>,
     pub auth_query_password: Option<String>,
+
+    // Force TLS from clients
+    pub force_client_tls: bool,
 }
 
 impl General {
@@ -437,6 +440,10 @@ impl General {
     pub fn default_server_round_robin() -> bool {
         true
     }
+
+    pub fn default_force_client_tls() -> bool {
+        true
+    }
 }
 
 impl Default for General {
@@ -476,6 +483,7 @@ impl Default for General {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            force_client_tls: Self::default_force_client_tls(),
         }
     }
 }
