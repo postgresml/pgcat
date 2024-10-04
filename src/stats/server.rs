@@ -187,11 +187,12 @@ impl ServerStats {
     /// we report each individual queries outside a transaction as a transaction
     /// We only count the initial BEGIN as a transaction, all queries within do not
     /// count as transactions
-    pub fn transaction(&self, application_name: &str) {
+    pub fn transaction(&self, milliseconds: u64, application_name: &str) {
         self.set_application(application_name.to_string());
 
         self.transaction_count.fetch_add(1, Ordering::Relaxed);
         self.address.stats.xact_count_add();
+        self.address.stats.xact_time_add(milliseconds);
     }
 
     /// Report data sent to a server

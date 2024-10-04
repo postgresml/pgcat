@@ -12,11 +12,11 @@ describe "Stats" do
   end
 
   describe "SHOW STATS" do
-    context "clients connect and make one query" do
-      it "updates *_query_time and *_wait_time" do
+    context "clients connect and issue queries" do
+      it "updates {avg,total}_{query,xact,wait}_{time,count}" do
         connections = Array.new(3) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
         connections.each do |c|
-          Thread.new { c.async_exec("SELECT pg_sleep(0.25)") }
+          Thread.new { c.transaction { |t| t.async_exec("SELECT pg_sleep(0.25);") } }
         end
         sleep(1)
         connections.map(&:close)
@@ -25,9 +25,42 @@ describe "Stats" do
         sleep(15.5)
         admin_conn = PG::connect(processes.pgcat.admin_connection_string)
         results = admin_conn.async_exec("SHOW STATS")[0]
-        admin_conn.close
+
+        # BEGIN, SELECT, COMMIT for each connection
+        expect(results["total_query_count"].to_i).to eq(9)
         expect(results["total_query_time"].to_i).to be_within(200).of(750)
-        expect(results["avg_query_time"].to_i).to be_within(50).of(250)
+        expect(results["avg_query_time"].to_i).to be_within(15).of(250.0 / 3)
+
+        # Single transaction for each connection
+        expect(results["total_xact_count"].to_i).to eq(3)
+        expect(results["total_xact_time"].to_i).to be_within(200).of(750)
+        expect(results["avg_xact_time"].to_i).to be_within(50).of(250)
+
+        expect(results["total_wait_time"].to_i).to_not eq(0)
+        expect(results["avg_wait_time"].to_i).to_not eq(0)
+
+        connections = Array.new(3) { PG::connect("#{pgcat_conn_str}?application_name=one_query") }
+        connections.each do |c|
+          Thread.new { c.async_exec("SELECT pg_sleep(0.125);") }
+        end
+        sleep(1)
+        connections.map(&:close)
+        # wait for averages to be calculated again
+        sleep(15.5)
+
+        results = admin_conn.async_exec("SHOW STATS")[0]
+        admin_conn.close
+        # Three more queries
+        expect(results["total_query_count"].to_i).to eq(12)
+        expect(results["total_query_time"].to_i).to be_within(225).of(1125)
+        # Average is 125ms in the current stats period
+        expect(results["avg_query_time"].to_i).to be_within(25).of(125.0)
+
+        # Autocommit transactions still increase the count and time
+        expect(results["total_xact_count"].to_i).to eq(6)
+        expect(results["total_xact_time"].to_i).to be_within(225).of(1125)
+        # Average is 125ms in the current stats period
+        expect(results["avg_xact_time"].to_i).to be_within(25).of(125.0)
 
         expect(results["total_wait_time"].to_i).to_not eq(0)
         expect(results["avg_wait_time"].to_i).to_not eq(0)
