@@ -53,7 +53,7 @@ How long an idle connection with a server is left open (ms).
 ### server_lifetime
 ```
 path: general.server_lifetime
-default: 86400000 # 24 hours
+default: 3600000 # 1 hours
 ```
 
 Max connection lifetime before it's closed, even if actively used.
