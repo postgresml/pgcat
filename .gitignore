@@ -12,3 +12,4 @@ dev/cache
 !dev/cache/.keepme
 .venv
 **/__pycache__
+.bundle
