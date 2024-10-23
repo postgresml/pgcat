@@ -386,14 +386,14 @@ impl QueryRouter {
         }
     }
 
-    /// Determines if a query is mutable or not.
-    fn query_is_mutable_statement(q: &sqlparser::ast::Query) -> bool {
+    /// Determines if a query is a mutation or not.
+    fn is_mutation_query(q: &sqlparser::ast::Query) -> bool {
         use sqlparser::ast::*;
 
         match q.body.as_ref() {
             SetExpr::Insert(_) => true,
             SetExpr::Update(_) => true,
-            SetExpr::Query(q) => Self::query_is_mutable_statement(q),
+            SetExpr::Query(q) => Self::is_mutation_query(q),
             _ => false,
         }
     }
@@ -440,9 +440,9 @@ impl QueryRouter {
                     };
 
                     let has_locks = !query.locks.is_empty();
-                    let is_mutable_statement = Self::query_is_mutable_statement(query);
+                    let has_mutation = Self::is_mutation_query(query);
 
-                    if has_locks || is_mutable_statement {
+                    if has_locks || has_mutation {
                         self.active_role = Some(Role::Primary);
                     } else if !visited_write_statement {
                         // If we already visited a write statement, we should be going to the primary.
