@@ -1,10 +1,11 @@
+import time
 import utils
-import signal
+
 
 class TestTrustAuth:
     @classmethod
     def setup_method(cls):
-        config= """
+        config = """
         [general]
         host = "0.0.0.0"
         port = 6432
@@ -26,11 +27,13 @@ class TestTrustAuth:
         ]
         database = "shard0"
         """
-        utils.pgcat_generic_start(config)
+        cls.process = utils.pgcat_generic_start_from_string(config)
 
     @classmethod
-    def teardown_method(self):
-        utils.pg_cat_send_signal(signal.SIGTERM)
+    def teardown_method(cls):
+        cls.process.kill()
+        cls.process.wait()
+        time.sleep(2)
 
     def test_admin_trust_auth(self):
         conn, cur = utils.connect_db_trust(admin=True)
@@ -46,14 +49,17 @@ class TestTrustAuth:
         print(res)
         utils.cleanup_conn(conn, cur)
 
+
 class TestMD5Auth:
     @classmethod
     def setup_method(cls):
-        utils.pgcat_start()
+        cls.process = utils.pgcat_start_from_file_path("./.circleci/pgcat.toml")
 
     @classmethod
-    def teardown_method(self):
-        utils.pg_cat_send_signal(signal.SIGTERM)
+    def teardown_method(cls):
+        cls.process.kill()
+        cls.process.wait()
+        time.sleep(2)
 
     def test_normal_db_access(self):
         conn, cur = utils.connect_db(autocommit=False)
