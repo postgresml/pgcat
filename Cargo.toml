@@ -27,7 +27,7 @@ hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.21"
 stringprep = "0.1"
-tokio-rustls = "0.24"
+tokio-rustls = "0.26"
 rustls-pemfile = "1"
 http-body-util = "0.1.2"
 hyper = { version = "1.4.1", features = ["full"] }
