@@ -1,0 +1,17 @@
+apiVersion: v1
+entries:
+  pgcat:
+  - apiVersion: v2
+    appVersion: 1.2.0
+    created: "2024-11-02T16:55:33.01802196Z"
+    description: A Helm chart for PgCat a PostgreSQL pooler and proxy (like PgBouncer)
+      with support for sharding, load balancing, failover and mirroring.
+    digest: 106ce6a390c9e8d7fd1efb02b307675f4ed14534bae1ccd1b9e7d121b9a69a74
+    maintainers:
+    - email: support@w6d.io
+      name: Wildcard
+    name: pgcat
+    urls:
+    - https://github.com/postgresml/pgcat/releases/download/pgcat-0.2.2/pgcat-0.2.2.tgz
+    version: 0.2.2
+generated: "2024-11-02T16:55:33.018028202Z"
