@@ -1061,6 +1061,11 @@ impl QueryRouter {
         self.active_shard
     }
 
+    /// Set active_role as the default_role specified in the pool.
+    pub fn set_default_role(&mut self) {
+        self.active_role = self.pool_settings.default_role;
+    }
+
     /// Get the current desired server role we should be talking to.
     pub fn role(&self) -> Option<Role> {
         self.active_role
