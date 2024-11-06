@@ -773,6 +773,7 @@ pub enum DefaultShard {
     Shard(usize),
     Random,
     RandomHealthy,
+    Fail
 }
 impl Default for DefaultShard {
     fn default() -> Self {
@@ -787,6 +788,7 @@ impl serde::Serialize for DefaultShard {
             }
             DefaultShard::Random => serializer.serialize_str("random"),
             DefaultShard::RandomHealthy => serializer.serialize_str("random_healthy"),
+            DefaultShard::Fail => serializer.serialize_str("fail"),
         }
     }
 }
@@ -804,6 +806,7 @@ impl<'de> serde::Deserialize<'de> for DefaultShard {
         match s.as_str() {
             "random" => Ok(DefaultShard::Random),
             "random_healthy" => Ok(DefaultShard::RandomHealthy),
+            "fail" => Ok(DefaultShard::Fail),
             _ => Err(serde::de::Error::custom(
                 "invalid value for no_shard_specified_behavior",
             )),
