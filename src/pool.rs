@@ -189,9 +189,6 @@ pub struct PoolSettings {
     // Ban time
     pub ban_time: i64,
 
-    // Should we automatically unban replicas when all are banned?
-    pub unban_replicas_when_all_banned: bool,
-
     // Regex for searching for the sharding key in SQL statements
     pub sharding_key_regex: Option<Regex>,
 
@@ -231,7 +228,6 @@ impl Default for PoolSettings {
             healthcheck_delay: General::default_healthcheck_delay(),
             healthcheck_timeout: General::default_healthcheck_timeout(),
             ban_time: General::default_ban_time(),
-            unban_replicas_when_all_banned: true,
             sharding_key_regex: None,
             shard_id_regex: None,
             regex_search_limit: 1000,
@@ -545,9 +541,6 @@ impl ConnectionPool {
                         healthcheck_delay: config.general.healthcheck_delay,
                         healthcheck_timeout: config.general.healthcheck_timeout,
                         ban_time: config.general.ban_time,
-                        unban_replicas_when_all_banned: config
-                            .general
-                            .unban_replicas_when_all_banned,
                         sharding_key_regex: pool_config
                             .sharding_key_regex
                             .clone()
@@ -953,9 +946,8 @@ impl ConnectionPool {
         let read_guard = self.banlist.read();
         let all_replicas_banned = read_guard[address.shard].len() == replicas_available;
         drop(read_guard);
-        let unban_replicas_when_all_banned = self.settings.clone().unban_replicas_when_all_banned;
 
-        if all_replicas_banned && unban_replicas_when_all_banned {
+        if all_replicas_banned {
             let mut write_guard = self.banlist.write();
             warn!("Unbanning all replicas.");
             write_guard[address.shard].clear();

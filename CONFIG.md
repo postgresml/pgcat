@@ -130,16 +130,6 @@ default: 60 # seconds
 
 How long to ban a server if it fails a health check (seconds).
 
-### unban_replicas_when_all_banned
-```
-path: general.unban_replicas_when_all_banned
-default: true
-```
-
-Whether or not we should unban all replicas when they are all banned. This is set
-to true by default to prevent disconnection when we have replicas with a false positive
-health check.
-
 ### log_client_connections
 ```
 path: general.log_client_connections
