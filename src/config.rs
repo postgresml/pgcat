@@ -315,6 +315,9 @@ pub struct General {
     #[serde(default = "General::default_ban_time")]
     pub ban_time: i64,
 
+    #[serde(default)] // True
+    pub unban_replicas_when_all_banned: bool,
+
     #[serde(default = "General::default_idle_client_in_transaction_timeout")]
     pub idle_client_in_transaction_timeout: u64,
 
@@ -460,6 +463,7 @@ impl Default for General {
             healthcheck_timeout: Self::default_healthcheck_timeout(),
             healthcheck_delay: Self::default_healthcheck_delay(),
             ban_time: Self::default_ban_time(),
+            unban_replicas_when_all_banned: true,
             idle_client_in_transaction_timeout: Self::default_idle_client_in_transaction_timeout(),
             server_lifetime: Self::default_server_lifetime(),
             server_round_robin: Self::default_server_round_robin(),
