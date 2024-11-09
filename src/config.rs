@@ -589,6 +589,10 @@ pub struct Pool {
     #[serde(default = "Pool::default_prepared_statements_cache_size")]
     pub prepared_statements_cache_size: usize,
 
+
+    #[serde(default = "Pool::default_proxy")]
+    pub proxy: bool,
+
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -641,6 +645,8 @@ impl Pool {
     pub fn default_prepared_statements_cache_size() -> usize {
         0
     }
+
+    pub fn default_proxy() -> bool {false}
 
     pub fn validate(&mut self) -> Result<(), Error> {
         match self.default_role.as_ref() {
@@ -753,6 +759,7 @@ impl Default for Pool {
             cleanup_server_connections: true,
             log_client_parameter_status_changes: false,
             prepared_statements_cache_size: Self::default_prepared_statements_cache_size(),
+            proxy: Self::default_proxy(),
             plugins: None,
             shards: BTreeMap::from([(String::from("1"), Shard::default())]),
             users: BTreeMap::default(),
@@ -1227,6 +1234,10 @@ impl Config {
                 "[pool: {}] Default pool mode: {}",
                 pool_name,
                 pool_config.pool_mode.to_string()
+            );
+            info!("[pool: {}] Proxy mode: {}",
+                pool_name,
+                pool_config.proxy.to_string()
             );
             info!(
                 "[pool: {}] Load Balancing mode: {:?}",

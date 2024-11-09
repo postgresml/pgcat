@@ -20,7 +20,7 @@ use crate::config::{
 use crate::constants::*;
 use crate::messages::*;
 use crate::plugins::PluginOutput;
-use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
+use crate::pool::{get_pool, get_or_create_pool, ClientServerMap, ConnectionPool};
 use crate::query_router::{Command, QueryRouter};
 use crate::server::{Server, ServerParameters};
 use crate::stats::{ClientStats, ServerStats};
@@ -557,7 +557,7 @@ where
         }
         // Authenticate normal user.
         else {
-            let pool = match get_pool(pool_name, username) {
+            let pool = match get_or_create_pool(pool_name, username).await {
                 Some(pool) => pool,
                 None => {
                     error_response(
