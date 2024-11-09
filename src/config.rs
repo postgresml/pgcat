@@ -589,7 +589,6 @@ pub struct Pool {
     #[serde(default = "Pool::default_prepared_statements_cache_size")]
     pub prepared_statements_cache_size: usize,
 
-
     #[serde(default = "Pool::default_proxy")]
     pub proxy: bool,
 
@@ -646,7 +645,9 @@ impl Pool {
         0
     }
 
-    pub fn default_proxy() -> bool {false}
+    pub fn default_proxy() -> bool {
+        false
+    }
 
     pub fn validate(&mut self) -> Result<(), Error> {
         match self.default_role.as_ref() {
@@ -1235,7 +1236,8 @@ impl Config {
                 pool_name,
                 pool_config.pool_mode.to_string()
             );
-            info!("[pool: {}] Proxy mode: {}",
+            info!(
+                "[pool: {}] Proxy mode: {}",
                 pool_name,
                 pool_config.proxy.to_string()
             );

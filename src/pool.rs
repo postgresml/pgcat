@@ -297,9 +297,8 @@ impl ConnectionPool {
         for (pool_name, pool_config) in &config.pools {
             let new_pool_hash_value = pool_config.hash_value();
 
-            let is_proxy :bool = pool_config.proxy;
+            let is_proxy: bool = pool_config.proxy;
             if !is_proxy {
-
                 // There is one pool per database/user pair.
                 for user in pool_config.users.values() {
                     let old_pool_ref = get_pool(pool_name, &user.username);
@@ -399,7 +398,8 @@ impl ConnectionPool {
                             if let Some(apt) = &auth_passthrough {
                                 match apt.fetch_hash(&address).await {
                                     Ok(ok) => {
-                                        if let Some(ref pool_auth_hash_value) = *(pool_auth_hash.read())
+                                        if let Some(ref pool_auth_hash_value) =
+                                            *(pool_auth_hash.read())
                                         {
                                             if ok != *pool_auth_hash_value {
                                                 warn!(
@@ -485,9 +485,13 @@ impl ConnectionPool {
                             let pool = Pool::builder()
                                 .max_size(user.pool_size)
                                 .min_idle(user.min_pool_size)
-                                .connection_timeout(std::time::Duration::from_millis(connect_timeout))
+                                .connection_timeout(std::time::Duration::from_millis(
+                                    connect_timeout,
+                                ))
                                 .idle_timeout(Some(std::time::Duration::from_millis(idle_timeout)))
-                                .max_lifetime(Some(std::time::Duration::from_millis(server_lifetime)))
+                                .max_lifetime(Some(std::time::Duration::from_millis(
+                                    server_lifetime,
+                                )))
                                 .reaper_rate(std::time::Duration::from_millis(reaper_rate))
                                 .queue_strategy(queue_strategy)
                                 .test_on_check_out(false);
@@ -591,7 +595,6 @@ impl ConnectionPool {
                     // There is one pool per database/user pair.
                     new_pools.insert(PoolIdentifier::new(pool_name, &user.username), pool);
                 }
-
             }
         }
 
@@ -1238,12 +1241,12 @@ pub async fn get_or_create_pool(db: &str, user: &str) -> Option<ConnectionPool> 
 
         if pool_config.is_some() && pool_config?.proxy {
             info!("Using existing pool {}, Proxy is enabled", db);
-            
-            pool = match create_pool_for_proxy(db, user).await{
+
+            pool = match create_pool_for_proxy(db, user).await {
                 Ok(pool) => Option::from(pool.unwrap()),
-                Err(err) => None
+                Err(err) => None,
             };
-                        
+
             info!("Created a new pool {:?}", pool);
         }
     }
@@ -1256,7 +1259,10 @@ pub fn get_all_pools() -> HashMap<PoolIdentifier, ConnectionPool> {
     (*(*POOLS.load())).clone()
 }
 
-async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<ConnectionPool>), Error> {
+async fn create_pool_for_proxy(
+    db: &str,
+    psql_user: &str,
+) -> Result<(Option<ConnectionPool>), Error> {
     let config = get_config();
     let client_server_map: ClientServerMap = Arc::new(Mutex::new(HashMap::new()));
 
@@ -1272,7 +1278,7 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
 
     let mut user: User = pool_config.users.get("0").unwrap().clone();
     user.username = psql_user.to_string();
-    
+
     let mut shards = Vec::new();
     let mut addresses = Vec::new();
     let mut banlist = Vec::new();
@@ -1296,9 +1302,7 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
         for (address_index, server) in shard.servers.iter().enumerate() {
             let mut mirror_addresses = vec![];
             if let Some(mirror_settings_vec) = &shard.mirrors {
-                for (mirror_idx, mirror_settings) in
-                    mirror_settings_vec.iter().enumerate()
-                {
+                for (mirror_idx, mirror_settings) in mirror_settings_vec.iter().enumerate() {
                     if mirror_settings.mirroring_target_index != address_index {
                         continue;
                     }
@@ -1349,15 +1353,15 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
             if let Some(apt) = &auth_passthrough {
                 match apt.fetch_hash(&address).await {
                     Ok(ok) => {
-                        
-                        if let Some(ref pool_auth_hash_value) = *(pool_auth_hash.read())
-                        {
+                        if let Some(ref pool_auth_hash_value) = *(pool_auth_hash.read()) {
                             if ok != *pool_auth_hash_value {
-                                warn!("Hash is not the same across shards \
+                                warn!(
+                                    "Hash is not the same across shards \
                                     of the same pool, client auth will \
                                     be done using last obtained hash. \
                                     Server: {}:{}, Database: {}",
-                                    server.host, server.port, shard.database,);
+                                    server.host, server.port, shard.database,
+                                );
                             }
                         }
 
@@ -1369,11 +1373,11 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
                         }
                     }
                     Err(err) => warn!(
-                                    "Could not obtain password hashes \
+                        "Could not obtain password hashes \
                                         using auth_query config, ignoring. \
                                         Error: {:?}",
-                                    err,
-                                ),
+                        err,
+                    ),
                 }
             }
 
@@ -1426,8 +1430,10 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
                 false => QueueStrategy::Lifo,
             };
 
-            debug!("[pool: {}][user: {}] Pool reaper rate: {}ms",
-                pool_name, user.username, reaper_rate);
+            debug!(
+                "[pool: {}][user: {}] Pool reaper rate: {}ms",
+                pool_name, user.username, reaper_rate
+            );
 
             let pool = Pool::builder()
                 .max_size(user.pool_size)
@@ -1455,11 +1461,13 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
     }
     assert_eq!(shards.len(), addresses.len());
     if let Some(ref _auth_hash) = *(pool_auth_hash.clone().read()) {
-        info!("Auth hash obtained from query_auth for pool {{ name: {}, user: {} }}",
-              pool_name, user.username);
+        info!(
+            "Auth hash obtained from query_auth for pool {{ name: {}, user: {} }}",
+            pool_name, user.username
+        );
     }
     let new_pool_hash_value = pool_config.hash_value();
-    
+
     let pool = ConnectionPool {
         databases: Arc::new(shards),
         addresses: Arc::new(addresses),
@@ -1485,8 +1493,7 @@ async fn create_pool_for_proxy(db: &str, psql_user: &str) -> Result<(Option::<Co
             },
             query_parser_enabled: pool_config.query_parser_enabled,
             query_parser_max_length: pool_config.query_parser_max_length,
-            query_parser_read_write_splitting: pool_config
-                .query_parser_read_write_splitting,
+            query_parser_read_write_splitting: pool_config.query_parser_read_write_splitting,
             primary_reads_enabled: pool_config.primary_reads_enabled,
             sharding_function: pool_config.sharding_function,
             automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
