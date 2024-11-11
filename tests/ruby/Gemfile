@@ -1,8 +1,0 @@
-source "https://rubygems.org"
-
-gem "pg"
-gem "toml"
-gem "rspec"
-gem "rubocop"
-gem "toxiproxy"
-gem "activerecord"
