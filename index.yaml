@@ -3,6 +3,19 @@ entries:
   pgcat:
   - apiVersion: v2
     appVersion: 1.2.0
+    created: "2024-11-11T15:24:31.734977689Z"
+    description: A Helm chart for PgCat a PostgreSQL pooler and proxy (like PgBouncer)
+      with support for sharding, load balancing, failover and mirroring.
+    digest: f9e43bff47fe754928e6dd7ebc74b6af37ce8a564fba0d2e7dcc52fc3cbb953a
+    maintainers:
+    - email: team@postgresml.org
+      name: PostgresML
+    name: pgcat
+    urls:
+    - https://github.com/postgresml/pgcat/releases/download/pgcat-0.2.5/pgcat-0.2.5.tgz
+    version: 0.2.5
+  - apiVersion: v2
+    appVersion: 1.2.0
     created: "2024-11-08T12:07:27.767665231Z"
     description: A Helm chart for PgCat a PostgreSQL pooler and proxy (like PgBouncer)
       with support for sharding, load balancing, failover and mirroring.
@@ -40,4 +53,4 @@ entries:
     urls:
     - https://github.com/postgresml/pgcat/releases/download/pgcat-0.2.2/pgcat-0.2.2.tgz
     version: 0.2.2
-generated: "2024-11-08T12:07:27.767681762Z"
+generated: "2024-11-11T15:24:31.734998568Z"
