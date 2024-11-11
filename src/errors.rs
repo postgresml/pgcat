@@ -30,7 +30,7 @@ pub enum Error {
     QueryRouterError(String),
     InvalidShardId(usize),
     PreparedStatementError,
-    NoShardSelected
+    NoShardSelected,
 }
 
 #[derive(Clone, PartialEq, Debug)]

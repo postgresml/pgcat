@@ -719,8 +719,8 @@ impl ConnectionPool {
                             .partial_cmp(&a.error_count.load(Ordering::Relaxed))
                             .unwrap()
                     });
-                },
-                DefaultShard::Fail => return Err(Error::NoShardSelected)
+                }
+                DefaultShard::Fail => return Err(Error::NoShardSelected),
             },
         };
 

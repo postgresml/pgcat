@@ -773,7 +773,7 @@ pub enum DefaultShard {
     Shard(usize),
     Random,
     RandomHealthy,
-    Fail
+    Fail,
 }
 impl Default for DefaultShard {
     fn default() -> Self {
