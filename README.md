@@ -231,7 +231,7 @@ User.find_by_email("test@example.com")
 ```sql
 -- Grab a bunch of users from shard 1
 SET SHARD TO '1';
-SELECT * FROM users LIMT 10;
+SELECT * FROM users LIMIT 10;
 
 -- Find by id
 SET SHARDING KEY TO '1234';
