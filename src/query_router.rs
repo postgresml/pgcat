@@ -504,55 +504,33 @@ impl QueryRouter {
         let mut table_names = Vec::new();
 
         match q {
-            Insert {
-                or,
-                into: _,
-                table_name,
-                columns,
-                overwrite: _,
-                source,
-                partitioned,
-                after_columns,
-                table: _,
-                on: _,
-                returning: _,
-                ignore: _,
-            } => {
+            Insert(i) => {
                 // Not supported in postgres.
-                assert!(or.is_none());
-                assert!(partitioned.is_none());
-                assert!(after_columns.is_empty());
+                assert!(i.or.is_none());
+                assert!(i.partitioned.is_none());
+                assert!(i.after_columns.is_empty());
 
-                Self::process_table(table_name, &mut table_names);
-                if let Some(source) = source {
-                    Self::process_query(source, &mut exprs, &mut table_names, &Some(columns));
+                Self::process_table(&i.table_name, &mut table_names);
+                if let Some(source) = &i.source {
+                    Self::process_query(source, &mut exprs, &mut table_names, &Some(&i.columns));
                 }
             }
-            Delete {
-                tables,
-                from,
-                using,
-                selection,
-                returning: _,
-                order_by: _,
-                limit: _,
-            } => {
-                if let Some(expr) = selection {
+            Delete(d) => {
+                if let Some(expr) = &d.selection {
                     exprs.push(expr.clone());
                 }
 
                 // Multi tables delete are not supported in postgres.
-                assert!(tables.is_empty());
+                assert!(d.tables.is_empty());
 
-                Self::process_tables_with_join(from, &mut exprs, &mut table_names);
-                if let Some(using_tbl_with_join) = using {
+                if let Some(using_tbl_with_join) = &d.using {
                     Self::process_tables_with_join(
                         using_tbl_with_join,
                         &mut exprs,
                         &mut table_names,
                     );
                 }
-                Self::process_selection(selection, &mut exprs);
+                Self::process_selection(&d.selection, &mut exprs);
             }
             Update {
                 table,
@@ -822,7 +800,13 @@ impl QueryRouter {
 
         for a in assignments {
             if sharding_key[0].value == "*"
-                && sharding_key[1].value == a.id.last().unwrap().value.to_lowercase()
+                && sharding_key[1].value
+                    == a.target
+                        .to_string()
+                        .split('.')
+                        .last()
+                        .unwrap()
+                        .to_lowercase()
             {
                 return Err(Error::QueryRouterParserError(
                     "Sharding key cannot be updated.".into(),
