@@ -39,7 +39,7 @@ socket2 = { version = "0.4.7", features = ["all"] }
 nix = "0.26.2"
 atomic_enum = "0.2.0"
 postgres-protocol = "0.6.5"
-fallible-iterator = "0.2"
+fallible-iterator = "0.3"
 pin-project = "1"
 webpki-roots = "0.23"
 rustls = { version = "0.21", features = ["dangerous_configuration"] }
