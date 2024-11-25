@@ -1,0 +1,33 @@
+# This is an example of the most basic config
+# that will mimic what PgBouncer does in transaction mode with one server.
+
+[general]
+
+log_level = "DEBUG"
+
+host = "0.0.0.0"
+port = 6433
+admin_username = "pgcat"
+admin_password = "pgcat"
+
+[pools.pgml]
+auth_query="SELECT usename, passwd FROM pg_shadow WHERE usename='$1'"
+
+# Be sure to grant this user LOGIN on Postgres
+auth_query_user = "postgres"
+auth_query_password = "postgres"
+
+proxy = true
+
+[pools.pgml.users.0]
+username = "postgres"
+#password = "postgres"
+pool_size = 10
+min_pool_size = 1
+pool_mode = "session"
+
+[pools.pgml.shards.0]
+servers = [
+  ["localhost", 5432, "primary"]
+]
+database = "postgres"
