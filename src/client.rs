@@ -947,7 +947,7 @@ where
                 // Query
                 'Q' => {
                     if query_router.query_parser_enabled() {
-                        match query_router.parse(&message) {
+                        initial_parsed_ast = Some(match query_router.parse(&message) {
                             Ok(ast) => {
                                 let plugin_result = query_router.execute_plugins(&ast).await;
 
@@ -967,15 +967,20 @@ where
 
                                 let _ = query_router.infer(&ast);
 
-                                initial_parsed_ast = Some(ast);
+                                ast
                             }
                             Err(error) => {
-                                warn!(
-                                    "Query parsing error: {} (client: {})",
-                                    error, client_identifier
-                                );
+                                if error != Error::UnsupportedStatement {
+                                    warn!(
+                                        "Query parsing error: {} (client: {})",
+                                        error, client_identifier
+                                    );
+                                }
+                                // Returning an empty vector shows the failed parse attempt and
+                                // avoids another round of parse attempt below.
+                                vec![]
                             }
-                        }
+                        })
                     }
                 }
 
@@ -998,10 +1003,12 @@ where
                                 let _ = query_router.infer(&ast);
                             }
                             Err(error) => {
-                                warn!(
-                                    "Query parsing error: {} (client: {})",
-                                    error, client_identifier
-                                );
+                                if error != Error::UnsupportedStatement {
+                                    warn!(
+                                        "Query parsing error: {} (client: {})",
+                                        error, client_identifier
+                                    );
+                                }
                             }
                         };
                     }
@@ -1215,14 +1222,25 @@ where
                         if query_router.query_parser_enabled() {
                             // We don't want to parse again if we already parsed it as the initial message
                             let ast = match initial_parsed_ast {
-                                Some(_) => Some(initial_parsed_ast.take().unwrap()),
+                                Some(_) => {
+                                    let parsed_ast = initial_parsed_ast.take().unwrap();
+                                    // if 'parsed_ast' is empty, it means that there was a failed
+                                    // attempt to parse the query as a custom command, earlier above.
+                                    if parsed_ast.is_empty() {
+                                        None
+                                    } else {
+                                        Some(parsed_ast)
+                                    }
+                                }
                                 None => match query_router.parse(&message) {
                                     Ok(ast) => Some(ast),
                                     Err(error) => {
-                                        warn!(
-                                            "Query parsing error: {} (client: {})",
-                                            error, client_identifier
-                                        );
+                                        if error != Error::UnsupportedStatement {
+                                            warn!(
+                                                "Query parsing error: {} (client: {})",
+                                                error, client_identifier
+                                            );
+                                        }
                                         None
                                     }
                                 },
