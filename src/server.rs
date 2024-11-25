@@ -1,5 +1,5 @@
 /// Implementation of the PostgreSQL server (database) protocol.
-/// Here we are pretending to the a Postgres client.
+/// Here we are pretending to be a client to the Postgres server.
 use bytes::{Buf, BufMut, BytesMut};
 use fallible_iterator::FallibleIterator;
 use log::{debug, error, info, trace, warn};
