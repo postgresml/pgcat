@@ -542,6 +542,9 @@ pub struct Pool {
     pub default_role: String,
 
     #[serde(default)] // False
+    pub replica_to_primary_failover_enabled: bool,
+
+    #[serde(default)] // False
     pub query_parser_enabled: bool,
 
     pub query_parser_max_length: Option<usize>,
@@ -734,6 +737,7 @@ impl Default for Pool {
             pool_mode: Self::default_pool_mode(),
             load_balancing_mode: Self::default_load_balancing_mode(),
             default_role: String::from("any"),
+            replica_to_primary_failover_enabled: false,
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,

@@ -162,6 +162,9 @@ pub struct PoolSettings {
     // Default server role to connect to.
     pub default_role: Option<Role>,
 
+    // Whether or not we should use primary when replicas are unavailable
+    pub replica_to_primary_failover_enabled: bool,
+
     // Enable/disable query parser.
     pub query_parser_enabled: bool,
 
@@ -219,6 +222,7 @@ impl Default for PoolSettings {
             user: User::default(),
             db: String::default(),
             default_role: None,
+            replica_to_primary_failover_enabled: false,
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
@@ -531,6 +535,8 @@ impl ConnectionPool {
                             "primary" => Some(Role::Primary),
                             _ => unreachable!(),
                         },
+                        replica_to_primary_failover_enabled: pool_config
+                            .replica_to_primary_failover_enabled,
                         query_parser_enabled: pool_config.query_parser_enabled,
                         query_parser_max_length: pool_config.query_parser_max_length,
                         query_parser_read_write_splitting: pool_config
@@ -729,6 +735,19 @@ impl ConnectionPool {
                     .partial_cmp(&self.busy_connection_count(a))
                     .unwrap()
             });
+        }
+
+        // If the role is replica and we allow sending traffic to primary when replicas are unavailble,
+        // we add primary address at the end of the list of candidates, this way it will be tried when
+        // replicas are all unavailable.
+        if role == Role::Replica && self.settings.replica_to_primary_failover_enabled {
+            let mut primaries = self
+                .addresses
+                .iter()
+                .flatten()
+                .filter(|address| address.role == Role::Primary)
+                .collect::<Vec<&Address>>();
+            candidates.insert(0, primaries.pop().unwrap());
         }
 
         // Indicate we're waiting on a server connection from a pool.
@@ -935,24 +954,28 @@ impl ConnectionPool {
             return true;
         }
 
-        // Check if all replicas are banned, in that case unban all of them
-        let replicas_available = self.addresses[address.shard]
-            .iter()
-            .filter(|addr| addr.role == Role::Replica)
-            .count();
+        // If we have replica to primary failover we should not unban replicas
+        // as we still have the primary to server traffic.
+        if !self.settings.replica_to_primary_failover_enabled {
+            // Check if all replicas are banned, in that case unban all of them
+            let replicas_available = self.addresses[address.shard]
+                .iter()
+                .filter(|addr| addr.role == Role::Replica)
+                .count();
 
-        debug!("Available targets: {}", replicas_available);
+            debug!("Available targets: {}", replicas_available);
 
-        let read_guard = self.banlist.read();
-        let all_replicas_banned = read_guard[address.shard].len() == replicas_available;
-        drop(read_guard);
+            let read_guard = self.banlist.read();
+            let all_replicas_banned = read_guard[address.shard].len() == replicas_available;
+            drop(read_guard);
 
-        if all_replicas_banned {
-            let mut write_guard = self.banlist.write();
-            warn!("Unbanning all replicas.");
-            write_guard[address.shard].clear();
+            if all_replicas_banned {
+                let mut write_guard = self.banlist.write();
+                warn!("Unbanning all replicas.");
+                write_guard[address.shard].clear();
 
-            return true;
+                return true;
+            }
         }
 
         // Check if ban time is expired

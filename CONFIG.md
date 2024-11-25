@@ -309,6 +309,15 @@ If the client doesn't specify, PgCat routes traffic to this role by default.
 `replica` round-robin between replicas only without touching the primary,
 `primary` all queries go to the primary unless otherwise specified.
 
+### replica_to_primary_failover_enabled
+```
+path: pools.<pool_name>.replica_to_primary_failover_enabled
+default: "false"
+```
+
+If set to true, when the specified role is `replica` (either by setting `default_role` or manually)
+and all replicas are banned, queries will be sent to the primary (until a replica is back online).
+
 ### prepared_statements_cache_size
 ```
 path: general.prepared_statements_cache_size
