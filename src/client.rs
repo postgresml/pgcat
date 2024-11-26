@@ -1149,6 +1149,7 @@ where
             //
             // If the client is in session mode, no more custom protocol
             // commands will be accepted.
+            let transaction_start = Instant::now();
             loop {
                 let message = match initial_message {
                     None => {
@@ -1262,9 +1263,10 @@ where
                         if !server.in_transaction() {
                             // Report transaction executed statistics.
                             self.stats.transaction();
-                            server
-                                .stats()
-                                .transaction(self.server_parameters.get_application_name());
+                            server.stats().transaction(
+                                Instant::now().duration_since(transaction_start).as_millis() as u64,
+                                self.server_parameters.get_application_name(),
+                            );
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1518,9 +1520,10 @@ where
 
                         if !server.in_transaction() {
                             self.stats.transaction();
-                            server
-                                .stats()
-                                .transaction(self.server_parameters.get_application_name());
+                            server.stats().transaction(
+                                Instant::now().duration_since(transaction_start).as_millis() as u64,
+                                self.server_parameters.get_application_name(),
+                            );
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
@@ -1569,9 +1572,10 @@ where
 
                         if !server.in_transaction() {
                             self.stats.transaction();
-                            server
-                                .stats()
-                                .transaction(self.server_parameters.get_application_name());
+                            server.stats().transaction(
+                                Instant::now().duration_since(transaction_start).as_millis() as u64,
+                                self.server_parameters.get_application_name(),
+                            );
 
                             // Release server back to the pool if we are in transaction mode.
                             // If we are in session mode, we keep the server until the client disconnects.
