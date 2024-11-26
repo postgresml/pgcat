@@ -276,7 +276,7 @@ The config can be reloaded by sending a `kill -s SIGHUP` to the process or by qu
 
 ### Mirroring
 
-Mirroring allows to route queries to multiple databases at the same time. This is useful for prewarning replicas before placing them into the active configuration, or for testing different versions of Postgres with live traffic.
+Mirroring allows to route queries to multiple databases at the same time. This is useful for prewarming replicas before placing them into the active configuration, or for testing different versions of Postgres with live traffic.
 
 ## License
 
