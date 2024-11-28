@@ -698,7 +698,6 @@ impl Server {
                             ))
                         }
                     };
-
                     trace!("Error: {}", error_code);
 
                     match error_code {
@@ -1013,6 +1012,12 @@ impl Server {
                             // which can leak between clients. This is a best effort to block bad clients
                             // from poisoning a transaction-mode pool by setting inappropriate session variables
                             match command.as_str() {
+                                "DISCARD ALL" => {
+                                    self.clear_prepared_statement_cache();
+                                }
+                                "DEALLOCATE ALL" => {
+                                    self.clear_prepared_statement_cache();
+                                }
                                 "SET" => {
                                     // We don't detect set statements in transactions
                                     // No great way to differentiate between set and set local
@@ -1130,6 +1135,12 @@ impl Server {
         }
 
         has_it
+    }
+
+    fn clear_prepared_statement_cache(&mut self) {
+        if let Some(cache) = &mut self.prepared_statement_cache {
+            cache.clear();
+        }
     }
 
     fn add_prepared_statement_to_cache(&mut self, name: &str) -> Option<String> {
