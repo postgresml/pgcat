@@ -47,6 +47,9 @@ server_round_robin = false
 tls_certificate = "../../.circleci/server.cert"
 tls_private_key = "../../.circleci/server.key"
 
+# Disconnect clients not using TLS
+force_client_tls = false
+
 # Credentials to access the virtual administrative database (pgbouncer or pgcat)
 # Connecting to that database allows running commands like `SHOW POOLS`, `SHOW DATABASES`, etc..
 admin_username = "admin_user"
