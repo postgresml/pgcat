@@ -15,10 +15,12 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
-use tokio_rustls::rustls::{OwnedTrustAnchor, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::config::{get_config, Address, User};
+use crate::config::{
+    get_config, get_prepared_statements_cache_size, get_server_tls, get_verify_server_certificate,
+    Address, CertificateVerificationVariant, User,
+};
 use crate::constants::*;
 use crate::dns_cache::{AddrSet, CACHED_RESOLVER};
 use crate::errors::{Error, ServerIdentifier};
@@ -28,6 +30,7 @@ use crate::mirrors::MirroringManager;
 use crate::pool::ClientServerMap;
 use crate::scram::ScramSha256;
 use crate::stats::ServerStats;
+use crate::tls::ROOT_CERT_STORE;
 use std::io::Write;
 
 use pin_project::pin_project;
@@ -378,9 +381,8 @@ impl Server {
         // TCP timeouts.
         configure_socket(&stream);
 
-        let config = get_config();
-
-        let mut stream = if config.general.server_tls {
+        let mut stream = if get_server_tls() {
+            debug!("Connecting to server using TLS");
             // Request a TLS connection
             ssl_request(&mut stream).await?;
 
@@ -399,29 +401,37 @@ impl Server {
                 'S' => {
                     debug!("Connecting to server using TLS");
 
-                    let mut root_store = RootCertStore::empty();
-                    root_store.add_server_trust_anchors(
-                        webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-                            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                                ta.subject,
-                                ta.spki,
-                                ta.name_constraints,
-                            )
-                        }),
-                    );
-
                     let mut tls_config = rustls::ClientConfig::builder()
                         .with_safe_defaults()
-                        .with_root_certificates(root_store)
+                        .with_root_certificates((*(*ROOT_CERT_STORE.load())).clone()) // Either way, it still needs to be cloned here
                         .with_no_client_auth();
 
-                    // Equivalent to sslmode=prefer which is fine most places.
-                    // If you want verify-full, change `verify_server_certificate` to true.
-                    if !config.general.verify_server_certificate {
-                        let mut dangerous = tls_config.dangerous();
-                        dangerous.set_certificate_verifier(Arc::new(
-                            crate::tls::NoCertificateVerification {},
-                        ));
+                    {
+                        let mut dangerous = tls_config.dangerous(); // for security reasons, we will hide this variable from external scope
+
+                        match get_verify_server_certificate() {
+                            CertificateVerificationVariant::Bool(v) => match v {
+                                true => { /* NOP */ } // verify-full (by default rustls checks certificates completely)
+                                false => {
+                                    // prefer
+                                    dangerous.set_certificate_verifier(Arc::new(
+                                        crate::tls::NoCertificateVerification {},
+                                    ));
+                                }
+                            },
+                            CertificateVerificationVariant::String(v) => match v.as_str() {
+                                "verify-ca" => {
+                                    // verify-ca
+                                    dangerous.set_certificate_verifier(Arc::new(
+                                        crate::tls::OnlyRootCertificateVerification {},
+                                    ));
+                                }
+                                _ => {
+                                    error!("The `general.verify_server_certificate` setting has an invalid value: {}", v);
+                                    return Err(Error::BadConfig);
+                                }
+                            },
+                        }
                     }
 
                     let connector = TlsConnector::from(Arc::new(tls_config));

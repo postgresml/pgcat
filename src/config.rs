@@ -1,6 +1,6 @@
 /// Parse the configuration file.
 use arc_swap::ArcSwap;
-use log::{error, info};
+use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserializer, Serializer};
@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,7 +21,7 @@ use crate::errors::Error;
 use crate::pool::{ClientServerMap, ConnectionPool};
 use crate::sharding::ShardingFunction;
 use crate::stats::AddressStats;
-use crate::tls::{load_certs, load_keys};
+use crate::tls::{load_certs, load_keys, reload_root_cert_store};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -262,6 +263,48 @@ impl User {
     }
 }
 
+/// TLS connection mode to the server.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum CertificateVerificationVariant {
+    Bool(bool),     //  FALSE means "prefer", TRUE means "verify-full"
+    String(String), // "verify-ca"
+}
+
+impl CertificateVerificationVariant {
+    #[inline]
+    pub fn is_enabled(&self) -> bool {
+        *self != CertificateVerificationVariant::Bool(false)
+    }
+
+    #[inline]
+    pub fn is_disabled(&self) -> bool {
+        !self.is_enabled()
+    }
+}
+
+impl std::fmt::Display for CertificateVerificationVariant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Bool(v) => match v {
+                    true => "true (verify-full)",
+                    false => "false (prefer)",
+                },
+                Self::String(v) => v,
+            }
+        )
+    }
+}
+
+impl Default for CertificateVerificationVariant {
+    fn default() -> Self {
+        Self::Bool(false)
+    }
+}
+
 /// General configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct General {
@@ -336,8 +379,8 @@ pub struct General {
     #[serde(default)] // false
     pub server_tls: bool,
 
-    #[serde(default)] // false
-    pub verify_server_certificate: bool,
+    #[serde(default)] // CertificateVerificationVariant::Bool(false)
+    pub verify_server_certificate: CertificateVerificationVariant,
 
     pub admin_username: String,
     pub admin_password: String,
@@ -468,7 +511,7 @@ impl Default for General {
             tls_certificate: None,
             tls_private_key: None,
             server_tls: false,
-            verify_server_certificate: false,
+            verify_server_certificate: CertificateVerificationVariant::Bool(false), // equivalent to false in earlier versions
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
             admin_auth_type: AuthType::MD5,
@@ -1457,6 +1500,22 @@ pub fn get_idle_client_in_transaction_timeout() -> u64 {
     CONFIG.load().general.idle_client_in_transaction_timeout
 }
 
+pub fn get_prepared_statements() -> bool {
+    CONFIG.load().general.prepared_statements
+}
+
+pub fn get_prepared_statements_cache_size() -> usize {
+    CONFIG.load().general.prepared_statements_cache_size
+}
+
+pub fn get_server_tls() -> bool {
+    CONFIG.load().general.server_tls
+}
+
+pub fn get_verify_server_certificate() -> CertificateVerificationVariant {
+    CONFIG.load().general.verify_server_certificate.clone()
+}
+
 /// Parse the configuration file located at the path.
 pub async fn parse(path: &str) -> Result<(), Error> {
     let mut contents = String::new();
@@ -1499,7 +1558,7 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
     let old_config = get_config();
 
     match parse(&old_config.path).await {
-        Ok(()) => (),
+        Ok(_) => (),
         Err(err) => {
             error!("Config reload error: {:?}", err);
             return Err(Error::BadConfig);
@@ -1513,8 +1572,13 @@ pub async fn reload_config(client_server_map: ClientServerMap) -> Result<bool, E
         Err(err) => error!("DNS cache reinitialization error: {:?}", err),
     };
 
+    if new_config.general.verify_server_certificate.is_enabled() {
+        debug!("Reloading certificates from the system root store");
+        reload_root_cert_store().await?;
+    }
+
     if old_config != new_config {
-        info!("Config changed, reloading");
+        // Re-create the connection pools, if they have changed.
         ConnectionPool::from_config(client_server_map).await?;
         Ok(true)
     } else {
