@@ -48,6 +48,7 @@ tokio-test = "0.4.2"
 serde_json = "1"
 itertools = "0.10"
 clap = { version = "4.3.1", features = ["derive", "env"] }
+prettytable-rs = "^0.10"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = [
     "json",
