@@ -1,7 +1,22 @@
+use crate::admin::{generate_server_parameters_for_admin, handle_admin};
+use crate::auth_passthrough::refetch_auth_hash;
+use crate::config::{
+    get_config, get_idle_client_in_transaction_timeout, Address, AuthType, PoolMode,
+};
+use crate::constants::*;
+use crate::dns_cache::CACHED_RESOLVER;
 use crate::errors::{ClientIdentifier, Error};
+use crate::messages::*;
+use crate::plugins::PluginOutput;
 use crate::pool::BanReason;
+use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
+use crate::query_router::{Command, QueryRouter};
+use crate::server::{Server, ServerParameters};
+use crate::stats::{ClientStats, ServerStats};
+use crate::tls::Tls;
 /// Handle clients by pretending to be a PostgreSQL server.
 use bytes::{Buf, BufMut, BytesMut};
+use ipnet::IpNet;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, VecDeque};
@@ -11,20 +26,6 @@ use tokio::io::{split, AsyncReadExt, BufReader, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::Sender;
-
-use crate::admin::{generate_server_parameters_for_admin, handle_admin};
-use crate::auth_passthrough::refetch_auth_hash;
-use crate::config::{
-    get_config, get_idle_client_in_transaction_timeout, Address, AuthType, PoolMode,
-};
-use crate::constants::*;
-use crate::messages::*;
-use crate::plugins::PluginOutput;
-use crate::pool::{get_pool, ClientServerMap, ConnectionPool};
-use crate::query_router::{Command, QueryRouter};
-use crate::server::{Server, ServerParameters};
-use crate::stats::{ClientStats, ServerStats};
-use crate::tls::Tls;
 
 use tokio_rustls::server::TlsStream;
 
@@ -415,6 +416,60 @@ pub async fn startup_tls(
     }
 }
 
+pub async fn check_hostname_whitelist_entry(hostname: String, addr: std::net::SocketAddr) -> bool {
+    let cached_resolver = CACHED_RESOLVER.load();
+    let addr_set = match cached_resolver.lookup_ip(&hostname).await {
+        Ok(ok) => {
+            debug!("Obtained: {:?}", ok);
+            Some(ok)
+        }
+        Err(err) => {
+            warn!("Error trying to resolve {}, ({:?})", &hostname, err);
+            None
+        }
+    };
+
+    // Look through address set
+    if addr_set.is_some(){
+        for ip in &addr_set.unwrap().set {
+            if addr.ip() == *ip {
+                return true;
+            }
+        }
+    };
+    false
+}
+
+pub async fn check_whitelist_entries(
+    addr: std::net::SocketAddr,
+    whitelist_entries: &Option<Vec<String>>,
+) -> bool {
+    match whitelist_entries {
+        Some(whitelist_entries_value) => {
+            for entry in whitelist_entries_value {
+                let parsed_ip_result: Result<IpNet, _> = entry.parse();
+                match parsed_ip_result {
+                    // Compare ip to address ip
+                    Ok(parsed_ip) => {
+                        if parsed_ip.contains(&addr.ip()) {
+                            return true;
+                        }
+                    }
+
+                    // If ip is hostname then convert to ip/iplist then check
+                    Err(_) => {
+                        if check_hostname_whitelist_entry(entry.clone(), addr).await {
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        }
+        None => true,
+    }
+}
+
 impl<S, T> Client<S, T>
 where
     S: tokio::io::AsyncRead + std::marker::Unpin,
@@ -488,6 +543,15 @@ where
         // Authenticate admin user.
         let (transaction_mode, mut server_parameters) = if admin {
             let config = get_config();
+
+            if !check_whitelist_entries(addr, &config.general.admin_address_whitelist).await {
+                let error =
+                    Error::ClientGeneralError("IP Address not allowed".into(), client_identifier);
+                warn!("{}", error);
+                ip_address_whitelist_fail(&mut write, username, &addr.ip().to_string()).await?;
+                return Err(error);
+            }
+
             // TODO: Add SASL support.
             // Perform MD5 authentication.
             match config.general.admin_auth_type {
@@ -512,7 +576,6 @@ where
                             code as char
                         )));
                     }
-
                     let len = match read.read_i32().await {
                         Ok(len) => len,
                         Err(_) => {
@@ -574,6 +637,14 @@ where
                         client_identifier,
                     ));
                 }
+            };
+
+            if !check_whitelist_entries(addr, &pool.settings.user.address_whitelist).await {
+                let error =
+                    Error::ClientGeneralError("IP Address not allowed".into(), client_identifier);
+                warn!("{}", error);
+                ip_address_whitelist_fail(&mut write, username, &addr.ip().to_string()).await?;
+                return Err(error);
             };
 
             // Obtain the hash to compare, we give preference to that written in cleartext in config

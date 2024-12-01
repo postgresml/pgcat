@@ -211,6 +211,7 @@ pub struct User {
 
     #[serde(default = "User::default_auth_type")]
     pub auth_type: AuthType,
+    pub address_whitelist: Option<Vec<String>>,
     pub server_username: Option<String>,
     pub server_password: Option<String>,
     pub pool_size: u32,
@@ -229,6 +230,7 @@ impl Default for User {
             username: String::from("postgres"),
             password: None,
             auth_type: AuthType::MD5,
+            address_whitelist: None,
             server_username: None,
             server_password: None,
             pool_size: 15,
@@ -341,6 +343,7 @@ pub struct General {
 
     pub admin_username: String,
     pub admin_password: String,
+    pub admin_address_whitelist: Option<Vec<String>>,
 
     #[serde(default = "General::default_admin_auth_type")]
     pub admin_auth_type: AuthType,
@@ -472,6 +475,7 @@ impl Default for General {
             admin_username: String::from("admin"),
             admin_password: String::from("admin"),
             admin_auth_type: AuthType::MD5,
+            admin_address_whitelist: None,
             validate_config: true,
             auth_query: None,
             auth_query_user: None,

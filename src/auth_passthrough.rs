@@ -74,6 +74,7 @@ impl AuthPassthrough {
             username: self.user.clone(),
             auth_type: AuthType::MD5,
             password: Some(self.password.clone()),
+            address_whitelist: None,
             server_username: None,
             server_password: None,
             pool_size: 1,
