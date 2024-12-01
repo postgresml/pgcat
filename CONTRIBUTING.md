@@ -36,4 +36,4 @@ Happy hacking!
 
 ## TODOs
 
-See [Issues]([url](https://github.com/levkk/pgcat/issues)).
+See [Issues](https://github.com/postgresml/pgcat/issues).
