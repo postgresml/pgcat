@@ -4,5 +4,5 @@ description: A Helm chart for PgCat a PostgreSQL pooler and proxy (like PgBounce
 maintainers:
   - name: PostgresML
     email: team@postgresml.org
-appVersion: "1.2.0"
+appVersion: "1.3.0"
 version: 0.2.5

@@ -298,6 +298,22 @@ configuration:
     #  ## @param configuration.poolsPostgres.query_parser_read_write_splitting
     #  query_parser_read_write_splitting: true
 
+    # ## Db activity based routing. If enabled, we'll route queries to the primary if the table was recently mutated.
+    # ## @param configuration.poolsPostgres.db_activity_based_routing
+    # db_activity_based_routing: false
+
+    # ## DB activity based init delay. How long to wait before starting to route queries to the primary after a table mutation.
+    # ## @param configuration.poolsPostgres.db_activity_based_ms_init_delay
+    # db_activity_based_ms_init_delay: 100
+
+    # ## DB activity TTL. How long before marking the DB as inactive after no mutations or queries.
+    # ## @param configuration.poolsPostgres.db_activity_ttl
+    # db_activity_ttl: 900
+
+    # ## Table mutation cache TTL. How long to keep track of table mutations.
+    # ## @param configuration.poolsPostgres.table_mutation_cache_ttl
+    # table_mutation_cache_ttl: 50
+
     #  ## If the query parser is enabled and this setting is enabled, the primary will be part of the pool of databases used for
     #  ## load balancing of read queries. Otherwise, the primary will only be used for write
     #  ## queries. The primary can always be explicitly selected with our custom protocol.

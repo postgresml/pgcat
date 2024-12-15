@@ -309,6 +309,45 @@ If the client doesn't specify, PgCat routes traffic to this role by default.
 `replica` round-robin between replicas only without touching the primary,
 `primary` all queries go to the primary unless otherwise specified.
 
+### db_activity_based_routing
+```
+path: pools.<pool_name>.db_activity_based_routing
+default: false
+```
+
+If enabled, PgCat will route queries to the primary if the queried table was recently written to.
+Only relevant when `query_parser_enabled` *and* `query_parser_read_write_splitting` is enabled.
+
+##### Considerations:
+- *This feature is experimental and may not work as expected.*
+- This feature only works when the same PgCat instance is used for both reads and writes to the database.
+- This feature is not relevant when the primary is not part of the pool of databases used for load balancing of read queries.
+- If more than one PgCat instance is used for HA purposes, this feature will not work as expected. A way to still make it work is by using sticky sessions.
+
+### db_activity_based_ms_init_delay
+```
+path: pools.<pool_name>.db_activity_based_ms_init_delay
+default: 100
+```
+
+The delay in milliseconds before the first activity-based routing check is performed.
+
+### db_activity_ttl
+```
+path: pools.<pool_name>.db_activity_ttl
+default: 900
+```
+
+The time in seconds after which a DB is considered inactive when no queries/updates are performed to it.
+
+### table_mutation_cache_ms_ttl
+```
+path: pools.<pool_name>.table_mutation_cache_ms_ttl
+default: 50
+```
+
+The time in milliseconds after a write to a table that all queries to that table will be routed to the primary.
+
 ### prepared_statements_cache_size
 ```
 path: general.prepared_statements_cache_size
