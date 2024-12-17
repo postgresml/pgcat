@@ -11,9 +11,5 @@ spec:
       targetPort: pgcat
       protocol: TCP
       name: pgcat
-    - port: {{ .Values.configuration.general.prometheus_exporter_port }}
-      targetPort: metrics
-      protocol: TCP
-      name: metrics
   selector:
     {{- include "pgcat.selectorLabels" . | nindent 4 }}
