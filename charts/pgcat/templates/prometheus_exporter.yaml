@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "pgcat.fullname" . }}
+  labels:
+    {{- include "pgcat.labels" . | nindent 4 }}
+spec:
+  podMetricsEndpoints:
+    - interval: 10s
+      path: /metrics
+      scheme: http
+      targetPort: {{ .Values.configuration.general.prometheus_exporter_port }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: pgcat
+      app.kubernetes.io/name: pgcat

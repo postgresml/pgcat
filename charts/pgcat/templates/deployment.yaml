@@ -36,6 +36,9 @@ spec:
             - name: pgcat
               containerPort: {{ .Values.configuration.general.port }}
               protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.configuration.general.prometheus_exporter_port }}
+              protocol: TCP
           livenessProbe:
             tcpSocket:
               port: pgcat
