@@ -820,6 +820,7 @@ impl Server {
                                 user.clone(),
                                 database.to_owned(),
                                 address.mirrors.clone(),
+                                auth_hash,
                             )),
                         },
                         cleanup_connections,

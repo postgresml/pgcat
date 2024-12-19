@@ -147,8 +147,10 @@ SQL
       instance_ports.each do |port|
         connection = PG.connect("postgres://postgres:postgres@localhost:#{port}/#{database}")
         connection.exec(self.drop_query_auth_function(user)) rescue PG::UndefinedFunction
+        connection.exec("REVOKE EXECUTE ON FUNCTION pg_stat_statements_reset FROM #{user}") rescue PG::UndefinedObject
         connection.exec("DROP ROLE #{user}") rescue PG::UndefinedObject
         connection.exec("CREATE ROLE #{user} ENCRYPTED PASSWORD '#{password}' LOGIN;")
+        connection.exec("GRANT EXECUTE ON FUNCTION pg_stat_statements_reset TO #{user}")
         connection.exec(self.create_query_auth_function(user))
         connection.close
       end
@@ -158,6 +160,7 @@ SQL
       instance_ports.each do |port|
         connection = PG.connect("postgres://postgres:postgres@localhost:#{port}/#{database}")
         connection.exec(self.drop_query_auth_function(user)) rescue PG::UndefinedFunction
+        connection.exec("REVOKE EXECUTE ON FUNCTION pg_stat_statements_reset FROM #{user}")
         connection.exec("DROP ROLE #{user}")
         connection.close
       end
