@@ -25,7 +25,7 @@ impl<'a> AuditLogger<'a> {
             .iter()
             .map(|p| Regex::new(p))
             .collect::<Result<Vec<Regex>, regex::Error>>()
-            .map_err(|e| Error::BadConfig)?;
+            .map_err(|_e| Error::BadConfig)?;
 
         Ok(AuditLogger {
             enabled,

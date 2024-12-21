@@ -878,13 +878,25 @@ impl Default for Shard {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Plugins {
     pub intercept: Option<Intercept>,
     pub table_access: Option<TableAccess>,
     pub query_logger: Option<QueryLogger>,
     pub audit_logger: Option<AuditLogger>,
     pub prewarmer: Option<Prewarmer>,
+}
+
+impl Default for Plugins {
+    fn default() -> Self {
+        Self {
+            intercept: None,
+            table_access: None,
+            query_logger: None,
+            audit_logger: None,
+            prewarmer: None,
+        }
+    }
 }
 
 pub trait Plugin {
@@ -948,6 +960,12 @@ pub struct AuditLogger {
 }
 
 impl Plugin for QueryLogger {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+impl Plugin for AuditLogger {
     fn is_enabled(&self) -> bool {
         self.enabled
     }
