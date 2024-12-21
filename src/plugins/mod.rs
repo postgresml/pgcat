@@ -11,6 +11,7 @@
 pub mod intercept;
 pub mod prewarmer;
 pub mod query_logger;
+pub mod audit_logger;
 pub mod table_access;
 
 use crate::{errors::Error, query_router::QueryRouter};
@@ -20,6 +21,7 @@ use sqlparser::ast::Statement;
 
 pub use intercept::Intercept;
 pub use query_logger::QueryLogger;
+pub use audit_logger::AuditLogger;
 pub use table_access::TableAccess;
 
 #[derive(Clone, Debug, PartialEq)]
