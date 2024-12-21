@@ -8,10 +8,10 @@
 //!   - etc
 //!
 
+pub mod audit_logger;
 pub mod intercept;
 pub mod prewarmer;
 pub mod query_logger;
-pub mod audit_logger;
 pub mod table_access;
 
 use crate::{errors::Error, query_router::QueryRouter};
@@ -19,9 +19,9 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use sqlparser::ast::Statement;
 
+pub use audit_logger::AuditLogger;
 pub use intercept::Intercept;
 pub use query_logger::QueryLogger;
-pub use audit_logger::AuditLogger;
 pub use table_access::TableAccess;
 
 #[derive(Clone, Debug, PartialEq)]
