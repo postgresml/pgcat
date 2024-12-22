@@ -26,7 +26,7 @@ UPDATE pgbench_branches SET bbalance = bbalance + :delta WHERE bid = :bid;
 
 INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (:tid, :bid, :aid, :delta, CURRENT_TIMESTAMP);
 
-END;
+COMMIT;
 
 SET SHARDING KEY TO :aid;
 

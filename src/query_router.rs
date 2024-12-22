@@ -359,6 +359,9 @@ impl QueryRouter {
         Some((command, value))
     }
 
+    const UNSUPPORTED_STATEMENTS_FOR_PARSING: [&'static str; 4] =
+        ["COPY", "SET", "TRUNCATE", "VACUUM"];
+
     pub fn parse(&self, message: &BytesMut) -> Result<Vec<Statement>, Error> {
         let mut message_cursor = Cursor::new(message);
 
@@ -401,8 +404,22 @@ impl QueryRouter {
         match Parser::parse_sql(&PostgreSqlDialect {}, &query) {
             Ok(ast) => Ok(ast),
             Err(err) => {
-                debug!("{}: {}", err, query);
-                Err(Error::QueryRouterParserError(err.to_string()))
+                let qry_upper = query.to_ascii_uppercase();
+
+                // Check for unsupported statements to avoid producing a warning.
+                // Note 1: this is not a complete list of unsupported statements.
+                // Note 2: we do not check for unsupported statements before going through the
+                //         parser, as the plugin system might be able to handle them, once sqlparser
+                //         is able to correctly parse these (rather valid) queries.
+                if Self::UNSUPPORTED_STATEMENTS_FOR_PARSING
+                    .iter()
+                    .any(|s| qry_upper.starts_with(s))
+                {
+                    Err(Error::UnsupportedStatement)
+                } else {
+                    debug!("{}: {}", err, query);
+                    Err(Error::QueryRouterParserError(err.to_string()))
+                }
             }
         }
     }
