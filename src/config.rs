@@ -589,6 +589,19 @@ pub struct Pool {
     #[serde(default = "Pool::default_prepared_statements_cache_size")]
     pub prepared_statements_cache_size: usize,
 
+    // Support for query routing based on database activity
+    #[serde(default = "Pool::default_db_activity_based_routing")]
+    pub db_activity_based_routing: bool,
+
+    #[serde(default = "Pool::default_db_activity_init_delay")]
+    pub db_activity_init_delay: u64,
+
+    #[serde(default = "Pool::default_db_activity_ttl")]
+    pub db_activity_ttl: u64,
+
+    #[serde(default = "Pool::default_table_mutation_cache_ms_ttl")]
+    pub table_mutation_cache_ms_ttl: u64,
+
     pub plugins: Option<Plugins>,
     pub shards: BTreeMap<String, Shard>,
     pub users: BTreeMap<String, User>,
@@ -640,6 +653,25 @@ impl Pool {
 
     pub fn default_prepared_statements_cache_size() -> usize {
         0
+    }
+
+    pub fn default_db_activity_based_routing() -> bool {
+        false
+    }
+
+    pub fn default_db_activity_init_delay() -> u64 {
+        // 100 milliseconds
+        100
+    }
+
+    pub fn default_db_activity_ttl() -> u64 {
+        // 15 minutes
+        15 * 60
+    }
+
+    pub fn default_table_mutation_cache_ms_ttl() -> u64 {
+        // 50 milliseconds
+        50
     }
 
     pub fn validate(&mut self) -> Result<(), Error> {
@@ -724,6 +756,23 @@ impl Pool {
             user.validate()?;
         }
 
+        if self.db_activity_based_routing {
+            if self.db_activity_init_delay == 0 {
+                error!("db_activity_init_delay must be greater than 0");
+                return Err(Error::BadConfig);
+            }
+
+            if self.table_mutation_cache_ms_ttl == 0 {
+                error!("table_mutation_cache_ms_ttl must be greater than 0");
+                return Err(Error::BadConfig);
+            }
+
+            if self.db_activity_ttl == 0 {
+                error!("db_activity_ttl must be greater than 0");
+                return Err(Error::BadConfig);
+            }
+        }
+
         Ok(())
     }
 }
@@ -753,6 +802,10 @@ impl Default for Pool {
             cleanup_server_connections: true,
             log_client_parameter_status_changes: false,
             prepared_statements_cache_size: Self::default_prepared_statements_cache_size(),
+            db_activity_based_routing: Self::default_db_activity_based_routing(),
+            db_activity_init_delay: Self::default_db_activity_init_delay(),
+            db_activity_ttl: Self::default_db_activity_ttl(),
+            table_mutation_cache_ms_ttl: Self::default_table_mutation_cache_ms_ttl(),
             plugins: None,
             shards: BTreeMap::from([(String::from("1"), Shard::default())]),
             users: BTreeMap::default(),
@@ -1288,6 +1341,22 @@ impl Config {
             info!(
                 "[pool: {}] Cleanup server connections: {}",
                 pool_name, pool_config.cleanup_server_connections
+            );
+            info!(
+                "[pool: {}] DB activity based routing: {}",
+                pool_name, pool_config.db_activity_based_routing
+            );
+            info!(
+                "[pool: {}] DB activity init delay: {}",
+                pool_name, pool_config.db_activity_init_delay
+            );
+            info!(
+                "[pool: {}] DB activity TTL: {}",
+                pool_name, pool_config.db_activity_ttl
+            );
+            info!(
+                "[pool: {}] Table mutation cache TTL: {}",
+                pool_name, pool_config.table_mutation_cache_ms_ttl
             );
             info!(
                 "[pool: {}] Log client parameter status changes: {}",
