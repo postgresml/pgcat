@@ -116,6 +116,7 @@ pub struct Client<S, T> {
 }
 
 /// Client entrypoint.
+#[allow(clippy::too_many_arguments)]
 pub async fn client_entrypoint(
     mut stream: TcpStream,
     client_server_map: ClientServerMap,
@@ -124,6 +125,7 @@ pub async fn client_entrypoint(
     admin_only: bool,
     tls_certificate: Option<String>,
     log_client_connections: bool,
+    client_tls: bool,
 ) -> Result<(), Error> {
     // Figure out if the client wants TLS or not.
     let addr = match stream.peer_addr() {
@@ -135,6 +137,13 @@ pub async fn client_entrypoint(
             )));
         }
     };
+
+    if client_tls && tls_certificate.is_none() {
+        error!("Client tls is required but no certificate passed");
+        return Err(Error::ClientSSLError(
+            "Client tls is required but no certificate passed".into(),
+        ));
+    }
 
     match get_startup::<TcpStream>(&mut stream).await {
         // Client requested a TLS connection.
@@ -241,6 +250,12 @@ pub async fn client_entrypoint(
 
         // Client wants to use plain connection without encryption.
         Ok((ClientConnectionType::Startup, bytes)) => {
+            // Check if Client TLS is compulsory
+            if client_tls {
+                error!("TLS is required for client connections.");
+                return Err(Error::TlsError);
+            }
+
             let (read, write) = split(stream);
 
             // Continue with regular startup.

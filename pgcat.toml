@@ -77,6 +77,9 @@ admin_username = "admin_user"
 # Password to access the virtual administrative database
 admin_password = "admin_pass"
 
+# Enable/disable client TLS
+client_tls = false
+
 # Default plugins that are configured on all pools.
 [plugins]
 
