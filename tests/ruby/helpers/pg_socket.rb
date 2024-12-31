@@ -1,5 +1,6 @@
 require 'socket'
 require 'digest/md5'
+require_relative 'frontend_messages'
 
 BACKEND_MESSAGE_CODES = {
   'Z' => "ReadyForQuery",
@@ -18,9 +19,13 @@ class PostgresSocket
     @host = host
     @socket = TCPSocket.new @host, @port
     @parameters = {}
-    @verbose = true
+    @verbose = false
   end
 
+  def send_message(message)
+    @socket.write(message.to_bytes)
+  end
+  
   def send_md5_password_message(username, password, salt)
     m = Digest::MD5.hexdigest(password + username)
     m = Digest::MD5.hexdigest(m + salt.map(&:chr).join(""))
@@ -111,107 +116,6 @@ class PostgresSocket
     socket.write(message.flatten.pack('C*'))
     socket.close
     log "[F] Sent CancelRequest message"
-  end
-
-  def send_query_message(query)
-    query_size = query.length
-    message_size = 1 + 4 + query_size
-    message = []
-    message << "Q".ord
-    message << [message_size].pack('l>').unpack('CCCC') # 4
-    message << query.split('').map(&:ord) # 2, 11
-    message << 0 # 1, 12
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent Q message (#{query})"
-  end
-
-  def send_parse_message(query)
-    query_size = query.length
-    message_size = 2 + 2 + 4 + query_size
-    message = []
-    message << "P".ord
-    message << [message_size].pack('l>').unpack('CCCC') # 4
-    message << 0 # unnamed statement
-    message << query.split('').map(&:ord) # 2, 11
-    message << 0 # 1, 12
-    message << [0, 0]
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent P message (#{query})"
-  end
-
-  def send_bind_message
-    message = []
-    message << "B".ord
-    message << [12].pack('l>').unpack('CCCC') # 4
-    message << 0 # unnamed statement
-    message << 0 # unnamed statement
-    message << [0, 0] # 2
-    message << [0, 0] # 2
-    message << [0, 0] # 2
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent B message"
-  end
-
-  def send_describe_message(mode)
-    message = []
-    message << "D".ord
-    message << [6].pack('l>').unpack('CCCC') # 4
-    message << mode.ord
-    message << 0 # unnamed statement
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent D message"
-  end
-
-  def send_execute_message(limit=0)
-    message = []
-    message << "E".ord
-    message << [9].pack('l>').unpack('CCCC') # 4
-    message << 0 # unnamed statement
-    message << [limit].pack('l>').unpack('CCCC') # 4
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent E message"
-  end
-
-  def send_sync_message
-    message = []
-    message << "S".ord
-    message << [4].pack('l>').unpack('CCCC') # 4
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent S message"
-  end
-
-  def send_copydone_message
-    message = []
-    message << "c".ord
-    message << [4].pack('l>').unpack('CCCC') # 4
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent c message"
-  end
-
-  def send_copyfail_message
-    message = []
-    message << "f".ord
-    message << [5].pack('l>').unpack('CCCC') # 4
-    message << 0
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent f message"
-  end
-
-  def send_flush_message
-    message = []
-    message << "H".ord
-    message << [4].pack('l>').unpack('CCCC') # 4
-    message.flatten!
-    @socket.write(message.flatten.pack('C*'))
-    log "[F] Sent H message"
   end
 
   def read_from_server()
