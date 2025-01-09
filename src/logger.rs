@@ -3,7 +3,7 @@ use tracing_subscriber;
 use tracing_subscriber::EnvFilter;
 
 pub fn init(args: &Args) {
-    // Iniitalize a default filter, and then override the builtin default "warning" with our
+    // Initialize a default filter, and then override the builtin default "warning" with our
     // commandline, (default: "info")
     let filter = EnvFilter::from_default_env().add_directive(args.log_level.into());
 
