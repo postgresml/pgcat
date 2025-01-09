@@ -8,6 +8,7 @@
 //!   - etc
 //!
 
+pub mod audit_logger;
 pub mod intercept;
 pub mod prewarmer;
 pub mod query_logger;
@@ -18,6 +19,7 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use sqlparser::ast::Statement;
 
+pub use audit_logger::AuditLogger;
 pub use intercept::Intercept;
 pub use query_logger::QueryLogger;
 pub use table_access::TableAccess;
