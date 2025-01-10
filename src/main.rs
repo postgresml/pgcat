@@ -287,6 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             admin_only,
                             tls_certificate,
                             config.general.log_client_connections,
+                            config.general.client_tls,
                         )
                         .await
                         {

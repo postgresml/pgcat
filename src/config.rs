@@ -339,6 +339,9 @@ pub struct General {
     #[serde(default)] // false
     pub verify_server_certificate: bool,
 
+    #[serde(default)] //false
+    pub client_tls: bool,
+
     pub admin_username: String,
     pub admin_password: String,
 
@@ -476,6 +479,7 @@ impl Default for General {
             auth_query: None,
             auth_query_user: None,
             auth_query_password: None,
+            client_tls: false,
         }
     }
 }
