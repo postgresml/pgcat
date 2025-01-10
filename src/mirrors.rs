@@ -17,6 +17,7 @@ pub struct MirroredClient {
     database: String,
     bytes_rx: Receiver<Bytes>,
     disconnect_rx: Receiver<()>,
+    auth_hash: Arc<RwLock<Option<String>>>,
 }
 
 impl MirroredClient {
@@ -39,7 +40,7 @@ impl MirroredClient {
             self.user.clone(),
             self.database.as_str(),
             ClientServerMap::default(),
-            Arc::new(RwLock::new(None)),
+            self.auth_hash.clone(),
             None,
             true,
             false,
@@ -125,6 +126,7 @@ impl MirroringManager {
         user: User,
         database: String,
         addresses: Vec<Address>,
+        auth_hash: Arc<RwLock<Option<String>>>,
     ) -> MirroringManager {
         let mut byte_senders: Vec<Sender<Bytes>> = vec![];
         let mut exit_senders: Vec<Sender<()>> = vec![];
@@ -140,6 +142,7 @@ impl MirroringManager {
                 address: addr,
                 bytes_rx,
                 disconnect_rx: exit_rx,
+                auth_hash: auth_hash.clone(),
             };
             exit_senders.push(exit_tx);
             byte_senders.push(bytes_tx);
