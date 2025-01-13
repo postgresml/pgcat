@@ -740,6 +740,7 @@ impl ConnectionPool {
                             .unwrap()
                     });
                 }
+                DefaultShard::Fail => return Err(Error::NoShardSelected),
             },
         };
 
