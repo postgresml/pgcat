@@ -174,6 +174,18 @@ pub struct PoolSettings {
     // Read from the primary as well or not.
     pub primary_reads_enabled: bool,
 
+    // Automatic primary/replica selection based on recent activity.
+    pub db_activity_based_routing: bool,
+
+    // DB activity init delay
+    pub db_activity_init_delay: u64,
+
+    // DB activity TTL
+    pub db_activity_ttl: u64,
+
+    // Table mutation cache TTL
+    pub table_mutation_cache_ms_ttl: u64,
+
     // Sharding function.
     pub sharding_function: ShardingFunction,
 
@@ -223,6 +235,10 @@ impl Default for PoolSettings {
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
             primary_reads_enabled: true,
+            db_activity_based_routing: false,
+            db_activity_init_delay: 100,
+            db_activity_ttl: 15 * 60,
+            table_mutation_cache_ms_ttl: 50,
             sharding_function: ShardingFunction::PgBigintHash,
             automatic_sharding_key: None,
             healthcheck_delay: General::default_healthcheck_delay(),
@@ -537,6 +553,10 @@ impl ConnectionPool {
                             .query_parser_read_write_splitting,
                         primary_reads_enabled: pool_config.primary_reads_enabled,
                         sharding_function: pool_config.sharding_function,
+                        db_activity_based_routing: pool_config.db_activity_based_routing,
+                        db_activity_init_delay: pool_config.db_activity_init_delay,
+                        db_activity_ttl: pool_config.db_activity_ttl,
+                        table_mutation_cache_ms_ttl: pool_config.table_mutation_cache_ms_ttl,
                         automatic_sharding_key: pool_config.automatic_sharding_key.clone(),
                         healthcheck_delay: config.general.healthcheck_delay,
                         healthcheck_timeout: config.general.healthcheck_timeout,

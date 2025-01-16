@@ -881,6 +881,7 @@ where
         };
 
         query_router.update_pool_settings(&pool.settings);
+        query_router.set_default_role();
 
         // Our custom protocol loop.
         // We expect the client to either start a transaction with regular queries

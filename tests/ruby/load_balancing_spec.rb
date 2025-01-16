@@ -56,6 +56,41 @@ describe "Random Load Balancing" do
       end
     end
   end
+
+  context "when all replicas are down " do
+    let(:processes) { Helpers::Pgcat.single_shard_setup("sharded_db", 5, "transaction", "random", "debug", {"default_role" => "replica"}) }
+
+    it "unbans them automatically to prevent false positives in health checks that could make all replicas unavailable" do
+      conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+      failed_count = 0
+      number_of_replicas = processes[:replicas].length
+
+      # Take down all replicas
+      processes[:replicas].each(&:take_down)
+
+      (number_of_replicas + 1).times do |n|
+        conn.async_exec("SELECT 1 + 2")
+      rescue
+        conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        failed_count += 1
+      end
+
+      expect(failed_count).to eq(number_of_replicas + 1)
+      failed_count = 0
+
+      # Ban_time is configured to 60 so this reset will only work
+      # if the replicas are unbanned automatically
+      processes[:replicas].each(&:reset)
+
+      number_of_replicas.times do
+        conn.async_exec("SELECT 1 + 2")
+      rescue
+        conn = PG.connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+        failed_count += 1
+      end
+      expect(failed_count).to eq(0)
+    end
+  end
 end
 
 describe "Least Outstanding Queries Load Balancing" do
@@ -161,4 +196,3 @@ describe "Least Outstanding Queries Load Balancing" do
     end
   end
 end
-
