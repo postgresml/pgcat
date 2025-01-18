@@ -11,6 +11,9 @@ pub const SSL_REQUEST_CODE: i32 = 80877103;
 // CancelRequest: the cancel request code.
 pub const CANCEL_REQUEST_CODE: i32 = 80877102;
 
+// GSSENCRequest: used to indicate we wants GSS connection
+pub const GSSENC_REQUEST_CODE: i32 = 80877104;
+
 // AuthenticationMD5Password
 pub const MD5_ENCRYPTED_PASSWORD: i32 = 5;
 
