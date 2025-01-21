@@ -1680,6 +1680,11 @@ where
                         custom_protocol_response_ok(&mut self.write, "SET SHARDING KEY").await?;
                     }
 
+                    // SET SHARD ALIAS TO
+                    (Command::SetShardAlias, _) => {
+                        custom_protocol_response_ok(&mut self.write, "SET SHARD ALIAS TO").await?;
+                    }
+
                     // SET SERVER ROLE TO
                     (Command::SetServerRole, _) => {
                         custom_protocol_response_ok(&mut self.write, "SET SERVER ROLE").await?;

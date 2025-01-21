@@ -874,6 +874,7 @@ pub struct MirrorServerConfig {
 /// Shard configuration.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Shard {
+    pub alias: Option<String>,
     pub database: String,
     pub mirrors: Option<Vec<MirrorServerConfig>>,
     pub servers: Vec<ServerConfig>,
@@ -920,6 +921,7 @@ impl Shard {
 impl Default for Shard {
     fn default() -> Shard {
         Shard {
+            alias: Some(String::from("")),
             database: String::from("postgres"),
             mirrors: None,
             servers: vec![ServerConfig {
