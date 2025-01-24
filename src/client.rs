@@ -858,6 +858,14 @@ where
         // The query router determines where the query is going to go,
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
+        let pool_settings = if self.admin {
+            // Admin clients do not use pools.
+            ConnectionPool::default().settings
+        } else {
+            self.get_pool().await?.settings
+        };
+        query_router.update_pool_settings(&pool_settings);
+        query_router.set_default_role();
 
         self.stats.register(self.stats.clone());
 
