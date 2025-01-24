@@ -939,7 +939,6 @@ where
             };
 
             query_router.update_pool_settings(&pool.settings);
-            query_router.set_default_role();
 
             // Handle all custom protocol commands, if any.
             if self
