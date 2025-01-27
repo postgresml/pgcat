@@ -86,7 +86,7 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 6432 -U postgres -c 'SELECT 1'
 
 ### Config
 
-See **[Configuration](https://github.com/levkk/pgcat/blob/main/CONFIG.md)**.
+See **[Configuration](https://github.com/postgresml/pgcat/blob/main/CONFIG.md)**.
 
 ## Contributing
 
