@@ -238,6 +238,24 @@ configuration:
     # Number of seconds between keepalive packets.
     tcp_keepalives_interval: 5
 
+    # Enable TLS connections from PgCat to Postgres servers. Postgres has to be configured to support TLS,
+    # which is typical to be the case for Postgres distributed via package managers.
+    server_tls: false
+
+    # If server_tls is enabled, validate that the server certificate is valid. This disallows connections
+    # for self-signed certificates which haven't been added to the root store on the machines running PgCat.
+    verify_server_certificate: false
+
+    # If enabled, PgCat will resolve and cache DNS of Postgres servers, overriding default TTL provided by
+    # system DNS servers. This is useful when using DNS for configuring traffic routing to Postgres servers:
+    # if the IP resolved by the DNS query changed from its previously cached value, the connection pool will
+    # be automatically recreated with connections to the new Postgres server.
+    dns_cache_enabled: false
+
+    # Maximum number of seconds to keep cached DNS values. Once this timeout expires, a DNS refresh is
+    # performed against all targets in the cache.
+    dns_max_ttl: 30
+
   ## pool
   ## configs are structured as pool.<pool_name>
   ## the pool_name is what clients use as database name when connecting
