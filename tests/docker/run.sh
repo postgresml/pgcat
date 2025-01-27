@@ -1,6 +1,18 @@
 #!/bin/bash
 
-rm -rf /app/target/ || true
+set -e
+
+CLEAN_BUILD=true
+
+if [ $1 = "no-clean" ]; then
+    echo "INFO: clean build is NOT going to be performed."
+    CLEAN_BUILD=false
+    find /app/target/debug/deps -name *.gcda  -exec rm {} \;
+fi
+
+if $CLEAN_BUILD ; then
+    rm -rf /app/target/ || true
+fi
 rm /app/*.profraw || true
 rm /app/pgcat.profdata || true
 rm -rf /app/cov || true
@@ -44,7 +56,9 @@ export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Co
 export RUSTDOCFLAGS="-Cpanic=abort"
 
 cd /app/
-cargo clean
+if $CLEAN_BUILD ; then
+    cargo clean
+fi
 cargo build
 cargo test --tests
 
