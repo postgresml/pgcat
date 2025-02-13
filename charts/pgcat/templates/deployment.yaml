@@ -32,6 +32,11 @@ spec:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: LOG_LEVEL
+              value: {{ .Values.configuration.general.log_level }}
+            - name: LOG_FORMAT
+              value: {{ .Values.configuration.general.log_format }}
           ports:
             - name: pgcat
               containerPort: {{ .Values.configuration.general.port }}
