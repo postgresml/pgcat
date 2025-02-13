@@ -199,6 +199,12 @@ configuration:
     # @param configuration.general.log_client_disconnections If we should log client disconnections
     log_client_disconnections: false
 
+    # @param configuration.general.log_level Default log level
+    log_level: "INFO"
+
+    # @param configuration.general.log_format Log format, possible values: text, structured, debug
+    log_format: "text"
+
     # TLS
     # tls_certificate: "server.cert"
     # tls_private_key: "server.key"
