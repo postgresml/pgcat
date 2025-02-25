@@ -348,3 +348,18 @@ servers = [
     [ "localhost", 5432, "replica" ]
 ]
 database = "some_db"
+
+# Example pool configuration
+[pools.example_pool]
+pool_mode = "transaction"
+load_balancing_mode = "random"
+default_role = "any"
+statement_timeout = 30000  # Pool-level statement timeout in milliseconds
+
+# User configuration within the pool
+[pools.example_pool.users.0]
+username = "example_user"
+password = "example_pass"
+pool_size = 15
+# User-level statement_timeout will be used if pool-level is not set
+statement_timeout = 0  # Disabled at user level, will use pool-level timeout

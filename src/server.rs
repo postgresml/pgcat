@@ -1259,23 +1259,30 @@ impl Server {
     }
 
     pub async fn sync_parameters(&mut self, parameters: &ServerParameters) -> Result<(), Error> {
+        let mut queries = Vec::new();
+
+        let config = get_config();
+        if let Some(pool) = config.pools.get(&self.address.database) {
+            if pool.statement_timeout > 0 {
+                queries.push(format!(
+                    "SET statement_timeout TO {}",
+                    pool.statement_timeout
+                ));
+                self.cleanup_state.needs_cleanup_set = true;
+            }
+        }
+
         let parameter_diff = self.server_parameters.compare_params(parameters);
-
-        if parameter_diff.is_empty() {
-            return Ok(());
-        }
-
-        let mut query = String::from("");
-
         for (key, value) in parameter_diff {
-            query.push_str(&format!("SET {} TO '{}';", key, value));
+            queries.push(format!("SET {} TO '{}'", key, value));
         }
 
-        let res = self.query(&query).await;
+        if queries.is_empty() {
+            return Ok(()); // No changes needed
+        }
 
-        self.cleanup_state.reset();
-
-        res
+        let query = queries.join("; ");
+        self.query(&query).await
     }
 
     /// Indicate that this server connection cannot be re-used and must be discarded.
