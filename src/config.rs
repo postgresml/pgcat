@@ -541,6 +541,9 @@ pub struct Pool {
     #[serde(default = "Pool::default_default_role")]
     pub default_role: String,
 
+    #[serde(default = "Pool::default_statement_timeout")]
+    pub statement_timeout: u64,
+
     #[serde(default)] // False
     pub query_parser_enabled: bool,
 
@@ -682,6 +685,10 @@ impl Pool {
         50
     }
 
+    pub fn default_statement_timeout() -> u64 {
+        0 // Default to no timeout
+    }
+
     pub fn validate(&mut self) -> Result<(), Error> {
         match self.default_role.as_ref() {
             "any" => (),
@@ -792,6 +799,7 @@ impl Default for Pool {
             load_balancing_mode: Self::default_load_balancing_mode(),
             checkout_failure_limit: None,
             default_role: String::from("any"),
+            statement_timeout: Self::default_statement_timeout(),
             query_parser_enabled: false,
             query_parser_max_length: None,
             query_parser_read_write_splitting: false,
@@ -1284,6 +1292,16 @@ impl Config {
                     .map(|user_cfg| user_cfg.pool_size)
                     .sum::<u32>()
                     .to_string()
+            );
+            info!(
+                "[pool: {}] Statement timeout: {}{}",
+                pool_name,
+                pool_config.statement_timeout,
+                if pool_config.statement_timeout > 0 {
+                    "ms"
+                } else {
+                    ""
+                }
             );
             info!(
                 "[pool: {}] Default pool mode: {}",

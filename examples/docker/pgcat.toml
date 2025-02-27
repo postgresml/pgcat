@@ -90,6 +90,9 @@ primary_reads_enabled = true
 #
 sharding_function = "pg_bigint_hash"
 
+# Maximum query duration in milliseconds. This value is relayed to Postgres for managing query timeouts.
+statement_timeout = 30000 # 30 seconds
+
 # Credentials for users that may connect to this cluster
 [pools.postgres.users.0]
 username = "postgres"

@@ -471,6 +471,16 @@ default: 3000
 
 Connect timeout can be overwritten in the pool
 
+### statement_timeout
+
+```
+path: pools.<pool_name>.statement_timeout
+default: 0
+```
+
+Statement Timeout.
+The `statement_timeout` setting controls the maximum amount of time (in milliseconds) that any query is allowed to run before being cancelled. When set, this allows Postgres to manage the statement_timeout. [See Postgres Docs](https://www.postgresql.org/docs/13/runtime-config-client.html#RUNTIME-CONFIG-CLIENT-STATEMENT)
+
 ## `pools.<pool_name>.users.<user_index>` Section
 
 ### username
