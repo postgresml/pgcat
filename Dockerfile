@@ -1,4 +1,4 @@
-FROM rust:1.79.0-slim-bookworm AS builder
+FROM rust:1.81.0-slim-bookworm AS builder
 
 RUN apt-get update && \
     apt-get install -y build-essential
