@@ -1324,6 +1324,7 @@ where
                     'B' => {
                         self.buffer_bind(message).await?;
                     }
+                    
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
