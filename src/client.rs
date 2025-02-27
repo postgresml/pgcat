@@ -1111,23 +1111,20 @@ where
                         err
                     );
                     checkout_failure_count += 1;
-                    match pool.settings.checkout_failure_limit {
-                        Some(limit) => {
-                            if checkout_failure_count >= limit {
-                                error!("Checkout failure limit reached ({} / {}) - disconnecting client", checkout_failure_count, limit);
-                                error_response_terminal(
-                                    &mut self.write,
-                                    &format!(
-                                        "checkout failure limit reached ({} / {})",
-                                        checkout_failure_count, limit
-                                    ),
-                                )
-                                .await?;
-                                self.stats.disconnect();
-                                return Ok(());
-                            }
+                    if let Some(limit) = pool.settings.checkout_failure_limit {
+                        if checkout_failure_count >= limit {
+                            error!("Checkout failure limit reached ({} / {}) - disconnecting client", checkout_failure_count, limit);
+                            error_response_terminal(
+                                &mut self.write,
+                                &format!(
+                                    "checkout failure limit reached ({} / {})",
+                                    checkout_failure_count, limit
+                                ),
+                            )
+                            .await?;
+                            self.stats.disconnect();
+                            return Ok(());
                         }
-                        None => (),
                     }
                     continue;
                 }
