@@ -1113,7 +1113,10 @@ where
                     checkout_failure_count += 1;
                     if let Some(limit) = pool.settings.checkout_failure_limit {
                         if checkout_failure_count >= limit {
-                            error!("Checkout failure limit reached ({} / {}) - disconnecting client", checkout_failure_count, limit);
+                            error!(
+                                "Checkout failure limit reached ({} / {}) - disconnecting client",
+                                checkout_failure_count, limit
+                            );
                             error_response_terminal(
                                 &mut self.write,
                                 &format!(
