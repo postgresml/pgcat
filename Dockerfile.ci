@@ -1,4 +1,4 @@
-FROM cimg/rust:1.79.0
+FROM cimg/rust:1.81.0
 COPY --from=sclevine/yj /bin/yj /bin/yj
 RUN /bin/yj -h
 RUN sudo apt-get update && \
