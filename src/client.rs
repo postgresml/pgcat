@@ -243,42 +243,49 @@ pub async fn client_entrypoint(
         Ok((ClientConnectionType::Startup, bytes)) => {
             let (read, write) = split(stream);
 
-            // Continue with regular startup.
-            match Client::startup(
-                read,
-                write,
-                addr,
-                bytes,
-                client_server_map,
-                shutdown,
-                admin_only,
-            )
-            .await
-            {
-                Ok(mut client) => {
-                    if log_client_connections {
-                        info!("Client {:?} connected (plain)", addr);
-                    } else {
-                        debug!("Client {:?} connected (plain)", addr);
+            if get_config().general.force_client_tls {
+                info!("Rejecting plain connection from client {:?}", addr);
+                Err(Error::ClientError(String::from(
+                    "Rejecting attempt of plain connection",
+                )))
+            } else {
+                // Continue with regular startup.
+                match Client::startup(
+                    read,
+                    write,
+                    addr,
+                    bytes,
+                    client_server_map,
+                    shutdown,
+                    admin_only,
+                )
+                .await
+                {
+                    Ok(mut client) => {
+                        if log_client_connections {
+                            info!("Client {:?} connected (plain)", addr);
+                        } else {
+                            debug!("Client {:?} connected (plain)", addr);
+                        }
+
+                        if !client.is_admin() {
+                            let _ = drain.send(1).await;
+                        }
+
+                        let result = client.handle().await;
+
+                        if !client.is_admin() {
+                            let _ = drain.send(-1).await;
+                        }
+
+                        if result.is_err() {
+                            client.stats.disconnect();
+                        }
+
+                        result
                     }
-
-                    if !client.is_admin() {
-                        let _ = drain.send(1).await;
-                    }
-
-                    let result = client.handle().await;
-
-                    if !client.is_admin() {
-                        let _ = drain.send(-1).await;
-                    }
-
-                    if result.is_err() {
-                        client.stats.disconnect();
-                    }
-
-                    result
+                    Err(err) => Err(err),
                 }
-                Err(err) => Err(err),
             }
         }
 

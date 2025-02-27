@@ -65,6 +65,9 @@ tcp_keepalives_interval = 5
 # Path to TLS private key file to use for TLS connections
 # tls_private_key = ".circleci/server.key"
 
+# Disconnect clients not using TLS
+force_client_tls = false
+
 # Enable/disable server TLS
 server_tls = false
 
