@@ -1,6 +1,6 @@
 apiVersion: v2
 name: pgcat
-description: A Helm chart for PgCat a PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load balancing, failover and mirroring.
+description: A Helam chart for PgCat a PostgreSQL pooler and proxy (like PgBouncer) with support for sharding, load balancing, failover and mirroring.
 maintainers:
   - name: PostgresML
     email: team@postgresml.org
