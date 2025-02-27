@@ -1324,7 +1324,6 @@ where
                     'B' => {
                         self.buffer_bind(message).await?;
                     }
-                    
 
                     // Describe
                     // Command a client can issue to describe a previously prepared named statement.
@@ -1332,7 +1331,7 @@ where
                         self.buffer_describe(message).await?;
                     }
 
-                    // Execute
+                    // Execute2
                     // Execute a prepared statement prepared in `P` and bound in `B`.
                     'E' => {
                         self.extended_protocol_data_buffer
