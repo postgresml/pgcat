@@ -1,4 +1,4 @@
-FROM rust:bullseye
+FROM rust:1.81.0-slim-bookworm 
 
 COPY --from=sclevine/yj /bin/yj /bin/yj
 RUN /bin/yj -h
