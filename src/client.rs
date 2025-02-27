@@ -859,6 +859,8 @@ where
         // e.g. primary, replica, which shard.
         let mut query_router = QueryRouter::new();
 
+        let mut checkout_failure_count: u64 = 0;
+
         self.stats.register(self.stats.clone());
 
         // Result returned by one of the plugins.
@@ -1108,7 +1110,25 @@ where
                         query_router.role(),
                         err
                     );
-
+                    checkout_failure_count += 1;
+                    if let Some(limit) = pool.settings.checkout_failure_limit {
+                        if checkout_failure_count >= limit {
+                            error!(
+                                "Checkout failure limit reached ({} / {}) - disconnecting client",
+                                checkout_failure_count, limit
+                            );
+                            error_response_terminal(
+                                &mut self.write,
+                                &format!(
+                                    "checkout failure limit reached ({} / {})",
+                                    checkout_failure_count, limit
+                                ),
+                            )
+                            .await?;
+                            self.stats.disconnect();
+                            return Ok(());
+                        }
+                    }
                     continue;
                 }
             };

@@ -298,6 +298,19 @@ Load balancing mode
 `random` selects the server at random
 `loc` selects the server with the least outstanding busy connections
 
+### checkout_failure_limit
+```
+path: pools.<pool_name>.checkout_failure_limit
+default: 0 (disabled)
+```
+
+`Maximum number of checkout failures a client is allowed before it
+gets disconnected. This is needed to prevent persistent client/server
+imbalance in high availability setups where multiple PgCat instances are placed
+behind a single load balancer. If for any reason a client lands on a PgCat instance that has 
+a large number of connected clients, it might get stuck in perpetual checkout failure loop especially
+in session mode
+`
 ### default_role
 ```
 path: pools.<pool_name>.default_role

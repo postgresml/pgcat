@@ -188,6 +188,102 @@ describe "Miscellaneous" do
     end
   end
 
+  describe "Checkout failure limit" do
+    context "when no checkout failure limit is set" do
+      before do 
+        new_configs = processes.pgcat.current_config
+        new_configs["general"]["connect_timeout"] = 200
+        new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+        processes.pgcat.update_config(new_configs)
+        processes.pgcat.reload_config
+        sleep 0.5
+      end
+  
+      it "does not disconnect client" do
+        Array.new(5) do
+          Thread.new do
+            conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+            for i in 0..4
+              begin
+                conn.async_exec("SELECT pg_sleep(0.5);")
+                expect(conn.status).to eq(PG::CONNECTION_OK)
+              rescue PG::SystemError
+                expect(conn.status).to eq(PG::CONNECTION_OK)
+              end
+            end
+            conn.close
+          end
+        end.each(&:join)
+      end
+    end
+
+    context "when checkout failure limit is set high" do
+      before do 
+        new_configs = processes.pgcat.current_config
+        new_configs["general"]["connect_timeout"] = 200
+        new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+        new_configs["pools"]["sharded_db"]["checkout_failure_limit"] = 10000
+        processes.pgcat.update_config(new_configs)
+        processes.pgcat.reload_config
+        sleep 0.5
+      end
+  
+      it "does not disconnect client" do
+        Array.new(5) do
+          Thread.new do
+            conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+            for i in 0..4
+              begin
+                conn.async_exec("SELECT pg_sleep(0.5);")
+                expect(conn.status).to eq(PG::CONNECTION_OK)
+              rescue PG::SystemError
+                expect(conn.status).to eq(PG::CONNECTION_OK)
+              end
+            end
+            conn.close
+          end
+        end.each(&:join)
+      end
+    end
+
+    context "when checkout failure limit is set low" do
+      before do 
+        new_configs = processes.pgcat.current_config
+        new_configs["general"]["connect_timeout"] = 200
+        new_configs["pools"]["sharded_db"]["users"]["0"]["pool_size"] = 1
+        new_configs["pools"]["sharded_db"]["checkout_failure_limit"] = 2
+        processes.pgcat.update_config(new_configs)
+        processes.pgcat.reload_config
+        sleep 0.5
+      end
+  
+      it "disconnects client after reaching limit" do
+        Array.new(5) do
+          Thread.new do
+            conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))
+            checkout_failure_count = 0
+            for i in 0..4
+              begin
+                conn.async_exec("SELECT pg_sleep(1);")
+                expect(conn.status).to eq(PG::CONNECTION_OK)
+              rescue PG::SystemError
+                checkout_failure_count += 1
+                expect(conn.status).to eq(PG::CONNECTION_OK)
+              rescue PG::ConnectionBad
+                expect(checkout_failure_count).to eq(2)
+                expect(conn.status).to eq(PG::CONNECTION_BAD)
+                break
+              end
+            end
+            conn.close
+          end
+        end.each(&:join)
+        puts processes.pgcat.logs
+
+      end
+    end
+  end
+  
   describe "Server version reporting" do
     it "reports correct version for normal and admin databases" do
       server_conn = PG::connect(processes.pgcat.connection_string("sharded_db", "sharding_user"))

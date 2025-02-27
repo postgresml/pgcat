@@ -558,6 +558,14 @@ pub struct Pool {
     /// Close idle connections that have been opened for longer than this.
     pub idle_timeout: Option<u64>,
 
+    /// Maximum number of checkout failures a client is allowed before it
+    /// gets disconnected. This is needed to prevent persistent client/server
+    /// imbalance in high availability setups where multiple PgCat instances are placed
+    /// behind a single load balancer. If for any reason a client lands on a PgCat instance that has
+    /// a large number of connected clients, it might get stuck in perpetual checkout failure loop especially
+    /// in session mode
+    pub checkout_failure_limit: Option<u64>,
+
     /// Close server connections that have been opened for longer than this.
     /// Only applied to idle connections. If the connection is actively used for
     /// longer than this period, the pool will not interrupt it.
@@ -782,6 +790,7 @@ impl Default for Pool {
         Pool {
             pool_mode: Self::default_pool_mode(),
             load_balancing_mode: Self::default_load_balancing_mode(),
+            checkout_failure_limit: None,
             default_role: String::from("any"),
             query_parser_enabled: false,
             query_parser_max_length: None,
@@ -1298,6 +1307,17 @@ impl Config {
                 None => self.general.idle_timeout,
             };
             info!("[pool: {}] Idle timeout: {}ms", pool_name, idle_timeout);
+            match pool_config.checkout_failure_limit {
+                Some(checkout_failure_limit) => {
+                    info!(
+                        "[pool: {}] Checkout failure limit: {}",
+                        pool_name, checkout_failure_limit
+                    );
+                }
+                None => {
+                    info!("[pool: {}] Checkout failure limit: not set", pool_name);
+                }
+            };
             info!(
                 "[pool: {}] Sharding function: {}",
                 pool_name,

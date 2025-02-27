@@ -152,6 +152,14 @@ pub struct PoolSettings {
     /// Random or LeastOutstandingConnections.
     pub load_balancing_mode: LoadBalancingMode,
 
+    /// Maximum number of checkout failures a client is allowed before it
+    /// gets disconnected. This is needed to prevent persistent client/server
+    /// imbalance in high availability setups where multiple PgCat instances are placed
+    /// behind a single load balancer. If for any reason a client lands on a PgCat instance that has
+    /// a large number of connected clients, it might get stuck in perpetual checkout failure loop especially
+    /// in session mode
+    pub checkout_failure_limit: Option<u64>,
+
     // Number of shards.
     pub shards: usize,
 
@@ -227,6 +235,7 @@ impl Default for PoolSettings {
         PoolSettings {
             pool_mode: PoolMode::Transaction,
             load_balancing_mode: LoadBalancingMode::Random,
+            checkout_failure_limit: None,
             shards: 1,
             user: User::default(),
             db: String::default(),
@@ -537,6 +546,7 @@ impl ConnectionPool {
                             None => pool_config.pool_mode,
                         },
                         load_balancing_mode: pool_config.load_balancing_mode,
+                        checkout_failure_limit: pool_config.checkout_failure_limit,
                         // shards: pool_config.shards.clone(),
                         shards: shard_ids.len(),
                         user: user.clone(),

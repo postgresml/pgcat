@@ -1617,6 +1617,7 @@ mod test {
         let pool_settings = PoolSettings {
             pool_mode: PoolMode::Transaction,
             load_balancing_mode: crate::config::LoadBalancingMode::Random,
+            checkout_failure_limit: None,
             shards: 2,
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
@@ -1699,6 +1700,7 @@ mod test {
         let pool_settings = PoolSettings {
             pool_mode: PoolMode::Transaction,
             load_balancing_mode: crate::config::LoadBalancingMode::Random,
+            checkout_failure_limit: Some(10),
             shards: 5,
             user: crate::config::User::default(),
             default_role: Some(Role::Replica),
