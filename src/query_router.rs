@@ -2102,6 +2102,7 @@ mod test {
         let plugins = Plugins {
             table_access: Some(table_access),
             intercept: None,
+            audit_logger: None,
             query_logger: None,
             prewarmer: None,
         };

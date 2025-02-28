@@ -945,6 +945,7 @@ pub struct Plugins {
     pub intercept: Option<Intercept>,
     pub table_access: Option<TableAccess>,
     pub query_logger: Option<QueryLogger>,
+    pub audit_logger: Option<AuditLogger>,
     pub prewarmer: Option<Prewarmer>,
 }
 
@@ -963,10 +964,11 @@ impl std::fmt::Display for Plugins {
         }
         write!(
             f,
-            "interceptor: {}, table_access: {}, query_logger: {}, prewarmer: {}",
+            "interceptor: {}, table_access: {}, query_logger: {}, audit_logger: {}, prewarmer: {}",
             is_enabled(self.intercept.as_ref()),
             is_enabled(self.table_access.as_ref()),
             is_enabled(self.query_logger.as_ref()),
+            is_enabled(self.audit_logger.as_ref()),
             is_enabled(self.prewarmer.as_ref()),
         )
     }
@@ -1001,7 +1003,19 @@ pub struct QueryLogger {
     pub enabled: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Hash, Eq)]
+pub struct AuditLogger {
+    pub enabled: bool,
+    pub patterns: Vec<String>,
+}
+
 impl Plugin for QueryLogger {
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+impl Plugin for AuditLogger {
     fn is_enabled(&self) -> bool {
         self.enabled
     }
