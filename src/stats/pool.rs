@@ -111,6 +111,10 @@ impl PoolStats {
         ]
     }
 
+    pub fn total_client_connection(&self) -> u64 {
+        self.cl_idle + self.cl_active + self.cl_waiting + self.cl_cancel_req
+    }
+
     pub fn generate_row(&self) -> Vec<String> {
         vec![
             self.identifier.db.clone(),
